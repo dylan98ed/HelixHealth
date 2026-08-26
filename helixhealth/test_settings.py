@@ -9,6 +9,7 @@ from helixhealth import settings
 
 print(json.dumps({
     'debug': settings.DEBUG,
+    'db_host': settings.DATABASES['default']['HOST'],
     'environment': settings.ENVIRONMENT,
     'secret_key': settings.SECRET_KEY,
 }))
@@ -17,8 +18,26 @@ print(json.dumps({
 
 def run_settings_probe(**environment):
     process_environment = os.environ.copy()
-    for name in ("DJANGO_ENVIRONMENT", "DJANGO_DEBUG", "DJANGO_SECRET_KEY"):
+    for name in (
+        "DJANGO_ENVIRONMENT",
+        "DJANGO_DEBUG",
+        "DJANGO_SECRET_KEY",
+        "DB_HOST",
+        "DB_PORT",
+        "DB_NAME",
+        "DB_USER",
+        "DB_PASSWORD",
+    ):
         process_environment.pop(name, None)
+    process_environment.update(
+        {
+            "DB_HOST": "localhost",
+            "DB_PORT": "5432",
+            "DB_NAME": "helixhealth",
+            "DB_USER": "helixhealth",
+            "DB_PASSWORD": "settings-probe-only",
+        }
+    )
     process_environment.update(environment)
 
     return subprocess.run(
@@ -47,6 +66,7 @@ def test_production_uses_environment_settings():
     assert result.returncode == 0, result.stderr
     settings = json.loads(result.stdout)
     assert settings == {
+        "db_host": "localhost",
         "debug": False,
         "environment": "production",
         "secret_key": "production-secret-from-environment",
@@ -73,3 +93,26 @@ def test_debug_rejects_ambiguous_values():
 
     assert result.returncode != 0
     assert "DJANGO_DEBUG must be a boolean value" in result.stderr
+
+
+def test_database_environment_values_are_trimmed():
+    result = run_settings_probe(
+        DJANGO_ENVIRONMENT="production",
+        DJANGO_SECRET_KEY="production-secret-from-environment",
+        DB_HOST="  database.internal  ",
+    )
+
+    assert result.returncode == 0, result.stderr
+    settings = json.loads(result.stdout)
+    assert settings["db_host"] == "database.internal"
+
+
+def test_whitespace_only_database_value_is_missing_in_production():
+    result = run_settings_probe(
+        DJANGO_ENVIRONMENT="production",
+        DJANGO_SECRET_KEY="production-secret-from-environment",
+        DB_HOST="  \t  ",
+    )
+
+    assert result.returncode != 0
+    assert "DB_HOST must be set" in result.stderr

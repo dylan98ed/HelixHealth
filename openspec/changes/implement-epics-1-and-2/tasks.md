@@ -3,7 +3,7 @@
 - [x] 1.1 Create a Python 3.13 `pyproject.toml` with Django 5.2 LTS, Django REST Framework 3.18, PostgreSQL driver, django-htmx, drf-spectacular, pytest-django, Playwright, Ruff, and mypy dependencies managed by `uv`; verify `uv lock` and `uv sync --frozen` succeed.
 - [x] 1.2 Scaffold one Django project with `patients`, `professionals`, `clinical_records`, `access_control`, and `audit` apps using those exact app labels; verify `uv run python manage.py check` reports no issues and Django's app registry exposes all five labels.
 - [x] 1.3 Add Docker Compose configuration for the Django application and PostgreSQL 18 with a database health check and example environment file; verify `docker compose config` succeeds and the application reaches the database.
-- [ ] 1.4 Configure Django exclusively against PostgreSQL for development and tests; verify migrations and a pytest database smoke test succeed without SQLite.
+- [x] 1.4 Configure Django exclusively against PostgreSQL for development and tests; verify migrations and a pytest database smoke test succeed without SQLite.
 - [ ] 1.5 Add a shared Django template shell with locally pinned HTMX and Bootstrap 5 assets; verify the rendered smoke page loads its styles and HTMX without external network requests.
 - [ ] 1.6 Configure Django session authentication, CSRF protection, administrative/professional groups, and default DRF permission behavior; verify anonymous unsafe requests fail and authenticated CSRF-valid requests succeed.
 - [ ] 1.7 Configure drf-spectacular and expose protected OpenAPI schema/documentation endpoints; verify schema generation succeeds without warnings.
