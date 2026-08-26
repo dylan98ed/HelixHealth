@@ -1,0 +1,25 @@
+[project]
+name = "helixhealth"
+version = "0.1.0"
+description = "OpenHIS-UNLaM educational hospital information system"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "django>=5.2,<5.3",
+    "django-htmx>=1.26,<2",
+    "djangorestframework>=3.18,<3.19",
+    "drf-spectacular>=0.28,<1",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17,<2",
+    "playwright>=1.55,<2",
+    "pytest>=8.4,<10",
+    "pytest-django>=4.11,<5",
+    "ruff>=0.12,<1",
+]
+
+[tool.uv]
+package = false
