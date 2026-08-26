@@ -30,7 +30,15 @@ Manage Python and locked dependencies with `uv`. Run the application and Postgre
 
 ### Use a modular monolith for the MVP
 
-Start with one Django project separated into patient, professional, access-control, and audit apps. Keep domain rules in application services rather than templates or DRF view classes. This minimizes operational overhead for a student MVP while preserving boundaries that can later become services. Independent microservices were rejected because they add deployment and consistency work before the domain is stable.
+Start with one Django project separated into apps with the canonical labels `patients`, `professionals`, `clinical_records`, `access_control`, and `audit`. Keep domain rules in application services rather than templates or DRF view classes. This minimizes operational overhead for a student MVP while preserving boundaries that can later become services. Independent microservices were rejected because they add deployment and consistency work before the domain is stable.
+
+### Assign each Django app clear domain ownership
+
+- `patients` owns patient identity, demographics, contact information, insurance information, and active status.
+- `professionals` owns professional identity, licenses, specialties, hospital services, and active status.
+- `clinical_records` owns admissions, vital-sign observations, care relationships, and interventions that connect patients with professionals.
+- `access_control` owns shared authorization policies and actor-context integration; it does not duplicate patient or professional profiles.
+- `audit` owns append-only access and modification events that reference records owned by the other apps.
 
 ### Use Django sessions for the browser and DRF for stable contracts
 
@@ -46,7 +54,7 @@ CRUD delete actions change an entity to inactive rather than physically removing
 
 ### Separate admission events from the patient profile
 
-Each admission is an immutable event linked to one patient and one professional, with consultation reason, vital signs, and server timestamp. Corrections create an auditable amendment rather than silently replacing clinical values. Storing the latest vital signs directly on the patient was rejected because it would erase history.
+Each `clinical_records.Admission` is an immutable event linked to one `patients.Patient` and one `professionals.Professional`, with consultation reason, vital signs, and server timestamp. Corrections create an auditable amendment rather than silently replacing clinical values. Storing the latest vital signs directly on the patient was rejected because it would erase history.
 
 ### Isolate license validation behind a provider boundary
 
@@ -80,7 +88,7 @@ Model the hospital domain relationally in Django rather than storing FHIR resour
 
 ## Migration Plan
 
-1. Pin Python and dependencies with `uv`, scaffold the Django project/apps, and configure Docker Compose with PostgreSQL 18.
+1. Pin Python and dependencies with `uv`, scaffold the `patients`, `professionals`, `clinical_records`, `access_control`, and `audit` Django apps, and configure Docker Compose with PostgreSQL 18.
 2. Configure Django sessions, DRF, OpenAPI, templates, HTMX, Bootstrap, pytest, Ruff, mypy, pre-commit, and CI.
 3. Introduce lookup/reference data for specialties, services, and the MVP license registry.
 4. Create patient, professional, admission, care-relationship, intervention-reference, and audit storage with uniqueness and foreign-key constraints.

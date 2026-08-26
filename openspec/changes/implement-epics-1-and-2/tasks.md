@@ -1,7 +1,7 @@
 ## 1. Shared Foundation
 
 - [ ] 1.1 Create a Python 3.13 `pyproject.toml` with Django 5.2 LTS, Django REST Framework 3.18, PostgreSQL driver, django-htmx, drf-spectacular, pytest-django, Playwright, Ruff, and mypy dependencies managed by `uv`; verify `uv lock` and `uv sync --frozen` succeed.
-- [ ] 1.2 Scaffold one Django project with `patients`, `professionals`, `access_control`, and `audit` apps; verify `uv run python manage.py check` reports no issues.
+- [ ] 1.2 Scaffold one Django project with `patients`, `professionals`, `clinical_records`, `access_control`, and `audit` apps using those exact app labels; verify `uv run python manage.py check` reports no issues and Django's app registry exposes all five labels.
 - [ ] 1.3 Add Docker Compose configuration for the Django application and PostgreSQL 18 with a database health check and example environment file; verify `docker compose config` succeeds and the application reaches the database.
 - [ ] 1.4 Configure Django exclusively against PostgreSQL for development and tests; verify migrations and a pytest database smoke test succeed without SQLite.
 - [ ] 1.5 Add a shared Django template shell with locally pinned HTMX and Bootstrap 5 assets; verify the rendered smoke page loads its styles and HTMX without external network requests.
@@ -11,7 +11,7 @@
 - [ ] 1.9 Configure Ruff, mypy, and pre-commit; verify formatting, linting, targeted type checks, and all hooks pass on the scaffold.
 - [ ] 1.10 Add GitHub Actions CI using a PostgreSQL service to run locked dependency installation, Django checks, migrations, tests, Ruff, and mypy; verify the workflow syntax is valid and its first run passes.
 - [ ] 1.11 Add shared DNI normalization and format validation; verify unit tests cover punctuation, whitespace, invalid characters, and equivalent normalized values.
-- [ ] 1.12 Add role-aware actor context for administrative and medical-professional operations; verify protected-operation tests distinguish missing, administrative, and professional actors.
+- [ ] 1.12 Add role-aware actor context and shared authorization policies in `access_control` for administrative and medical-professional operations; verify protected-operation tests distinguish missing, administrative, and professional actors.
 - [ ] 1.13 Add specialty and hospital-service reference data with initial seed values; verify a clean Django migration exposes the seeded records.
 - [ ] 1.14 Document `uv` and Docker Compose setup, migration, test, quality-check, and seed commands; verify a fresh environment can follow the documented sequence successfully.
 
@@ -37,7 +37,7 @@
 
 ## 4. Sprint 2 - HU-03 Patient Admission
 
-- [ ] 4.1 Create the Django admission model for patient, professional, consultation reason, blood pressure, heart rate, temperature, and server timestamp; verify PostgreSQL migration constraints reject orphaned relations.
+- [ ] 4.1 Create admission and vital-sign persistence in `clinical_records` for patient, professional, consultation reason, blood pressure, heart rate, temperature, and server timestamp; verify Django migrations apply and PostgreSQL constraints reject orphaned patient or professional relations.
 - [ ] 4.2 Define configurable accepted ranges and units for all vital signs; verify boundary-value tests cover minimum, maximum, and out-of-range inputs.
 - [ ] 4.3 Implement admission creation for active patients and authenticated active medical professionals; verify authorization tests reject missing, inactive, or non-professional actors.
 - [ ] 4.4 Set admission timestamp and professional identity on the server; verify tests prove submitted overrides are ignored or rejected.
@@ -69,12 +69,12 @@
 
 ## 7. Sprint 4 - HU-06 Professional Intervention Access
 
-- [ ] 7.1 Create a Django care-relationship model linking active professionals and patients; verify PostgreSQL constraints prevent orphaned and duplicate active relationships.
-- [ ] 7.2 Add the minimal Django intervention read model and DRF serializer needed to list a patient's recorded interventions; verify tests distinguish patients with no interventions from inaccessible patients.
+- [ ] 7.1 Create the `clinical_records` care-relationship model linking active professionals and patients; verify PostgreSQL constraints prevent orphaned and duplicate active relationships.
+- [ ] 7.2 Add the minimal `clinical_records` intervention read model and DRF serializer needed to list a patient's recorded interventions; verify tests distinguish patients with no interventions from inaccessible patients.
 - [ ] 7.3 Implement authorization requiring authenticated identity, active professional status, and a care relationship; verify each missing condition independently denies access.
 - [ ] 7.4 Implement the professional's patient-intervention query; verify an authorized professional sees only interventions for the requested linked patient.
 - [ ] 7.5 Build the professional intervention-access Django template and HTMX results view; verify successful, empty, and denied states disclose only appropriate information.
-- [ ] 7.6 Create an append-only Django audit model for timestamp, professional, patient, action, target, and outcome; verify normal application operations and DRF endpoints cannot update or delete an audit event.
+- [ ] 7.6 Create the append-only `audit` app model for timestamp, professional, patient, action, target, and outcome; verify normal application operations and DRF endpoints cannot update or delete an audit event.
 - [ ] 7.7 Audit every successful and denied intervention consultation; verify one complete audit event is created for each tested access attempt.
 - [ ] 7.8 Audit every permitted intervention modification path available in the MVP; verify the event identifies actor, patient, target, action, outcome, and server time.
 - [ ] 7.9 Verify deactivated professionals lose intervention access immediately; verify the denied attempt is recorded without exposing patient data.
