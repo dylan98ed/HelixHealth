@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-helixhealth}
+      POSTGRES_USER: ${POSTGRES_USER:-helixhealth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helixhealth_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+    environment:
+      DJANGO_ENVIRONMENT: development
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-helixhealth}
+      DB_USER: ${POSTGRES_USER:-helixhealth}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-helixhealth_dev}
+    ports:
+      - "${DJANGO_PORT:-8000}:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
