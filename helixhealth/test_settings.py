@@ -17,8 +17,26 @@ print(json.dumps({
 
 def run_settings_probe(**environment):
     process_environment = os.environ.copy()
-    for name in ("DJANGO_ENVIRONMENT", "DJANGO_DEBUG", "DJANGO_SECRET_KEY"):
+    for name in (
+        "DJANGO_ENVIRONMENT",
+        "DJANGO_DEBUG",
+        "DJANGO_SECRET_KEY",
+        "DB_HOST",
+        "DB_PORT",
+        "DB_NAME",
+        "DB_USER",
+        "DB_PASSWORD",
+    ):
         process_environment.pop(name, None)
+    process_environment.update(
+        {
+            "DB_HOST": "localhost",
+            "DB_PORT": "5432",
+            "DB_NAME": "helixhealth",
+            "DB_USER": "helixhealth",
+            "DB_PASSWORD": "settings-probe-only",
+        }
+    )
     process_environment.update(environment)
 
     return subprocess.run(

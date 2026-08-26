@@ -40,6 +40,18 @@ def env_bool(name, *, default=False):
     raise ImproperlyConfigured(f'{name} must be a boolean value.')
 
 
+def database_env(name, *, local_default):
+    """Read a database setting, allowing defaults only for local use and tests."""
+    value = os.environ.get(name)
+    if value:
+        return value
+    if ENVIRONMENT in {'development', 'test'}:
+        return local_default
+    raise ImproperlyConfigured(
+        f'{name} must be set outside the development and test environments.'
+    )
+
+
 # manage.py opts into development; deployed ASGI/WSGI processes default to production.
 DEBUG = env_bool('DJANGO_DEBUG', default=ENVIRONMENT == 'development')
 
@@ -106,8 +118,12 @@ WSGI_APPLICATION = 'helixhealth.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': database_env('DB_NAME', local_default='helixhealth'),
+        'USER': database_env('DB_USER', local_default='helixhealth'),
+        'PASSWORD': database_env('DB_PASSWORD', local_default='helixhealth_dev'),
+        'HOST': database_env('DB_HOST', local_default='localhost'),
+        'PORT': database_env('DB_PORT', local_default='5432'),
     }
 }
 
