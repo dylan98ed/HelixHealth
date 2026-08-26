@@ -43,8 +43,10 @@ def env_bool(name, *, default=False):
 def database_env(name, *, local_default):
     """Read a database setting, allowing defaults only for local use and tests."""
     value = os.environ.get(name)
-    if value:
-        return value
+    if value is not None:
+        normalized = value.strip()
+        if normalized:
+            return normalized
     if ENVIRONMENT in {'development', 'test'}:
         return local_default
     raise ImproperlyConfigured(
