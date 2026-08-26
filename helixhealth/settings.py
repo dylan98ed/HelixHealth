@@ -10,7 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
+import secrets
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,11 +23,34 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-*)w@cxs$o=%e6fi!s%4tqpky$4cdl2#n!+=ft(w)fhylmhmq)i'
+ENVIRONMENT = os.environ.get('DJANGO_ENVIRONMENT', 'production').strip().lower()
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+
+def env_bool(name, *, default=False):
+    """Read a strict boolean environment variable."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in {'1', 'true', 'yes', 'on'}:
+        return True
+    if normalized in {'0', 'false', 'no', 'off'}:
+        return False
+    raise ImproperlyConfigured(f'{name} must be a boolean value.')
+
+
+# manage.py opts into development; deployed ASGI/WSGI processes default to production.
+DEBUG = env_bool('DJANGO_DEBUG', default=ENVIRONMENT == 'development')
+
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if ENVIRONMENT != 'development':
+        raise ImproperlyConfigured(
+            'DJANGO_SECRET_KEY must be set outside the development environment.'
+        )
+    # An ephemeral key keeps local setup simple without committing a reusable secret.
+    SECRET_KEY = secrets.token_urlsafe(50)
 
 ALLOWED_HOSTS = []
 
