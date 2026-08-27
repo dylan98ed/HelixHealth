@@ -32,7 +32,6 @@ def test_smoke_page_uses_pinned_local_frontend_assets(client):
     expected_assets = {
         "vendor/bootstrap/5.3.8/bootstrap.min.css": "Bootstrap  v5.3.8",
         "vendor/bootstrap/5.3.8/bootstrap.bundle.min.js": "Bootstrap v5.3.8",
-        "django_htmx/htmx-2.min.js": 'version:"2.0.10"',
     }
     assert {static(path) for path in expected_assets} <= set(parser.urls)
     assert not any(
@@ -43,3 +42,16 @@ def test_smoke_page_uses_pinned_local_frontend_assets(client):
         resolved_path = finders.find(asset_path)
         assert resolved_path is not None
         assert version_marker in Path(resolved_path).read_text(encoding="utf-8")
+
+    static_url = static("")
+    htmx_urls = [
+        url
+        for url in parser.urls
+        if url.startswith(f"{static_url}django_htmx/") and url.endswith(".js")
+    ]
+    assert len(htmx_urls) == 1
+
+    htmx_asset_path = htmx_urls[0].removeprefix(static_url)
+    resolved_htmx_path = finders.find(htmx_asset_path)
+    assert resolved_htmx_path is not None
+    assert 'version:"2.0.10"' in Path(resolved_htmx_path).read_text(encoding="utf-8")
