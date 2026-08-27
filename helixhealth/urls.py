@@ -16,10 +16,43 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
+from rest_framework.authentication import SessionAuthentication
+from rest_framework.permissions import IsAuthenticated
 
 from helixhealth.views import HomeView
+
+protected_api_view = {
+    'authentication_classes': [SessionAuthentication],
+    'permission_classes': [IsAuthenticated],
+}
 
 urlpatterns = [
     path('', HomeView.as_view(), name='home'),
     path('admin/', admin.site.urls),
+    path(
+        'api/schema/',
+        SpectacularAPIView.as_view(**protected_api_view),
+        name='api-schema',
+    ),
+    path(
+        'api/docs/',
+        SpectacularSwaggerView.as_view(
+            url_name='api-schema',
+            **protected_api_view,
+        ),
+        name='api-docs',
+    ),
+    path(
+        'api/redoc/',
+        SpectacularRedocView.as_view(
+            url_name='api-schema',
+            **protected_api_view,
+        ),
+        name='api-redoc',
+    ),
 ]
