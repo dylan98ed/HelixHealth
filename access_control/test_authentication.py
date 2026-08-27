@@ -48,6 +48,17 @@ def test_role_groups_are_seeded():
     ) == set(ROLE_GROUPS)
 
 
+@override_settings(ROOT_URLCONF=__name__)
+def test_browsable_api_renders_html_for_anonymous_requests():
+    response = APIClient().get(
+        "/unsafe-session-probe/",
+        HTTP_ACCEPT="text/html",
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response["Content-Type"].startswith("text/html")
+
+
 @pytest.mark.django_db
 @override_settings(ROOT_URLCONF=__name__)
 def test_unsafe_session_request_requires_authentication_and_csrf():
