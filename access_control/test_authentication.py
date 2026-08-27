@@ -1,6 +1,9 @@
+from importlib import import_module
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.db import migrations
 from django.http import JsonResponse
 from django.test import override_settings
 from django.urls import path
@@ -27,6 +30,15 @@ urlpatterns = [
     path("csrf/", csrf_seed),
     path("unsafe-session-probe/", UnsafeSessionProbeView.as_view()),
 ]
+
+
+def test_role_group_migration_uses_a_non_destructive_reverse():
+    migration_module = import_module(
+        "access_control.migrations.0001_seed_role_groups"
+    )
+    operation = migration_module.Migration.operations[0]
+
+    assert operation.reverse_code is migrations.RunPython.noop
 
 
 @pytest.mark.django_db
