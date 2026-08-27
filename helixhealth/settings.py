@@ -23,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-ENVIRONMENT = os.environ.get('DJANGO_ENVIRONMENT', 'production').strip().lower()
+ENVIRONMENT = os.environ.get("DJANGO_ENVIRONMENT", "production").strip().lower()
 
 
 def load_local_environment(path):
@@ -31,19 +31,19 @@ def load_local_environment(path):
     if not path.is_file():
         return
 
-    for raw_line in path.read_text(encoding='utf-8').splitlines():
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             continue
 
-        name, separator, value = line.partition('=')
+        name, separator, value = line.partition("=")
         if not separator or not name.strip():
-            raise ImproperlyConfigured(f'Invalid environment entry in {path}.')
+            raise ImproperlyConfigured(f"Invalid environment entry in {path}.")
         os.environ.setdefault(name.strip(), value.strip())
 
 
-if ENVIRONMENT in {'development', 'test'}:
-    load_local_environment(BASE_DIR / '.env')
+if ENVIRONMENT in {"development", "test"}:
+    load_local_environment(BASE_DIR / ".env")
 
 
 def env_bool(name, *, default=False):
@@ -53,11 +53,11 @@ def env_bool(name, *, default=False):
         return default
 
     normalized = value.strip().lower()
-    if normalized in {'1', 'true', 'yes', 'on'}:
+    if normalized in {"1", "true", "yes", "on"}:
         return True
-    if normalized in {'0', 'false', 'no', 'off'}:
+    if normalized in {"0", "false", "no", "off"}:
         return False
-    raise ImproperlyConfigured(f'{name} must be a boolean value.')
+    raise ImproperlyConfigured(f"{name} must be a boolean value.")
 
 
 def database_env(name, *, local_default):
@@ -67,104 +67,104 @@ def database_env(name, *, local_default):
         normalized = value.strip()
         if normalized:
             return normalized
-    if ENVIRONMENT in {'development', 'test'}:
+    if ENVIRONMENT in {"development", "test"}:
         return local_default
     raise ImproperlyConfigured(
-        f'{name} must be set outside the development and test environments.'
+        f"{name} must be set outside the development and test environments."
     )
 
 
 # manage.py opts into development; deployed ASGI/WSGI processes default to production.
-DEBUG = env_bool('DJANGO_DEBUG', default=ENVIRONMENT == 'development')
+DEBUG = env_bool("DJANGO_DEBUG", default=ENVIRONMENT == "development")
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
-    if ENVIRONMENT != 'development':
+    if ENVIRONMENT != "development":
         raise ImproperlyConfigured(
-            'DJANGO_SECRET_KEY must be set outside the development environment.'
+            "DJANGO_SECRET_KEY must be set outside the development environment."
         )
     # An ephemeral key keeps local setup simple without committing a reusable secret.
     SECRET_KEY = secrets.token_urlsafe(50)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS: list[str] = []
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'rest_framework',
-    'drf_spectacular',
-    'django_htmx',
-    'patients.apps.PatientsConfig',
-    'professionals.apps.ProfessionalsConfig',
-    'clinical_records.apps.ClinicalRecordsConfig',
-    'access_control.apps.AccessControlConfig',
-    'audit.apps.AuditConfig',
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "drf_spectacular",
+    "django_htmx",
+    "patients.apps.PatientsConfig",
+    "professionals.apps.ProfessionalsConfig",
+    "clinical_records.apps.ClinicalRecordsConfig",
+    "access_control.apps.AccessControlConfig",
+    "audit.apps.AuditConfig",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django_htmx.middleware.HtmxMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django_htmx.middleware.HtmxMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'helixhealth.urls'
+ROOT_URLCONF = "helixhealth.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.csrf',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.csrf",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'helixhealth.wsgi.application'
+WSGI_APPLICATION = "helixhealth.wsgi.application"
 
 
 # Authentication and request forgery protection
 
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = not DEBUG
 
 CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = not DEBUG
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication',
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
     ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
     ],
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'HelixHealth API',
-    'DESCRIPTION': 'API contracts for the HelixHealth hospital information system.',
-    'VERSION': '0.1.0',
-    'SERVE_INCLUDE_SCHEMA': False,
+    "TITLE": "HelixHealth API",
+    "DESCRIPTION": "API contracts for the HelixHealth hospital information system.",
+    "VERSION": "0.1.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 
@@ -172,13 +172,13 @@ SPECTACULAR_SETTINGS = {
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': database_env('DB_NAME', local_default='helixhealth_db'),
-        'USER': database_env('DB_USER', local_default='helixhealth_app'),
-        'PASSWORD': database_env('DB_PASSWORD', local_default='helixhealth_dev'),
-        'HOST': database_env('DB_HOST', local_default='localhost'),
-        'PORT': database_env('DB_PORT', local_default='5432'),
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": database_env("DB_NAME", local_default="helixhealth_db"),
+        "USER": database_env("DB_USER", local_default="helixhealth_app"),
+        "PASSWORD": database_env("DB_PASSWORD", local_default="helixhealth_dev"),
+        "HOST": database_env("DB_HOST", local_default="localhost"),
+        "PORT": database_env("DB_PORT", local_default="5432"),
     }
 }
 
@@ -188,16 +188,16 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -205,9 +205,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -217,10 +217,10 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = '/static/'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_URL = "/static/"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

@@ -14,8 +14,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "django-stubs[compatible-mypy]>=5.2,<6",
+    "djangorestframework-stubs>=3.16,<4",
     "mypy>=1.17,<2",
     "playwright>=1.55,<2",
+    "pre-commit>=4,<5",
     "pytest>=8.4,<10",
     "pytest-django>=4.11,<5",
     "ruff>=0.12,<1",
@@ -26,3 +29,56 @@ package = false
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "helixhealth.pytest_settings"
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "-ra",
+]
+python_files = ["test_*.py", "tests.py"]
+testpaths = [
+    "access_control",
+    "audit",
+    "clinical_records",
+    "helixhealth",
+    "patients",
+    "professionals",
+    "tests",
+]
+markers = [
+    "browser: end-to-end tests that launch a Playwright browser",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+extend-exclude = ["pacientes.py"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "DJ", "UP"]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+files = [
+    "helixhealth",
+    "access_control",
+    "audit",
+    "clinical_records",
+    "patients",
+    "professionals",
+]
+exclude = [
+    "(^|[\\\\/])migrations([\\\\/]|$)",
+    "(^|[\\\\/])tests?\\.py$",
+    "(^|[\\\\/])test_.*\\.py$",
+]
+check_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+strict_equality = true
+warn_redundant_casts = true
+warn_unreachable = true
+warn_unused_ignores = true
+
+[tool.django-stubs]
+django_settings_module = "helixhealth.pytest_settings"

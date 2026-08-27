@@ -7,8 +7,8 @@
 - [x] 1.5 Add a shared Django template shell with locally pinned HTMX and Bootstrap 5 assets; verify the rendered smoke page loads its styles and HTMX without external network requests.
 - [x] 1.6 Configure Django session authentication, CSRF protection, administrative/professional groups, and default DRF permission behavior; verify anonymous unsafe requests fail and authenticated CSRF-valid requests succeed.
 - [x] 1.7 Configure drf-spectacular and expose protected OpenAPI schema/documentation endpoints; verify schema generation succeeds without warnings.
-- [ ] 1.8 Configure pytest, pytest-django, PostgreSQL fixtures, factories, and a minimal Playwright browser smoke test; verify `uv run pytest` collects and passes all foundation tests.
-- [ ] 1.9 Configure Ruff, mypy, and pre-commit; verify formatting, linting, targeted type checks, and all hooks pass on the scaffold.
+- [x] 1.8 Configure pytest, pytest-django, PostgreSQL fixtures, factories, and a minimal Playwright browser smoke test; verify `uv run pytest` collects and passes all foundation tests.
+- [x] 1.9 Configure Ruff, mypy, and pre-commit; verify formatting, linting, targeted type checks, and all hooks pass on the scaffold.
 - [ ] 1.10 Add GitHub Actions CI using a PostgreSQL service to run locked dependency installation, Django checks, migrations, tests, Ruff, and mypy; verify the workflow syntax is valid and its first run passes.
 - [ ] 1.11 Add shared DNI normalization and format validation; verify unit tests cover punctuation, whitespace, invalid characters, and equivalent normalized values.
 - [ ] 1.12 Add role-aware actor context and shared authorization policies in `access_control` for administrative and medical-professional operations; verify protected-operation tests distinguish missing, administrative, and professional actors.

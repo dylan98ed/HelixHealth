@@ -34,9 +34,7 @@ def test_smoke_page_uses_pinned_local_frontend_assets(client):
         "vendor/bootstrap/5.3.8/bootstrap.bundle.min.js": "Bootstrap v5.3.8",
     }
     assert {static(path) for path in expected_assets} <= set(parser.urls)
-    assert not any(
-        url.startswith(("http://", "https://", "//")) for url in parser.urls
-    )
+    assert not any(url.startswith(("http://", "https://", "//")) for url in parser.urls)
 
     for asset_path, version_marker in expected_assets.items():
         resolved_path = finders.find(asset_path)

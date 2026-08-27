@@ -14,6 +14,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
 from django.urls import path
 from drf_spectacular.views import (
@@ -27,32 +28,32 @@ from rest_framework.permissions import IsAuthenticated
 from helixhealth.views import HomeView
 
 protected_api_view = {
-    'authentication_classes': [SessionAuthentication],
-    'permission_classes': [IsAuthenticated],
+    "authentication_classes": [SessionAuthentication],
+    "permission_classes": [IsAuthenticated],
 }
 
 urlpatterns = [
-    path('', HomeView.as_view(), name='home'),
-    path('admin/', admin.site.urls),
+    path("", HomeView.as_view(), name="home"),
+    path("admin/", admin.site.urls),
     path(
-        'api/schema/',
+        "api/schema/",
         SpectacularAPIView.as_view(**protected_api_view),
-        name='api-schema',
+        name="api-schema",
     ),
     path(
-        'api/docs/',
+        "api/docs/",
         SpectacularSwaggerView.as_view(
-            url_name='api-schema',
+            url_name="api-schema",
             **protected_api_view,
         ),
-        name='api-docs',
+        name="api-docs",
     ),
     path(
-        'api/redoc/',
+        "api/redoc/",
         SpectacularRedocView.as_view(
-            url_name='api-schema',
+            url_name="api-schema",
             **protected_api_view,
         ),
-        name='api-redoc',
+        name="api-redoc",
     ),
 ]
