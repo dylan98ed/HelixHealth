@@ -26,6 +26,26 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ENVIRONMENT = os.environ.get('DJANGO_ENVIRONMENT', 'production').strip().lower()
 
 
+def load_local_environment(path):
+    """Load a local environment file without overriding exported values."""
+    if not path.is_file():
+        return
+
+    for raw_line in path.read_text(encoding='utf-8').splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+
+        name, separator, value = line.partition('=')
+        if not separator or not name.strip():
+            raise ImproperlyConfigured(f'Invalid environment entry in {path}.')
+        os.environ.setdefault(name.strip(), value.strip())
+
+
+if ENVIRONMENT in {'development', 'test'}:
+    load_local_environment(BASE_DIR / '.env')
+
+
 def env_bool(name, *, default=False):
     """Read a strict boolean environment variable."""
     value = os.environ.get(name)
@@ -78,6 +98,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'drf_spectacular',
     'django_htmx',
     'patients.apps.PatientsConfig',
     'professionals.apps.ProfessionalsConfig',
@@ -118,14 +139,42 @@ TEMPLATES = [
 WSGI_APPLICATION = 'helixhealth.wsgi.application'
 
 
+# Authentication and request forgery protection
+
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = not DEBUG
+
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = not DEBUG
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'HelixHealth API',
+    'DESCRIPTION': 'API contracts for the HelixHealth hospital information system.',
+    'VERSION': '0.1.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+
+
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': database_env('DB_NAME', local_default='helixhealth'),
-        'USER': database_env('DB_USER', local_default='helixhealth'),
+        'NAME': database_env('DB_NAME', local_default='helixhealth_db'),
+        'USER': database_env('DB_USER', local_default='helixhealth_app'),
         'PASSWORD': database_env('DB_PASSWORD', local_default='helixhealth_dev'),
         'HOST': database_env('DB_HOST', local_default='localhost'),
         'PORT': database_env('DB_PORT', local_default='5432'),

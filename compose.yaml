@@ -2,11 +2,11 @@ services:
   db:
     image: postgres:18
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-helixhealth}
-      POSTGRES_USER: ${POSTGRES_USER:-helixhealth}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helixhealth_dev}
+      POSTGRES_DB: ${DB_NAME:-helixhealth_db}
+      POSTGRES_USER: ${DB_USER:-helixhealth_app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -25,9 +25,9 @@ services:
       DJANGO_ENVIRONMENT: development
       DB_HOST: db
       DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB:-helixhealth}
-      DB_USER: ${POSTGRES_USER:-helixhealth}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-helixhealth_dev}
+      DB_NAME: ${DB_NAME:-helixhealth_db}
+      DB_USER: ${DB_USER:-helixhealth_app}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     ports:
       - "${DJANGO_PORT:-8000}:8000"
     volumes:
