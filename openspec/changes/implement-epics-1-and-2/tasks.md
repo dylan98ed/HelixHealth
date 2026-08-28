@@ -10,7 +10,7 @@
 - [x] 1.8 Configure pytest, pytest-django, PostgreSQL fixtures, factories, and a minimal Playwright browser smoke test; verify `uv run pytest` collects and passes all foundation tests.
 - [x] 1.9 Configure Ruff, mypy, and pre-commit; verify formatting, linting, targeted type checks, and all hooks pass on the scaffold.
 - [x] 1.10 Add GitHub Actions CI using a PostgreSQL service to run locked dependency installation, Django checks, migrations, tests, Ruff, and mypy; verify the workflow syntax is valid and its first run passes.
-- [x] 1.11 Add shared DNI normalization and format validation; verify unit tests cover punctuation, whitespace, invalid characters, and equivalent normalized values.
+- [x] 1.11 Add shared DNI format validation that accepts only 7 or 8 ASCII digits without punctuation or whitespace; verify unit tests cover valid lengths, punctuation, whitespace, and invalid characters.
 - [ ] 1.12 Add role-aware actor context and shared authorization policies in `access_control` for administrative and medical-professional operations; verify protected-operation tests distinguish missing, administrative, and professional actors.
 - [ ] 1.13 Add specialty and hospital-service reference data with initial seed values; verify a clean Django migration exposes the seeded records.
 - [ ] 1.14 Document `uv` and Docker Compose setup, migration, test, quality-check, and seed commands; verify a fresh environment can follow the documented sequence successfully.
@@ -20,7 +20,7 @@
 - [ ] 2.1 Create the Django patient model and PostgreSQL constraints for internal ID, DNI, clinical record number, demographics, contact, address, insurer, and active status; verify the Django migration applies and rolls back on an empty database.
 - [ ] 2.2 Implement collision-safe clinical record number generation; verify repeated and concurrent generation tests produce unique values.
 - [ ] 2.3 Implement patient input validation for required values and field formats; verify unit tests cover every accepted and rejected field class.
-- [ ] 2.4 Implement transactional patient creation through a Django application service and DRF serializer with normalized-DNI uniqueness enforcement; verify service and API tests cover successful creation and duplicate rejection without partial writes.
+- [ ] 2.4 Implement transactional patient creation through a Django application service and DRF serializer with canonical-DNI uniqueness enforcement; verify service and API tests cover successful creation and duplicate rejection without partial writes.
 - [ ] 2.5 Build the administrative patient-registration Django template with HTMX submission; verify a valid submission displays the generated clinical record number and invalid fields show actionable messages.
 - [ ] 2.6 Implement patient detail retrieval for administrative users through DRF and the server-rendered view; verify the serializer contract contains all specified fields and excludes internal-only data.
 - [ ] 2.7 Implement patient demographic, contact, address, and insurer updates while protecting immutable identifiers; verify update tests prove ID and clinical record number cannot change.
@@ -28,8 +28,8 @@
 
 ## 3. Sprint 1 - HU-02 Patient Search
 
-- [ ] 3.1 Add a unique index for normalized patient DNI; verify the database query plan uses the index for exact-DNI lookup.
-- [ ] 3.2 Implement an exact patient lookup service and DRF endpoint using normalized DNI; verify found and not-found API tests return the specified result shapes.
+- [ ] 3.1 Add a unique index for canonical patient DNI; verify the database query plan uses the index for exact-DNI lookup.
+- [ ] 3.2 Implement an exact patient lookup service and DRF endpoint using canonical DNI; verify found and not-found API tests return the specified result shapes.
 - [ ] 3.3 Build the patient DNI search template with HTMX results showing full name and clinical record number; verify an administrative user can reach patient details with one action.
 - [ ] 3.4 Add the no-result registration action; verify a valid unmatched DNI can prefill a new patient registration without creating a record automatically.
 - [ ] 3.5 Measure patient lookup against a documented MVP-size dataset; verify the end-to-end p95 response time is below two seconds.
@@ -52,7 +52,7 @@
 - [ ] 5.2 Implement collision-safe professional registration number generation; verify repeated and concurrent generation tests produce unique values.
 - [ ] 5.3 Define the license-status provider contract and a controlled local MVP registry; verify provider tests return active, non-active, and unavailable outcomes.
 - [ ] 5.4 Implement professional input validation for required values, specialty, and service assignment; verify unit tests cover every accepted and rejected field class.
-- [ ] 5.5 Implement transactional professional creation through a Django application service and DRF serializer with normalized DNI, unique license, and fail-closed license validation; verify successful, duplicate, expired, suspended, and unavailable-license tests.
+- [ ] 5.5 Implement transactional professional creation through a Django application service and DRF serializer with canonical DNI, unique license, and fail-closed license validation; verify successful, duplicate, expired, suspended, and unavailable-license tests.
 - [ ] 5.6 Build the administrative professional-registration Django template with HTMX submission; verify a valid submission displays the generated registration number and invalid fields show actionable messages.
 - [ ] 5.7 Implement professional detail retrieval and editing while protecting immutable identifiers; verify update tests prove internal ID and registration number cannot change.
 - [ ] 5.8 Implement specialty and hospital-service reassignment; verify only configured active reference values can be assigned.
@@ -60,8 +60,8 @@
 
 ## 6. Sprint 3 - HU-05 Professional Search
 
-- [ ] 6.1 Add unique indexes for normalized professional DNI and license number; verify database query plans use the expected index for exact lookup.
-- [ ] 6.2 Implement an exact professional lookup service and DRF endpoint using normalized DNI; verify found and not-found API tests return the specified result shapes.
+- [ ] 6.1 Add unique indexes for canonical professional DNI and license number; verify database query plans use the expected index for exact lookup.
+- [ ] 6.2 Implement an exact professional lookup service and DRF endpoint using canonical DNI; verify found and not-found API tests return the specified result shapes.
 - [ ] 6.3 Build the professional DNI search template with HTMX results showing full name and license number; verify an administrative user can reach professional details with one action.
 - [ ] 6.4 Add the no-result registration action; verify a valid unmatched DNI can prefill professional registration without creating a record automatically.
 - [ ] 6.5 Measure professional lookup against a documented MVP-size dataset; verify the end-to-end p95 response time is below two seconds.
