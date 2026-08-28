@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Foundation checks
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: helixhealth_ci
+          POSTGRES_USER: helixhealth_ci
+          POSTGRES_PASSWORD: helixhealth_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username=helixhealth_ci --dbname=helixhealth_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DJANGO_ENVIRONMENT: test
+      DJANGO_SECRET_KEY: ci-only-secret-key
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: helixhealth_ci
+      DB_USER: helixhealth_ci
+      DB_PASSWORD: helixhealth_ci
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: 0.12.5
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --frozen
+
+      - name: Install Playwright Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run Django system checks
+        run: uv run python manage.py check
+
+      - name: Apply database migrations
+        run: uv run python manage.py migrate --noinput
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Run mypy
+        run: uv run mypy
