@@ -17,8 +17,8 @@
 
 ## 2. Sprint 1 - HU-01 Patient Registration and Maintenance
 
-- [ ] 2.1 Create the Django patient model and PostgreSQL constraints for internal ID, DNI, clinical record number, demographics, contact, address, insurer, and active status; verify the Django migration applies and rolls back on an empty database.
-- [ ] 2.2 Implement collision-safe clinical record number generation; verify repeated and concurrent generation tests produce unique values.
+- [x] 2.1 Create the Django patient model and PostgreSQL constraints for internal ID, DNI, clinical record number, demographics, contact, address, insurer, and active status; verify the Django migration applies and rolls back on an empty database.
+- [x] 2.2 Implement collision-safe clinical record number generation; verify repeated and concurrent generation tests produce unique values.
 - [ ] 2.3 Implement patient input validation for required values and field formats; verify unit tests cover every accepted and rejected field class.
 - [ ] 2.4 Implement transactional patient creation through a Django application service and DRF serializer with canonical-DNI uniqueness enforcement; verify service and API tests cover successful creation and duplicate rejection without partial writes.
 - [ ] 2.5 Build the administrative patient-registration Django template with HTMX submission; verify a valid submission displays the generated clinical record number and invalid fields show actionable messages.
