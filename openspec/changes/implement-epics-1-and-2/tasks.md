@@ -9,7 +9,7 @@
 - [x] 1.7 Configure drf-spectacular and expose protected OpenAPI schema/documentation endpoints; verify schema generation succeeds without warnings.
 - [x] 1.8 Configure pytest, pytest-django, PostgreSQL fixtures, factories, and a minimal Playwright browser smoke test; verify `uv run pytest` collects and passes all foundation tests.
 - [x] 1.9 Configure Ruff, mypy, and pre-commit; verify formatting, linting, targeted type checks, and all hooks pass on the scaffold.
-- [ ] 1.10 Add GitHub Actions CI using a PostgreSQL service to run locked dependency installation, Django checks, migrations, tests, Ruff, and mypy; verify the workflow syntax is valid and its first run passes.
+- [x] 1.10 Add GitHub Actions CI using a PostgreSQL service to run locked dependency installation, Django checks, migrations, tests, Ruff, and mypy; verify the workflow syntax is valid and its first run passes.
 - [ ] 1.11 Add shared DNI normalization and format validation; verify unit tests cover punctuation, whitespace, invalid characters, and equivalent normalized values.
 - [ ] 1.12 Add role-aware actor context and shared authorization policies in `access_control` for administrative and medical-professional operations; verify protected-operation tests distinguish missing, administrative, and professional actors.
 - [ ] 1.13 Add specialty and hospital-service reference data with initial seed values; verify a clean Django migration exposes the seeded records.
