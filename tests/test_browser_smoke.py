@@ -23,5 +23,11 @@ def test_home_page_loads_in_a_real_browser(live_server, browser_page):
     expect(browser_page).to_have_title("Home | HelixHealth")
     expect(browser_page.get_by_role("heading", name="HelixHealth")).to_be_visible()
     expect(browser_page.get_by_text("Foundation smoke page")).to_be_visible()
+    assert (
+        browser_page.locator(".navbar").evaluate(
+            "element => getComputedStyle(element).backgroundColor"
+        )
+        == "rgb(13, 110, 253)"
+    )
     assert browser_page.evaluate("typeof window.htmx !== 'undefined'")
     assert external_requests == []
