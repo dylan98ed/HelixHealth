@@ -13,7 +13,7 @@
 - [x] 1.11 Add shared DNI format validation that accepts only 7 or 8 ASCII digits without punctuation or whitespace; verify unit tests cover valid lengths, punctuation, whitespace, and invalid characters.
 - [x] 1.12 Add role-aware actor context and shared authorization policies in `access_control` for administrative and medical-professional operations; verify protected-operation tests distinguish missing, administrative, and professional actors.
 - [x] 1.13 Add specialty and hospital-service reference data with initial seed values; verify a clean Django migration exposes the seeded records.
-- [ ] 1.14 Document `uv` and Docker Compose setup, migration, test, quality-check, and seed commands; verify a fresh environment can follow the documented sequence successfully.
+- [x] 1.14 Document `uv` and Docker Compose setup, migration, test, quality-check, and seed commands; verify a fresh environment can follow the documented sequence successfully.
 
 ## 2. Sprint 1 - HU-01 Patient Registration and Maintenance
 
