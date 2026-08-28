@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from django.db import connection
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
@@ -28,7 +30,14 @@ def playwright_instance() -> Playwright:
 
 @pytest.fixture
 def browser(playwright_instance: Playwright) -> Browser:
-    browser = playwright_instance.chromium.launch(headless=True)
+    chromium = playwright_instance.chromium
+    if not Path(chromium.executable_path).is_file():
+        pytest.skip(
+            "Playwright Chromium is not installed; run "
+            "`uv run playwright install chromium` to enable browser tests."
+        )
+
+    browser = chromium.launch(headless=True)
     yield browser
     browser.close()
 
