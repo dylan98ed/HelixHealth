@@ -116,3 +116,18 @@ def test_whitespace_only_database_value_is_missing_in_production():
 
     assert result.returncode != 0
     assert "DB_HOST must be set" in result.stderr
+
+
+def test_local_environment_loader_accepts_utf8_bom(tmp_path, monkeypatch):
+    from helixhealth.settings import load_local_environment
+
+    environment_file = tmp_path / ".env"
+    environment_file.write_text(
+        "\ufeff# Windows-created environment file\nBOM_SAFE_VALUE=loaded\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("BOM_SAFE_VALUE", raising=False)
+
+    load_local_environment(environment_file)
+
+    assert os.environ["BOM_SAFE_VALUE"] == "loaded"

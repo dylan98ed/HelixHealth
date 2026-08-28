@@ -25,6 +25,7 @@ def test_smoke_page_uses_pinned_local_frontend_assets(client):
     assert response.status_code == 200
     html = response.content.decode()
     assert "Foundation smoke page" in html
+    assert "integrity=" not in html
 
     parser = AssetURLParser()
     parser.feed(html)

@@ -16,10 +16,10 @@ The system SHALL allow an administrative user to register a patient with DNI, fi
 - **THEN** the system rejects the registration, identifies each invalid field, and creates no patient record
 
 ### Requirement: HU-01 - Prevent duplicate patient identity
-The system SHALL normalize DNI values before comparison and SHALL NOT allow more than one active patient to have the same DNI.
+The system SHALL accept DNI values only in the canonical format of 7 or 8 ASCII digits, without punctuation or whitespace, and SHALL NOT allow more than one active patient to have the same DNI.
 
 #### Scenario: Duplicate DNI is rejected
-- **WHEN** an administrative user attempts to register a patient whose normalized DNI belongs to an existing active patient
+- **WHEN** an administrative user attempts to register a patient whose canonical DNI belongs to an existing active patient
 - **THEN** the system rejects the registration and provides a direct way to open the existing patient's record
 
 ### Requirement: Patient records support complete maintenance

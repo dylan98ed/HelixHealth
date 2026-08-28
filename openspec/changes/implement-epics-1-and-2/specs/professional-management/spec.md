@@ -16,7 +16,7 @@ The system SHALL allow an administrative user to register a professional with DN
 - **THEN** the system rejects the registration, identifies each invalid field, and creates no professional record
 
 ### Requirement: HU-04 - Enforce unique DNI and license
-The system SHALL normalize DNI and license values before comparison. The system SHALL NOT allow duplicate active DNI values or duplicate license numbers.
+The system SHALL accept DNI values only in the canonical format of 7 or 8 ASCII digits, without punctuation or whitespace. The system SHALL normalize license values before comparison and SHALL NOT allow duplicate active DNI values or duplicate license numbers.
 
 #### Scenario: Duplicate professional identity is rejected
 - **WHEN** an administrative user submits a DNI or license number already assigned to another professional
