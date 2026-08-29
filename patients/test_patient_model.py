@@ -44,6 +44,20 @@ def test_patient_persists_all_required_profile_fields():
 
 
 @pytest.mark.django_db
+def test_patient_creation_generates_clinical_record_number_when_omitted():
+    attributes = patient_attributes(dni="23456789")
+    attributes.pop("clinical_record_number")
+
+    patient = Patient.objects.create(**attributes)
+
+    numeric_part = patient.clinical_record_number.removeprefix("HC-")
+    assert patient.clinical_record_number.startswith("HC-")
+    assert len(numeric_part) >= 8
+    assert numeric_part.isascii()
+    assert numeric_part.isdigit()
+
+
+@pytest.mark.django_db
 def test_database_rejects_noncanonical_dni():
     with pytest.raises(IntegrityError), transaction.atomic():
         Patient.objects.create(**patient_attributes(dni="1234 678"))

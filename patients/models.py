@@ -1,6 +1,8 @@
 from django.db import models
 from django.db.models import Q
 
+from patients.identifiers import generate_clinical_record_number
+
 
 class Patient(models.Model):
     id = models.BigAutoField(primary_key=True, editable=False)
@@ -9,6 +11,7 @@ class Patient(models.Model):
         max_length=32,
         unique=True,
         editable=False,
+        default=generate_clinical_record_number,
     )
     first_name = models.CharField(max_length=150)
     last_name = models.CharField(max_length=150)
