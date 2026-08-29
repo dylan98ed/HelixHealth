@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block title %}Register patient · HelixHealth{% endblock %}
+
+{% block content %}
+  <h1>Register patient</h1>
+  <div id="registration-result">
+    {% include "patients/_registration_form.html" %}
+  </div>
+{% endblock %}

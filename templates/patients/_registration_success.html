@@ -1,0 +1,5 @@
+<div class="alert alert-success" role="status">
+  <h2 class="h5">Patient registered</h2>
+  <p>Clinical record number: <strong>{{ patient.clinical_record_number }}</strong></p>
+  <a class="btn btn-primary" href="{% url 'patients:detail' patient.pk %}">Open patient record</a>
+</div>
