@@ -18,10 +18,6 @@ class DuplicateActivePatientDNIError(PatientServiceError):
         super().__init__("An active patient with this DNI already exists.")
 
 
-class InactivePatientError(PatientServiceError):
-    """Raised when an operation requires an active patient."""
-
-
 class DeactivationConfirmationRequiredError(PatientServiceError):
     """Raised when patient deactivation has not been explicitly confirmed."""
 
@@ -80,7 +76,7 @@ def update_patient(
 ) -> Patient:
     ADMINISTRATIVE_POLICY.require(actor)
     if not patient.is_active:
-        raise InactivePatientError("Inactive patients cannot be updated.")
+        raise ValidationError({"__all__": "Inactive patients cannot be updated."})
 
     mutable_fields = {
         "first_name",

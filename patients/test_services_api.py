@@ -181,6 +181,28 @@ def test_patient_update_api_changes_mutable_data_and_rejects_identifiers(user_fa
 
 
 @pytest.mark.django_db
+def test_patient_update_api_reports_inactive_patient_as_validation_error(
+    user_factory,
+):
+    client = administrative_api_client(user_factory)
+    patient = create_patient(actor=administrative_actor(), **valid_patient_data())
+    deactivate_patient(
+        actor=administrative_actor(),
+        patient=patient,
+        confirmed=True,
+    )
+
+    response = client.patch(
+        reverse("patients:api-detail", args=[patient.pk]),
+        {"phone": "+54 11 5555-9999"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.data["__all__"] == ["Inactive patients cannot be updated."]
+
+
+@pytest.mark.django_db
 def test_confirmed_deactivation_preserves_record_and_excludes_it_by_default():
     patient = create_patient(actor=administrative_actor(), **valid_patient_data())
     original_identifiers = (patient.pk, patient.dni, patient.clinical_record_number)

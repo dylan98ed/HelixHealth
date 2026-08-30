@@ -148,3 +148,24 @@ def test_server_rendered_update_does_not_expose_immutable_fields(
     assert b'name="clinical_record_number"' not in response.content
     assert patient.dni.encode() in response.content
     assert patient.clinical_record_number.encode() in response.content
+
+
+@pytest.mark.django_db
+def test_server_rendered_update_reports_inactive_patient_without_server_error(
+    client,
+    user_factory,
+):
+    login_administrative_user(client, user_factory)
+    patient = create_patient(actor=administrative_actor(), **valid_patient_data())
+    patient.is_active = False
+    patient.save(update_fields=["is_active"])
+
+    payload = valid_patient_data(date_of_birth="1990-01-01")
+    payload.pop("dni")
+    response = client.post(
+        reverse("patients:update", args=[patient.pk]),
+        payload,
+    )
+
+    assert response.status_code == 200
+    assert b"Inactive patients cannot be updated." in response.content
