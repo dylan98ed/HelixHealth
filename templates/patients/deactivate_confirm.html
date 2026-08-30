@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Deactivate patient · HelixHealth{% endblock %}
+
+{% block content %}
+  <h1>Deactivate patient</h1>
+  <p>This preserves {{ patient.clinical_record_number }} and all linked clinical information.</p>
+  {% if error_message %}<div class="alert alert-danger">{{ error_message }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <div class="form-check mb-3">
+      <input class="form-check-input" id="confirm" name="confirm" type="checkbox" value="yes">
+      <label class="form-check-label" for="confirm">I confirm this patient should be deactivated.</label>
+    </div>
+    <button class="btn btn-danger" type="submit">Deactivate patient</button>
+  </form>
+{% endblock %}

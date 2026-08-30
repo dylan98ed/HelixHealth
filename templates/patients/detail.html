@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Patient {{ patient.clinical_record_number }} · HelixHealth{% endblock %}
+
+{% block content %}
+  <h1>{{ patient.first_name }} {{ patient.last_name }}</h1>
+  <dl class="row">
+    <dt class="col-sm-4">Internal ID</dt><dd class="col-sm-8">{{ patient.pk }}</dd>
+    <dt class="col-sm-4">DNI</dt><dd class="col-sm-8">{{ patient.dni }}</dd>
+    <dt class="col-sm-4">Clinical record number</dt><dd class="col-sm-8">{{ patient.clinical_record_number }}</dd>
+    <dt class="col-sm-4">Date of birth</dt><dd class="col-sm-8">{{ patient.date_of_birth }}</dd>
+    <dt class="col-sm-4">Sex</dt><dd class="col-sm-8">{{ patient.sex }}</dd>
+    <dt class="col-sm-4">Phone</dt><dd class="col-sm-8">{{ patient.phone }}</dd>
+    <dt class="col-sm-4">Email</dt><dd class="col-sm-8">{{ patient.email }}</dd>
+    <dt class="col-sm-4">Address</dt><dd class="col-sm-8">{{ patient.address }}</dd>
+    <dt class="col-sm-4">Health insurer</dt><dd class="col-sm-8">{{ patient.health_insurer }}</dd>
+    <dt class="col-sm-4">Status</dt><dd class="col-sm-8">{% if patient.is_active %}Active{% else %}Inactive{% endif %}</dd>
+  </dl>
+  {% if patient.is_active %}
+    <a class="btn btn-primary" href="{% url 'patients:update' patient.pk %}">Edit patient</a>
+    <a class="btn btn-outline-danger" href="{% url 'patients:deactivate' patient.pk %}">Deactivate patient</a>
+  {% endif %}
+{% endblock %}
