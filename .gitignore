@@ -1,4 +1,8 @@
-/.agents/
+/.agents/*
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/validate-live-app/
+!/.agents/skills/validate-live-app/**
 /.venv/
 __pycache__/
 *.py[cod]

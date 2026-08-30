@@ -1,0 +1,5 @@
+interface:
+  display_name: "Validate HelixHealth Live"
+  short_description: "Boot and verify HelixHealth after code changes"
+policy:
+  allow_implicit_invocation: true
