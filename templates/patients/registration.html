@@ -8,3 +8,14 @@
     {% include "patients/_registration_form.html" %}
   </div>
 {% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    document.body.addEventListener("htmx:beforeSwap", (event) => {
+      if (event.detail.xhr.status === 422) {
+        event.detail.shouldSwap = true;
+        event.detail.isError = false;
+      }
+    });
+  </script>
+{% endblock %}

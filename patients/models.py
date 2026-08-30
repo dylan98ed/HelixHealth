@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any
+
 from django.db import models
 from django.db.models import Q
 
@@ -22,7 +25,6 @@ class Patient(models.Model):
         max_length=32,
         unique=True,
         editable=False,
-        default=generate_clinical_record_number,
     )
     first_name = models.CharField(max_length=150, validators=[validate_not_blank])
     last_name = models.CharField(max_length=150, validators=[validate_not_blank])
@@ -62,3 +64,23 @@ class Patient(models.Model):
 
     def __str__(self) -> str:
         return f"{self.last_name}, {self.first_name} ({self.dni})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self._state.adding and not self.clinical_record_number:
+            self.clinical_record_number = generate_clinical_record_number()
+        super().save(*args, **kwargs)
+
+    def full_clean(
+        self,
+        exclude: Iterable[str] | None = None,
+        validate_unique: bool = True,
+        validate_constraints: bool = True,
+    ) -> None:
+        excluded_fields = set(exclude or ())
+        if self._state.adding and not self.clinical_record_number:
+            excluded_fields.add("clinical_record_number")
+        super().full_clean(
+            exclude=excluded_fields,
+            validate_unique=validate_unique,
+            validate_constraints=validate_constraints,
+        )

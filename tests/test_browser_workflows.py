@@ -6,6 +6,7 @@ from django.urls import reverse
 from playwright.sync_api import Page, expect
 
 from access_control.roles import ADMINISTRATIVE_GROUP
+from patients.identifiers import generate_clinical_record_number
 
 TEST_PASSWORD = "Browser-test-password-2026!"
 
@@ -30,6 +31,13 @@ def browser_patient_administrator(user_factory):
     administrative_group, _ = Group.objects.get_or_create(name=ADMINISTRATIVE_GROUP)
     user.groups.add(administrative_group)
     return user
+
+
+@pytest.fixture
+def next_clinical_record_number(browser_patient_administrator):
+    previous_number = generate_clinical_record_number()
+    next_value = int(previous_number.removeprefix("HC-")) + 1
+    return f"HC-{next_value:08d}"
 
 
 def login_through_admin(
@@ -80,6 +88,7 @@ def test_superuser_creates_user_through_admin(
 @pytest.mark.django_db(transaction=True)
 def test_administrative_user_registers_patient_through_ui(
     browser_patient_administrator,
+    next_clinical_record_number,
     live_server,
     browser_page,
 ):
@@ -100,11 +109,18 @@ def test_administrative_user_registers_patient_through_ui(
     browser_page.get_by_label("Email").fill("browser.patient@example.test")
     browser_page.get_by_label("Address").fill("Browser Test Street 123")
     browser_page.get_by_label("Health insurer").fill("Browser Health")
+    browser_page.get_by_label("Phone").fill("invalid")
+    browser_page.get_by_role("button", name="Register patient").click()
+
+    expect(browser_page.locator('[data-field-error="phone"]')).to_be_visible()
+    expect(browser_page.get_by_role("status")).to_have_count(0)
+
+    browser_page.get_by_label("Phone").fill("+54 11 5555-0199")
     browser_page.get_by_role("button", name="Register patient").click()
 
     result = browser_page.get_by_role("status")
     expect(result).to_contain_text("Patient registered")
-    expect(result).to_contain_text(re.compile(r"HC-\d{8,}"))
+    expect(result).to_contain_text(next_clinical_record_number)
 
     browser_page.get_by_role("link", name="Open patient record").click()
     expect(browser_page).to_have_url(re.compile(r"/patients/\d+/$"))

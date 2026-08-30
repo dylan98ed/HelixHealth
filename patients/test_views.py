@@ -6,6 +6,7 @@ from django.urls import reverse
 
 from access_control.actors import ActorContext, ActorRole
 from access_control.roles import ADMINISTRATIVE_GROUP
+from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
 from patients.services import create_patient
 
@@ -93,6 +94,28 @@ def test_htmx_registration_identifies_each_invalid_field(client, user_factory):
     ):
         assert f'data-field-error="{field_name}"'.encode() in response.content
     assert Patient.all_objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_invalid_registration_does_not_allocate_clinical_record_number(
+    client,
+    user_factory,
+):
+    login_administrative_user(client, user_factory)
+    number_before_invalid_submission = generate_clinical_record_number()
+
+    response = client.post(
+        reverse("patients:register"),
+        valid_patient_data(phone="invalid", date_of_birth="1990-01-01"),
+        HTTP_HX_REQUEST="true",
+    )
+
+    number_after_invalid_submission = generate_clinical_record_number()
+    before_value = int(number_before_invalid_submission.removeprefix("HC-"))
+    after_value = int(number_after_invalid_submission.removeprefix("HC-"))
+    assert response.status_code == 422
+    assert Patient.all_objects.count() == 0
+    assert after_value == before_value + 1
 
 
 @pytest.mark.django_db
