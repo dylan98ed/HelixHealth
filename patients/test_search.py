@@ -110,6 +110,10 @@ def test_search_api_returns_found_and_empty_result_shapes(user_factory):
     url = reverse("patients:api-search")
 
     found = client.get(url, {"dni": patient.dni})
+    found_with_surrounding_whitespace = client.get(
+        url,
+        {"dni": f"  {patient.dni}  "},
+    )
     missing = client.get(url, {"dni": "7654321"})
 
     assert found.status_code == status.HTTP_200_OK
@@ -122,6 +126,8 @@ def test_search_api_returns_found_and_empty_result_shapes(user_factory):
             }
         ]
     }
+    assert found_with_surrounding_whitespace.status_code == status.HTTP_200_OK
+    assert found_with_surrounding_whitespace.data == found.data
     assert missing.status_code == status.HTTP_200_OK
     assert missing.data == {"results": []}
 
