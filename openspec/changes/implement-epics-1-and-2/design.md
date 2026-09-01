@@ -70,7 +70,7 @@ Consultation and modification attempts produce audit events containing server ti
 
 ### Design exact-DNI search for indexed lookup
 
-Require DNI input in its canonical 7-or-8-ASCII-digit format, store it unchanged, and query it through a unique index. Reject punctuation and whitespace instead of stripping them. Measure the two-second requirement at the application boundary under a documented MVP-size dataset, including authorization and serialization. Broad fuzzy search is deferred.
+Store DNI values in their canonical 7-or-8-ASCII-digit format and query them through a unique index. For search input, trim leading and trailing whitespace before validating the canonical value; continue to reject punctuation, internal whitespace, and other noncanonical characters. Measure the two-second requirement at the application boundary under a documented MVP-size dataset, including authorization and serialization. Broad fuzzy search is deferred.
 
 ### Keep FHIR at an interoperability boundary
 

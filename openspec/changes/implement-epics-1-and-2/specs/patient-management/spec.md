@@ -34,7 +34,7 @@ The system SHALL allow an administrative user to view and update all mutable pat
 - **THEN** the system marks the patient inactive, excludes the patient from default active searches, and preserves all linked admission and clinical data
 
 ### Requirement: HU-02 - Search for a patient by DNI
-The system SHALL allow an administrative user to search for a patient by exact DNI. Under the expected MVP workload, the result SHALL be returned within two seconds and SHALL show the patient's full name and clinical record number.
+The system SHALL allow an administrative user to search for a patient by exact DNI. The system SHALL trim leading and trailing whitespace from search input before validating and matching the DNI; punctuation, internal whitespace, and other noncanonical characters SHALL remain invalid. Under the expected MVP workload, the result SHALL be returned within two seconds and SHALL show the patient's full name and clinical record number.
 
 #### Scenario: Matching patient is found
 - **WHEN** an administrative user searches with the DNI of an existing active patient
@@ -43,6 +43,10 @@ The system SHALL allow an administrative user to search for a patient by exact D
 #### Scenario: No patient matches
 - **WHEN** an administrative user searches with a valid DNI that is not registered
 - **THEN** the system returns an empty result within two seconds and offers the patient-registration action
+
+#### Scenario: Search input contains surrounding whitespace
+- **WHEN** an administrative user searches through the user interface or API with an otherwise valid DNI surrounded by leading or trailing whitespace
+- **THEN** the system trims the surrounding whitespace and performs the exact-DNI search using the canonical value
 
 ### Requirement: HU-02 - Open patient details from search
 The system SHALL allow an administrative user to open the complete patient record with one user action from a matching DNI search result.
