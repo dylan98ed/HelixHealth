@@ -45,7 +45,7 @@ The system SHALL allow an administrative user to view and update mutable profess
 - **THEN** the system marks the professional inactive, blocks new clinical access, and preserves linked records and audit events
 
 ### Requirement: HU-05 - Search for a professional by DNI
-The system SHALL allow an administrative user to search for a professional by exact DNI. Under the expected MVP workload, the result SHALL be returned within two seconds and SHALL show the professional's full name and license number.
+The system SHALL allow an administrative user to search for a professional by exact DNI. The system SHALL trim leading and trailing whitespace from search input before validating and matching the DNI; punctuation, internal whitespace, and other noncanonical characters SHALL remain invalid. Under the expected MVP workload, the result SHALL be returned within two seconds and SHALL show the professional's full name and license number.
 
 #### Scenario: Matching professional is found
 - **WHEN** an administrative user searches with the DNI of an existing active professional
@@ -54,6 +54,10 @@ The system SHALL allow an administrative user to search for a professional by ex
 #### Scenario: No professional matches
 - **WHEN** an administrative user searches with a valid DNI that is not registered
 - **THEN** the system returns an empty result within two seconds and offers the professional-registration action
+
+#### Scenario: Search input contains surrounding whitespace
+- **WHEN** an administrative user searches through the user interface or API with an otherwise valid DNI surrounded by leading or trailing whitespace
+- **THEN** the system trims the surrounding whitespace and performs the exact-DNI search using the canonical value
 
 ### Requirement: HU-05 - Open professional details from search
 The system SHALL allow an administrative user to open the complete professional record with one user action from a matching DNI search result.

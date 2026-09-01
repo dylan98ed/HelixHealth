@@ -16,6 +16,9 @@
       <nav class="navbar bg-primary" data-bs-theme="dark" aria-label="Main navigation">
         <div class="container">
           <a class="navbar-brand fw-semibold" href="{% url 'home' %}">HelixHealth</a>
+          {% if is_administrative_actor %}
+            <a class="btn btn-sm btn-outline-light" href="{% url 'patients:search' %}">Patient search</a>
+          {% endif %}
         </div>
       </nav>
     </header>

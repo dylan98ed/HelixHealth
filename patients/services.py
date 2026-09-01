@@ -115,3 +115,14 @@ def deactivate_patient(
         patient.is_active = False
         patient.save(update_fields=["is_active"])
     return patient
+
+
+def lookup_active_patient_by_dni(
+    *,
+    actor: ActorContext | None,
+    dni: str,
+) -> Patient | None:
+    """Return the active patient whose DNI exactly matches a canonical value."""
+    ADMINISTRATIVE_POLICY.require(actor)
+    Patient._meta.get_field("dni").run_validators(dni)
+    return Patient.objects.filter(dni=dni).first()

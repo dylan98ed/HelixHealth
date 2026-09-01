@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Search patients · HelixHealth{% endblock %}
+
+{% block content %}
+  <h1>Search patients</h1>
+  <p class="text-body-secondary">Enter an exact 7- or 8-digit DNI.</p>
+  <form
+    method="get"
+    action="{% url 'patients:search' %}"
+    hx-get="{% url 'patients:search-results' %}"
+    hx-target="#search-results"
+    hx-swap="innerHTML"
+  >
+    <div class="mb-3">
+      <label class="form-label" for="{{ form.dni.id_for_label }}">{{ form.dni.label }}</label>
+      {{ form.dni }}
+    </div>
+    <button class="btn btn-primary" type="submit">Search patient</button>
+  </form>
+  <div id="search-results" class="mt-4" aria-live="polite">
+    {% if form.is_bound %}
+      {% include "patients/_search_results.html" %}
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    document.body.addEventListener("htmx:beforeSwap", (event) => {
+      if (event.detail.xhr.status === 422) {
+        event.detail.shouldSwap = true;
+        event.detail.isError = false;
+      }
+    });
+  </script>
+{% endblock %}
