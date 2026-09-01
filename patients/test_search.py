@@ -189,9 +189,7 @@ def test_patient_search_navigation_is_only_visible_to_administrative_users(
     administrative_user = user_factory(username="search-navigation-admin")
     administrative_user.groups.add(Group.objects.get(name=ADMINISTRATIVE_GROUP))
     professional_user = user_factory(username="search-navigation-professional")
-    professional_user.groups.add(
-        Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP)
-    )
+    professional_user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
 
     client.force_login(administrative_user)
     administrative_response = client.get(reverse("home"))
