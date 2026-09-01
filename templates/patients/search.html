@@ -7,7 +7,7 @@
   <p class="text-body-secondary">Enter an exact 7- or 8-digit DNI.</p>
   <form
     method="get"
-    action="{% url 'patients:search-results' %}"
+    action="{% url 'patients:search' %}"
     hx-get="{% url 'patients:search-results' %}"
     hx-target="#search-results"
     hx-swap="innerHTML"
@@ -18,7 +18,11 @@
     </div>
     <button class="btn btn-primary" type="submit">Search patient</button>
   </form>
-  <div id="search-results" class="mt-4" aria-live="polite"></div>
+  <div id="search-results" class="mt-4" aria-live="polite">
+    {% if form.is_bound %}
+      {% include "patients/_search_results.html" %}
+    {% endif %}
+  </div>
 {% endblock %}
 
 {% block extra_scripts %}

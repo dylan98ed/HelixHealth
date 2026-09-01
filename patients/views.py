@@ -54,6 +54,22 @@ def is_htmx(request: HttpRequest) -> bool:
     return bool(getattr(request, "htmx", False))
 
 
+def patient_search_context(
+    request: HttpRequest,
+    *,
+    bind_empty_query: bool = False,
+) -> dict[str, object]:
+    query = request.GET if request.GET or bind_empty_query else None
+    form = PatientSearchForm(query)
+    patient = None
+    if form.is_bound and form.is_valid():
+        patient = lookup_active_patient_by_dni(
+            actor=actor_context_from_user(request.user),
+            dni=form.cleaned_data["dni"],
+        )
+    return {"form": form, "patient": patient}
+
+
 @administrative_required
 @require_http_methods(["GET", "POST"])
 def patient_registration(request: HttpRequest) -> HttpResponse:
@@ -97,23 +113,19 @@ def patient_registration(request: HttpRequest) -> HttpResponse:
 @administrative_required
 @require_http_methods(["GET"])
 def patient_search(request: HttpRequest) -> HttpResponse:
-    return render(request, "patients/search.html", {"form": PatientSearchForm()})
+    return render(request, "patients/search.html", patient_search_context(request))
 
 
 @administrative_required
 @require_http_methods(["GET"])
 def patient_search_results(request: HttpRequest) -> HttpResponse:
-    form = PatientSearchForm(request.GET)
-    patient = None
-    if form.is_valid():
-        patient = lookup_active_patient_by_dni(
-            actor=actor_context_from_user(request.user),
-            dni=form.cleaned_data["dni"],
-        )
+    context = patient_search_context(request, bind_empty_query=True)
+    form = context["form"]
+    assert isinstance(form, PatientSearchForm)
     return render(
         request,
         "patients/_search_results.html",
-        {"form": form, "patient": patient},
+        context,
         status=200 if form.is_valid() else 422,
     )
 

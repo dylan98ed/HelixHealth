@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from access_control.actors import ActorContext, ActorRole
-from access_control.roles import ADMINISTRATIVE_GROUP
+from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from patients.models import Patient
 from patients.services import lookup_active_patient_by_dni
 
@@ -158,6 +158,48 @@ def test_htmx_search_result_links_to_patient_detail(client, user_factory):
     assert b"Alex Patient" in response.content
     assert patient.clinical_record_number.encode() in response.content
     assert reverse("patients:detail", args=[patient.pk]).encode() in response.content
+
+
+@pytest.mark.django_db
+def test_plain_search_submission_keeps_full_page_and_displays_result(
+    client,
+    user_factory,
+):
+    user = user_factory(username="patient-search-plain-admin")
+    user.groups.add(Group.objects.get(name=ADMINISTRATIVE_GROUP))
+    client.force_login(user)
+    patient = create_patient()
+
+    response = client.get(reverse("patients:search"), {"dni": patient.dni})
+
+    assert response.status_code == 200
+    assert b"<html" in response.content
+    assert b"Search patients" in response.content
+    assert b'name="dni"' in response.content
+    assert b"Alex Patient" in response.content
+    assert patient.clinical_record_number.encode() in response.content
+
+
+@pytest.mark.django_db
+def test_patient_search_navigation_is_only_visible_to_administrative_users(
+    client,
+    user_factory,
+):
+    search_url = reverse("patients:search")
+    administrative_user = user_factory(username="search-navigation-admin")
+    administrative_user.groups.add(Group.objects.get(name=ADMINISTRATIVE_GROUP))
+    professional_user = user_factory(username="search-navigation-professional")
+    professional_user.groups.add(
+        Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP)
+    )
+
+    client.force_login(administrative_user)
+    administrative_response = client.get(reverse("home"))
+    client.force_login(professional_user)
+    professional_response = client.get(reverse("home"))
+
+    assert search_url.encode() in administrative_response.content
+    assert search_url.encode() not in professional_response.content
 
 
 @pytest.mark.django_db

@@ -160,10 +160,19 @@ def test_administrative_user_searches_patient_and_prefills_registration(
     clinical_record_number = re.search(r"HC-\d{8,}", registration_result.text_content())
     assert clinical_record_number is not None
 
-    browser_page.goto(f"{live_server.url}{reverse('patients:search')}")
+    browser_page.goto(f"{live_server.url}{reverse('home')}")
+    browser_page.get_by_role("link", name="Patient search").click()
+    browser_page.locator("form").evaluate(
+        "form => form.replaceWith(form.cloneNode(true))"
+    )
     browser_page.get_by_label("DNI").fill("13572468")
     browser_page.get_by_role("button", name="Search patient").click()
 
+    expect(browser_page).to_have_url(
+        f"{live_server.url}{reverse('patients:search')}?dni=13572468"
+    )
+    expect(browser_page.get_by_role("heading", name="Search patients")).to_be_visible()
+    expect(browser_page.get_by_label("DNI")).to_have_value("13572468")
     expect(browser_page.get_by_text("Searchable Patient", exact=False)).to_be_visible()
     expect(browser_page.get_by_text(clinical_record_number.group())).to_be_visible()
     browser_page.get_by_role("link", name="Open patient record").click()
