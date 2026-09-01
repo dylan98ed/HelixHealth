@@ -15,12 +15,15 @@ from rest_framework.response import Response
 
 from access_control.actors import actor_context_from_user
 from access_control.policies import ADMINISTRATIVE_POLICY, IsAdministrativeActor
-from patients.forms import PatientRegistrationForm, PatientUpdateForm
+from patients.forms import PatientRegistrationForm, PatientSearchForm, PatientUpdateForm
 from patients.models import Patient
 from patients.serializers import (
     PatientCreateSerializer,
     PatientDeactivateSerializer,
     PatientDetailSerializer,
+    PatientSearchQuerySerializer,
+    PatientSearchResponseSerializer,
+    PatientSearchResultSerializer,
     PatientUpdateSerializer,
 )
 from patients.services import (
@@ -28,6 +31,7 @@ from patients.services import (
     DuplicateActivePatientDNIError,
     create_patient,
     deactivate_patient,
+    lookup_active_patient_by_dni,
     update_patient,
 )
 
@@ -53,7 +57,10 @@ def is_htmx(request: HttpRequest) -> bool:
 @administrative_required
 @require_http_methods(["GET", "POST"])
 def patient_registration(request: HttpRequest) -> HttpResponse:
-    form = PatientRegistrationForm(request.POST or None)
+    form = PatientRegistrationForm(
+        request.POST or None,
+        initial={"dni": request.GET.get("dni", "")},
+    )
     existing_patient = None
 
     if request.method == "POST" and form.is_valid():
@@ -85,6 +92,30 @@ def patient_registration(request: HttpRequest) -> HttpResponse:
             status=422,
         )
     return render(request, "patients/registration.html", context)
+
+
+@administrative_required
+@require_http_methods(["GET"])
+def patient_search(request: HttpRequest) -> HttpResponse:
+    return render(request, "patients/search.html", {"form": PatientSearchForm()})
+
+
+@administrative_required
+@require_http_methods(["GET"])
+def patient_search_results(request: HttpRequest) -> HttpResponse:
+    form = PatientSearchForm(request.GET)
+    patient = None
+    if form.is_valid():
+        patient = lookup_active_patient_by_dni(
+            actor=actor_context_from_user(request.user),
+            dni=form.cleaned_data["dni"],
+        )
+    return render(
+        request,
+        "patients/_search_results.html",
+        {"form": form, "patient": patient},
+        status=200 if form.is_valid() else 422,
+    )
 
 
 @administrative_required
@@ -174,6 +205,29 @@ class PatientCreateAPIView(GenericAPIView):
             PatientDetailSerializer(patient).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class PatientSearchAPIView(GenericAPIView):
+    permission_classes = [IsAdministrativeActor]
+    serializer_class = PatientSearchQuerySerializer
+
+    @extend_schema(
+        parameters=[PatientSearchQuerySerializer],
+        responses={200: PatientSearchResponseSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        patient = lookup_active_patient_by_dni(
+            actor=actor_context_from_user(request.user),
+            dni=query.validated_data["dni"],
+        )
+        results = (
+            PatientSearchResultSerializer([patient], many=True).data
+            if patient is not None
+            else []
+        )
+        return Response({"results": results})
 
 
 class PatientDetailUpdateAPIView(GenericAPIView):

@@ -27,6 +27,26 @@ class PatientDetailSerializer(serializers.ModelSerializer):
         read_only_fields = PATIENT_DETAIL_FIELDS
 
 
+class PatientSearchResultSerializer(serializers.ModelSerializer):
+    full_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Patient
+        fields = ("id", "full_name", "clinical_record_number")
+        read_only_fields = fields
+
+    def get_full_name(self, patient: Patient) -> str:
+        return f"{patient.first_name} {patient.last_name}"
+
+
+class PatientSearchQuerySerializer(serializers.Serializer):
+    dni = serializers.CharField(max_length=8, validators=[validate_patient_dni])
+
+
+class PatientSearchResponseSerializer(serializers.Serializer):
+    results = PatientSearchResultSerializer(many=True)
+
+
 class PatientCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Patient

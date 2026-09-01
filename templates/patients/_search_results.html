@@ -1,0 +1,24 @@
+{% if form.errors %}
+  <div class="alert alert-danger" role="alert">
+    {% for error in form.dni.errors %}
+      <div data-field-error="dni">{{ error }}</div>
+    {% endfor %}
+  </div>
+{% elif patient %}
+  <section class="card border-0 shadow-sm" aria-labelledby="patient-result-heading">
+    <div class="card-body">
+      <h2 class="h5" id="patient-result-heading">Patient found</h2>
+      <p class="mb-1"><strong>Full name:</strong> {{ patient.first_name }} {{ patient.last_name }}</p>
+      <p><strong>Clinical record number:</strong> {{ patient.clinical_record_number }}</p>
+      <a class="btn btn-primary" href="{% url 'patients:detail' patient.pk %}">Open patient record</a>
+    </div>
+  </section>
+{% else %}
+  <div class="alert alert-info" role="status">
+    <p>No patient matches DNI {{ form.cleaned_data.dni }}.</p>
+    <a
+      class="btn btn-primary"
+      href="{% url 'patients:register' %}?dni={{ form.cleaned_data.dni|urlencode }}"
+    >Register a new patient</a>
+  </div>
+{% endif %}

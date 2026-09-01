@@ -1,6 +1,7 @@
 from django import forms
 
 from patients.models import Patient
+from patients.validators import validate_patient_dni
 
 PATIENT_REGISTRATION_FIELDS = (
     "dni",
@@ -38,3 +39,11 @@ class PatientUpdateForm(forms.ModelForm):
         model = Patient
         fields = PATIENT_MUTABLE_FIELDS
         widgets = {"date_of_birth": forms.DateInput(attrs={"type": "date"})}
+
+
+class PatientSearchForm(forms.Form):
+    dni = forms.CharField(
+        label="DNI",
+        max_length=8,
+        validators=[validate_patient_dni],
+    )

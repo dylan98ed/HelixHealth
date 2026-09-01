@@ -28,12 +28,12 @@
 
 ## 3. Sprint 1 - HU-02 Patient Search
 
-- [ ] 3.1 Add a unique index for canonical patient DNI; verify the database query plan uses the index for exact-DNI lookup.
-- [ ] 3.2 Implement an exact patient lookup service and DRF endpoint using canonical DNI; verify found and not-found API tests return the specified result shapes.
-- [ ] 3.3 Build the patient DNI search template with HTMX results showing full name and clinical record number; verify an administrative user can reach patient details with one action.
-- [ ] 3.4 Add the no-result registration action; verify a valid unmatched DNI can prefill a new patient registration without creating a record automatically.
-- [ ] 3.5 Measure patient lookup against a documented MVP-size dataset; verify the end-to-end p95 response time is below two seconds.
-- [ ] 3.6 Run the Sprint 1 HU-01/HU-02 acceptance walkthrough and record evidence; verify every scenario in the patient registration and search specs passes.
+- [x] 3.1 Add a unique index for canonical patient DNI; verify the database query plan uses the index for exact-DNI lookup.
+- [x] 3.2 Implement an exact patient lookup service and DRF endpoint using canonical DNI; verify found and not-found API tests return the specified result shapes.
+- [x] 3.3 Build the patient DNI search template with HTMX results showing full name and clinical record number; verify an administrative user can reach patient details with one action.
+- [x] 3.4 Add the no-result registration action; verify a valid unmatched DNI can prefill a new patient registration without creating a record automatically.
+- [x] 3.5 Measure patient lookup against a documented MVP-size dataset; verify the end-to-end p95 response time is below two seconds.
+- [x] 3.6 Run the Sprint 1 HU-01/HU-02 acceptance walkthrough and record evidence; verify every scenario in the patient registration and search specs passes.
 
 ## 4. Sprint 2 - HU-03 Patient Admission
 
