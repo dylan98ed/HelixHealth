@@ -20,4 +20,13 @@
     <a class="btn btn-primary" href="{% url 'patients:update' patient.pk %}">Edit patient</a>
     <a class="btn btn-outline-danger" href="{% url 'patients:deactivate' patient.pk %}">Deactivate patient</a>
   {% endif %}
+
+  <section class="mt-5" aria-labelledby="admissions-heading">
+    <h2 id="admissions-heading">Admissions</h2>
+    {% for admission in admissions %}
+      {% include "clinical_records/_admission_record.html" %}
+    {% empty %}
+      <p>No admissions have been recorded.</p>
+    {% endfor %}
+  </section>
 {% endblock %}

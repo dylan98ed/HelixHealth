@@ -37,14 +37,14 @@
 
 ## 4. Sprint 2 - HU-03 Patient Admission
 
-- [ ] 4.1 Create admission and vital-sign persistence in `clinical_records` for patient, professional, consultation reason, blood pressure, heart rate, temperature, and server timestamp; verify Django migrations apply and PostgreSQL constraints reject orphaned patient or professional relations.
-- [ ] 4.2 Define configurable accepted ranges and units for all vital signs; verify boundary-value tests cover minimum, maximum, and out-of-range inputs.
-- [ ] 4.3 Implement admission creation for active patients and authenticated active medical professionals; verify authorization tests reject missing, inactive, or non-professional actors.
-- [ ] 4.4 Set admission timestamp and professional identity on the server; verify tests prove submitted overrides are ignored or rejected.
-- [ ] 4.5 Make admission creation atomic; verify invalid consultation reasons or vital signs create neither a complete nor partial admission record.
-- [ ] 4.6 Build the medical admission Django template with HTMX submission for consultation reason and all required vital-sign inputs; verify error messages identify the specific missing or invalid value.
-- [ ] 4.7 Display the saved admission in the patient's record with professional and timestamp metadata; verify the visible data matches the persisted admission.
-- [ ] 4.8 Run the Sprint 2 HU-03 acceptance walkthrough and record evidence; verify every admission scenario in the patient-management spec passes.
+- [x] 4.1 Create admission and vital-sign persistence in `clinical_records` for patient, professional, consultation reason, blood pressure, heart rate, temperature, and server timestamp; verify Django migrations apply and PostgreSQL constraints reject orphaned patient or professional relations.
+- [x] 4.2 Define configurable accepted ranges and units for all vital signs; verify boundary-value tests cover minimum, maximum, and out-of-range inputs.
+- [x] 4.3 Implement admission creation for active patients and authenticated active medical professionals; verify authorization tests reject missing, inactive, or non-professional actors.
+- [x] 4.4 Set admission timestamp and professional identity on the server; verify tests prove submitted overrides are ignored or rejected.
+- [x] 4.5 Make admission creation atomic; verify invalid consultation reasons or vital signs create neither a complete nor partial admission record.
+- [x] 4.6 Build the application login, medical workspace listing active patients, patient-DNI lookup, and admission Django templates with HTMX submission for consultation reason and all required vital-sign inputs; provision the minimal professional identity for active medical-role accounts that do not have one yet; redirect a staff medical professional without administrative permissions from the legacy Django Admin landing page into the clinical workspace; verify a non-staff professional reaches the workflow without Django Admin or an internal patient ID and error messages identify the specific missing or invalid value.
+- [x] 4.7 Display the saved admission in the patient's record with professional and timestamp metadata; verify the visible data matches the persisted admission.
+- [x] 4.8 Run the Sprint 2 HU-03 acceptance walkthrough and record evidence; verify every admission scenario in the patient-management spec passes.
 
 ## 5. Sprint 3 - HU-04 Professional Registration and Maintenance
 

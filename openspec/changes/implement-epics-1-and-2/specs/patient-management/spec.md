@@ -58,6 +58,34 @@ The system SHALL allow an administrative user to open the complete patient recor
 ### Requirement: HU-03 - Record consultation reason and vital signs
 The system SHALL allow an authorized medical professional to create an admission record for an active patient containing the consultation reason, systolic and diastolic blood pressure, heart rate in beats per minute, and temperature in degrees Celsius.
 
+The system SHALL allow the professional to find the active patient by exact DNI from the medical workflow and open the admission form without entering or knowing the patient's internal identifier.
+
+The system SHALL provide an application-facing clinical workspace, separate from Django administration, where an authenticated active medical professional can see all active patients and start an admission.
+
+#### Scenario: Professional enters the clinical workspace
+- **WHEN** an active medical professional signs in through the application login
+- **THEN** the system opens the clinical workspace, lists all active patients, excludes inactive patients, and offers an admission action for each listed patient
+
+#### Scenario: Medical-role account has no professional identity yet
+- **WHEN** an active user in the Medical Professionals role signs in or returns to the generic landing page without an existing professional identity record
+- **THEN** the system provisions the minimal active professional identity and opens the clinical workspace instead of the generic landing page
+
+#### Scenario: Professional enters through the legacy administration login
+- **WHEN** an active staff medical professional without administrative permissions signs in through the Django administration login
+- **THEN** the system redirects the professional to the clinical workspace instead of displaying an empty administration site
+
+#### Scenario: Authorized administrator enters Django administration
+- **WHEN** a staff user with administrative permissions opens the Django administration landing page
+- **THEN** the system preserves access to Django administration without redirecting the user to the clinical workspace
+
+#### Scenario: Professional selects a patient for admission
+- **WHEN** an authorized medical professional searches with the exact DNI of an active patient
+- **THEN** the system shows the patient's full name and clinical record number and offers the admission action in one click
+
+#### Scenario: No active patient is available for admission
+- **WHEN** an authorized medical professional searches with a valid DNI that does not belong to an active patient
+- **THEN** the system reports that no active patient matches and does not expose an admission action
+
 #### Scenario: Admission record is valid
 - **WHEN** an authorized medical professional submits a consultation reason and all required vital-sign values for an active patient
 - **THEN** the system creates one admission record linked to that patient

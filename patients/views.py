@@ -15,6 +15,7 @@ from rest_framework.response import Response
 
 from access_control.actors import actor_context_from_user
 from access_control.policies import ADMINISTRATIVE_POLICY, IsAdministrativeActor
+from clinical_records.models import Admission
 from patients.forms import PatientRegistrationForm, PatientSearchForm, PatientUpdateForm
 from patients.models import Patient
 from patients.serializers import (
@@ -134,7 +135,14 @@ def patient_search_results(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def patient_detail(request: HttpRequest, pk: int) -> HttpResponse:
     patient = get_object_or_404(Patient.all_objects, pk=pk)
-    return render(request, "patients/detail.html", {"patient": patient})
+    admissions = Admission.objects.filter(patient=patient).select_related(
+        "professional__user"
+    )
+    return render(
+        request,
+        "patients/detail.html",
+        {"patient": patient, "admissions": admissions},
+    )
 
 
 @administrative_required

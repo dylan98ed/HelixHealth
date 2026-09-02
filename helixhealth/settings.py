@@ -115,6 +115,7 @@ MIDDLEWARE = [
     "django_htmx.middleware.HtmxMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "access_control.middleware.MedicalProfessionalAdminRedirectMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -143,6 +144,9 @@ WSGI_APPLICATION = "helixhealth.wsgi.application"
 
 # Authentication and request forgery protection
 
+LOGIN_URL = "login"
+LOGOUT_REDIRECT_URL = "login"
+
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = not DEBUG
@@ -166,6 +170,31 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "API contracts for the HelixHealth hospital information system.",
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
+}
+
+# HU-03 application validation bounds. Deployments may override this complete
+# mapping in an environment-specific settings module without changing schema.
+CLINICAL_VITAL_SIGN_RANGES = {
+    "systolic_blood_pressure": {
+        "minimum": "70",
+        "maximum": "250",
+        "unit": "mmHg",
+    },
+    "diastolic_blood_pressure": {
+        "minimum": "40",
+        "maximum": "150",
+        "unit": "mmHg",
+    },
+    "heart_rate": {
+        "minimum": "30",
+        "maximum": "220",
+        "unit": "bpm",
+    },
+    "temperature": {
+        "minimum": "30.0",
+        "maximum": "45.0",
+        "unit": "degrees Celsius",
+    },
 }
 
 

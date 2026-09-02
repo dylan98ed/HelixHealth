@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Clinical workspace · HelixHealth{% endblock %}
+
+{% block content %}
+  <h1>Clinical workspace</h1>
+  <p>Choose an active patient below or search by exact DNI.</p>
+  <form
+    method="get"
+    action="{% url 'clinical_records:admission-search' %}"
+    hx-get="{% url 'clinical_records:admission-search-results' %}"
+    hx-target="#admission-search-results"
+    hx-swap="innerHTML"
+    class="row g-3 align-items-end mb-4"
+    novalidate
+  >
+    <div class="col-sm-6">
+      <label class="form-label" for="{{ form.dni.id_for_label }}">DNI</label>
+      {{ form.dni }}
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary" type="submit">Find patient</button>
+    </div>
+  </form>
+  <section id="admission-search-results" aria-live="polite">
+    {% include "clinical_records/_admission_search_results.html" %}
+  </section>
+
+  <section class="mt-5" aria-labelledby="active-patients-heading">
+    <h2 id="active-patients-heading">Active patients</h2>
+    <div class="row g-3">
+      {% for patient in active_patients %}
+        <div class="col-md-6" data-active-patient-id="{{ patient.pk }}">
+          <article class="card h-100">
+            <div class="card-body">
+              <h3 class="h5">{{ patient.first_name }} {{ patient.last_name }}</h3>
+              <dl class="mb-3">
+                <dt>DNI</dt><dd>{{ patient.dni }}</dd>
+                <dt>Clinical record number</dt><dd>{{ patient.clinical_record_number }}</dd>
+              </dl>
+              <a
+                class="btn btn-primary"
+                href="{% url 'clinical_records:patient-admissions' patient.pk %}"
+              >Record admission for {{ patient.first_name }} {{ patient.last_name }}</a>
+            </div>
+          </article>
+        </div>
+      {% empty %}
+        <p>No active patients are available.</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    document.body.addEventListener("htmx:beforeSwap", (event) => {
+      if (event.detail.xhr.status === 422) {
+        event.detail.shouldSwap = true;
+        event.detail.isError = false;
+      }
+    });
+  </script>
+{% endblock %}
