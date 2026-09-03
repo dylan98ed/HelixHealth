@@ -97,6 +97,8 @@ def compose_environment() -> tuple[dict[str, str], str, str]:
     environment = {
         **os.environ,
         "COMPOSE_PROJECT_NAME": project_name,
+        "DJANGO_ENVIRONMENT": "development",
+        "DB_HOST": "127.0.0.1",
         "DB_NAME": "helixhealth_acceptance",
         "DB_USER": "helixhealth_acceptance",
         "DB_PASSWORD": password,
@@ -119,7 +121,7 @@ def compose_command(project_name: str, *arguments: str) -> list[str]:
     ]
 
 
-def validate_compose_stack(root: Path, artifact_dir: Path) -> int:
+def validate_compose_stack(root: Path, artifact_dir: Path) -> tuple[int, int]:
     environment, project_name, base_url = compose_environment()
     succeeded = False
     try:
@@ -133,6 +135,28 @@ def validate_compose_stack(root: Path, artifact_dir: Path) -> int:
             cwd=root,
             env=environment,
         )
+        run(
+            ["uv", "run", "python", "manage.py", "check"],
+            cwd=root,
+            env=environment,
+        )
+        report = artifact_dir / "isolated-browser-results.xml"
+        run(
+            [
+                "uv",
+                "run",
+                "pytest",
+                "-m",
+                "browser",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                f"--junitxml={report}",
+            ],
+            cwd=root,
+            env=environment,
+        )
+        isolated_count = require_executed_browser_tests(report)
         run(
             compose_command(
                 project_name,
@@ -211,7 +235,7 @@ def validate_compose_stack(root: Path, artifact_dir: Path) -> int:
         summary = artifact_dir / "compose-browser-summary.json"
         journey_results = json.loads(summary.read_text(encoding="utf-8"))
         succeeded = True
-        return len(journey_results)
+        return isolated_count, len(journey_results)
     finally:
         logs = run(
             compose_command(project_name, "logs", "--no-color", "web", "db"),
@@ -256,24 +280,7 @@ def main() -> int:
     ).resolve()
     succeeded = False
     try:
-        run(["uv", "run", "python", "manage.py", "check"], cwd=root)
-        report = artifact_dir / "isolated-browser-results.xml"
-        run(
-            [
-                "uv",
-                "run",
-                "pytest",
-                "-m",
-                "browser",
-                "-q",
-                "-p",
-                "no:cacheprovider",
-                f"--junitxml={report}",
-            ],
-            cwd=root,
-        )
-        isolated_count = require_executed_browser_tests(report)
-        compose_count = validate_compose_stack(root, artifact_dir)
+        isolated_count, compose_count = validate_compose_stack(root, artifact_dir)
         succeeded = True
     finally:
         if succeeded:

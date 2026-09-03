@@ -338,6 +338,49 @@ def test_api_authorization_rejects_anonymous_admin_and_inactive_professional(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("profile_state", ["missing", "inactive"])
+def test_api_checks_active_professional_before_patient_lookup_or_validation(
+    client,
+    user_factory,
+    profile_state,
+):
+    patient = Patient.objects.create(**patient_attributes())
+    user = user_factory(username=f"api-{profile_state}-profile")
+    user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
+    if profile_state == "inactive":
+        Professional.objects.create(user=user, is_active=False)
+    client.force_login(user)
+
+    for patient_pk in (patient.pk, 999_999_999):
+        response = client.post(
+            reverse("clinical_records:api-create-admission", args=[patient_pk]),
+            {},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    assert Admission.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_api_rejects_a_non_object_json_body_without_server_error(
+    client,
+    user_factory,
+):
+    patient = Patient.objects.create(**patient_attributes())
+    user, _ = create_professional_user(user_factory)
+    client.force_login(user)
+
+    response = client.post(
+        reverse("clinical_records:api-create-admission", args=[patient.pk]),
+        [{}],
+        content_type="application/json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert Admission.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_htmx_admission_reports_specific_missing_and_invalid_values(
     client,
     user_factory,
@@ -358,6 +401,25 @@ def test_htmx_admission_reports_specific_missing_and_invalid_values(
     assert b'data-field-error="systolic_blood_pressure"' in response.content
     assert b'data-field-error="diastolic_blood_pressure"' in response.content
     assert Admission.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_non_htmx_admission_uses_post_redirect_get(client, user_factory):
+    patient = Patient.objects.create(**patient_attributes())
+    user, _ = create_professional_user(user_factory)
+    client.force_login(user)
+    url = reverse("clinical_records:patient-admissions", args=[patient.pk])
+
+    response = client.post(url, admission_data())
+
+    assert response.status_code == 302
+    assert response.url == url
+    assert Admission.objects.count() == 1
+
+    destination = client.get(response.url)
+    assert destination.status_code == 200
+    assert b"<!doctype html>" in destination.content
+    assert b"Persistent headache" in destination.content
 
 
 @pytest.mark.django_db

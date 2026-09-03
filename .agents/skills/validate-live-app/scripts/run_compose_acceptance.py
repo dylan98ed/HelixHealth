@@ -172,6 +172,16 @@ def main() -> int:
         expect(page).to_have_url(re.compile(r"/admin/auth/user/\d+/change/$"))
         expect(page.get_by_text(re.compile(r"was added successfully"))).to_be_visible()
 
+        page.get_by_role("link", name="Home", exact=True).click()
+        page.get_by_role("link", name="Admissions", exact=True).click()
+        expect(page.get_by_role("link", name="Add admission")).to_have_count(0)
+        page.get_by_role(
+            "link",
+            name=re.compile(ACTIVE_PATIENT_DNI),
+        ).first.click()
+        expect(page.get_by_role("button", name="Save", exact=True)).to_have_count(0)
+        expect(page.get_by_role("link", name="Delete", exact=True)).to_have_count(0)
+
     journeys: list[tuple[str, Journey]] = [
         ("medical-unprovisioned-login", unprovisioned_medical),
         ("medical-legacy-admin-login", legacy_staff_medical),

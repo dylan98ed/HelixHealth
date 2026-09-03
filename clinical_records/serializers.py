@@ -41,15 +41,16 @@ class AdmissionCreateSerializer(serializers.ModelSerializer):
         model = Admission
         fields = ADMISSION_INPUT_FIELDS
 
-    def to_internal_value(self, data: Mapping[str, Any]) -> dict[str, Any]:
-        submitted_server_fields = SERVER_OWNED_ADMISSION_FIELDS.intersection(data)
-        if submitted_server_fields:
-            raise serializers.ValidationError(
-                {
-                    field_name: "This field is set by the server."
-                    for field_name in sorted(submitted_server_fields)
-                }
-            )
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, Mapping):
+            submitted_server_fields = SERVER_OWNED_ADMISSION_FIELDS.intersection(data)
+            if submitted_server_fields:
+                raise serializers.ValidationError(
+                    {
+                        field_name: "This field is set by the server."
+                        for field_name in sorted(submitted_server_fields)
+                    }
+                )
         return super().to_internal_value(data)
 
     def validate(self, attributes: dict[str, Any]) -> dict[str, Any]:

@@ -5,7 +5,7 @@ from typing import Any
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -14,9 +14,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from access_control.actors import actor_context_from_user
+from access_control.medical_professionals import IsActiveMedicalProfessionalActor
 from access_control.policies import (
     MEDICAL_PROFESSIONAL_POLICY,
-    IsMedicalProfessionalActor,
 )
 from clinical_records.forms import AdmissionForm, PatientAdmissionSearchForm
 from clinical_records.models import Admission
@@ -117,10 +117,15 @@ def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
                 for message in messages:
                     form.add_error(field_name, message)
         else:
-            return render(
-                request,
-                "clinical_records/_admission_success.html",
-                {"admission": admission, "patient": patient},
+            if is_htmx(request):
+                return render(
+                    request,
+                    "clinical_records/_admission_success.html",
+                    {"admission": admission, "patient": patient},
+                )
+            return redirect(
+                "clinical_records:patient-admissions",
+                patient_pk=patient.pk,
             )
 
     context = {
@@ -141,7 +146,7 @@ def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
 
 
 class AdmissionCreateAPIView(GenericAPIView):
-    permission_classes = [IsMedicalProfessionalActor]
+    permission_classes = [IsActiveMedicalProfessionalActor]
     serializer_class = AdmissionCreateSerializer
 
     def get_patient(self, patient_pk: int) -> Patient:
