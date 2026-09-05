@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Patient admission · HelixHealth{% endblock %}
+
+{% block content %}
+  <header class="mb-4">
+    <h1>Patient admission</h1>
+    <p class="lead mb-1">{{ patient.first_name }} {{ patient.last_name }}</p>
+    <p>Clinical record number: {{ patient.clinical_record_number }}</p>
+    <a href="{% url 'clinical_records:admission-search' %}">Find another patient</a>
+  </header>
+
+  {% include "clinical_records/_admission_form.html" %}
+
+  <section class="mt-5" aria-labelledby="history-heading">
+    <h2 id="history-heading">Admission history</h2>
+    {% for admission in admissions %}
+      {% include "clinical_records/_admission_record.html" %}
+    {% empty %}
+      <p>No admissions have been recorded.</p>
+    {% endfor %}
+    {% include "_pagination.html" with page_obj=admissions_page page_parameter="history_page" label="Admission history" %}
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    document.body.addEventListener("htmx:beforeSwap", (event) => {
+      if (event.detail.xhr.status === 422) {
+        event.detail.shouldSwap = true;
+        event.detail.isError = false;
+      }
+    });
+  </script>
+{% endblock %}

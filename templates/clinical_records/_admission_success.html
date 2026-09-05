@@ -1,0 +1,8 @@
+<section id="admission-workflow">
+  <div class="alert alert-success" role="status">Admission recorded.</div>
+  {% include "clinical_records/_admission_record.html" %}
+  <a
+    class="btn btn-outline-primary"
+    href="{% url 'clinical_records:patient-admissions' patient.pk %}"
+  >Record another admission</a>
+</section>

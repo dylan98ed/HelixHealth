@@ -15,7 +15,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project
 
 COPY . .
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["/app/docker-entrypoint.sh"]

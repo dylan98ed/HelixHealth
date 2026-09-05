@@ -100,6 +100,52 @@ docker compose up web
 Open <http://localhost:8000>. Press `Ctrl+C` to stop the foreground web
 service.
 
+## Production container
+
+The image starts Gunicorn and collects versioned static assets at container
+startup. Configure every production value outside the image; the application
+will refuse to start without a secret key, database settings, and allowed
+hosts. For a deployment behind TLS termination, set the public host names and
+keep the secure defaults enabled:
+
+```text
+DJANGO_ENVIRONMENT=production
+DJANGO_SECRET_KEY=<a long random value>
+DJANGO_ALLOWED_HOSTS=helixhealth.example.org
+DB_NAME=helixhealth
+DB_USER=helixhealth_app
+DB_PASSWORD=<database password>
+DB_HOST=<database hostname>
+DB_PORT=5432
+```
+
+`DJANGO_SECURE_SSL_REDIRECT` defaults to `true` in production. Set it to
+`false` only for a trusted local HTTP probe; production traffic should reach
+the application through HTTPS. Static assets are served from `/static/` by
+WhiteNoise. Before releasing an image, run:
+
+```text
+docker compose -f compose.yaml -f compose.production.yaml build web
+docker compose -f compose.yaml -f compose.production.yaml run --rm web python manage.py check --deploy --fail-level WARNING
+```
+
+`compose.yaml` remains a development stack: it bind-mounts the working tree and
+runs Django's autoreloading development server. Use the production override
+when running the Gunicorn image without a source bind mount. Start the database
+and apply pending migrations before starting the web service:
+
+```text
+docker compose -f compose.yaml -f compose.production.yaml up -d --wait db
+docker compose -f compose.yaml -f compose.production.yaml run --rm web python manage.py migrate --noinput
+docker compose -f compose.yaml -f compose.production.yaml up -d --wait web
+```
+
+If a trusted reverse proxy terminates TLS and forwards requests over HTTP, set
+`DJANGO_TRUST_X_FORWARDED_PROTO=true` only when that proxy strips any incoming
+`X-Forwarded-Proto` header and replaces it with its own value. This enables
+Django's proxy SSL header and prevents redirect loops; do not enable it when
+clients can reach the application directly.
+
 ## Tests
 
 Start PostgreSQL before running the test suite. Tests use PostgreSQL, never

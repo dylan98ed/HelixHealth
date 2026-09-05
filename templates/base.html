@@ -14,10 +14,23 @@
   <body hx-headers='{"x-csrftoken": "{{ csrf_token }}"}' class="bg-body-tertiary">
     <header>
       <nav class="navbar bg-primary" data-bs-theme="dark" aria-label="Main navigation">
-        <div class="container">
+        <div class="container d-flex gap-2 align-items-center">
           <a class="navbar-brand fw-semibold" href="{% url 'home' %}">HelixHealth</a>
           {% if is_administrative_actor %}
             <a class="btn btn-sm btn-outline-light" href="{% url 'patients:search' %}">Patient search</a>
+          {% endif %}
+          {% if is_medical_professional_actor %}
+            <a class="btn btn-sm btn-outline-light" href="{% url 'clinical_records:dashboard' %}">Clinical workspace</a>
+          {% endif %}
+          <span class="ms-auto"></span>
+          {% if user.is_authenticated %}
+            <span class="text-white">{{ user.get_username }}</span>
+            <form method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button class="btn btn-sm btn-light" type="submit">Sign out</button>
+            </form>
+          {% else %}
+            <a class="btn btn-sm btn-light" href="{% url 'login' %}">Sign in</a>
           {% endif %}
         </div>
       </nav>

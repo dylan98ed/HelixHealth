@@ -1,33 +1,35 @@
 ## Why
 
-OpenHIS-UNLaM needs a reliable administrative foundation for identifying patients and professionals before appointment, clinical-record, and interoperability modules can be built. The assignment defines Epics 1 and 2 as the first four one-week sprints and requires a professional-quality MVP with validation, traceability, documentation, and tests.
+HelixHealth implements the OpenHIS-UNLaM educational hospital workflow: identify patients, record admissions, maintain professionals, and permit traceable clinical work for assigned patients. Patient management and admission already exist; the remaining work needs explicit contracts so an implementing agent can extend them without inventing identity, authorization, or migration rules.
 
 ## What Changes
 
-- Add complete patient lifecycle management, including registration, lookup, detail access, updates, and safe removal/deactivation.
-- Add patient admission records containing consultation reason and vital signs, automatically timestamped and attributed to the recording professional.
-- Add complete professional lifecycle management, including specialty and service assignment, unique identifiers, and active-license validation.
-- Add fast professional lookup and detail access to support later agenda workflows without implementing appointment management.
-- Add authorized access to a professional's patient interventions and audit every consultation or modification.
-- Define small, independently verifiable implementation tasks organized across Sprints 1 through 4.
+- Preserve HU-01/HU-02 patient lifecycle and HU-03 admissions, including immutable identifiers/events, concurrency protections, exact-DNI search, and pagination.
+- Extend the existing professional identity in place for HU-04/HU-05: complete registration, deterministic educational license verification and history, maintenance, search, deactivation, and verified reactivation.
+- **BREAKING at HU-04 rollout:** medical group membership and an incomplete legacy profile will no longer grant clinical access. Preserve existing profile IDs and admissions; an application administrator completes the profile and verifies its license. Preserve intentionally inactive profiles until explicit reactivation.
+- Provide the minimal supporting workflows for HU-06: administrators assign/revoke patient care relationships; assigned professionals record or correct a plain-text intervention note. Corrections preserve the original note.
+- Audit intervention reads/writes and authorization denials, with defined handling for anonymous actors, nonexistent targets, concurrent revocation, and unavailable audit storage.
+- Make remaining tasks independently reviewable with concrete contracts, prerequisites, files, tests, and signed-out browser acceptance journeys.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `patient-management`: Patient CRUD, unique identity and clinical-record numbering, DNI lookup, and admission vital-sign capture for HU-01 through HU-03.
-- `professional-management`: Professional CRUD, specialty/service assignment, DNI lookup, license validation, authorized intervention access, and audit logging for HU-04 through HU-06.
+- `patient-management`: HU-01 through HU-03 patient lifecycle, bounded lists/history, admission validation, and integration with verified clinical identity.
+- `professional-management`: HU-04 through HU-06 professional lifecycle, educational license verification, exact-DNI lookup, care assignments, minimal intervention notes/corrections, and append-only auditing.
+
+These remain the two new capability deltas of the existing change; this revision adds no capability files.
 
 ### Modified Capabilities
 
-None.
+None outside this change.
 
 ## Impact
 
-- Establishes a Python 3.13 modular monolith using Django 5.2 LTS, Django REST Framework 3.18, server-rendered Django templates enhanced with HTMX and Bootstrap 5, and PostgreSQL 18.
-- Adds reproducible local development through `uv` and Docker Compose, with pytest-based testing, Ruff, mypy, pre-commit, OpenAPI documentation, and GitHub Actions CI.
-- Introduces patient, admission, vital-sign, professional, specialty, service-assignment, intervention-access, and audit-log data contracts.
-- Requires user interfaces and application/API operations for administrative and professional workflows.
-- Requires persistence constraints for DNI, clinical-record number, professional registration number, and license number.
-- Requires automated tests for validation, authorization, auditability, and the two-second search acceptance target.
-- Excludes appointment scheduling, SMS/email reminders, full electronic health records, beds/inpatient management, billing, and interoperability standards from this change.
+- Extend professionals, access_control, clinical_records, and audit; integrate care-team navigation with patients and the shared templates.
+- Keep the existing Python/Django/DRF/PostgreSQL modular monolith, sessions, HTMX/Bootstrap, locked dependencies, Gunicorn/WhiteNoise production configuration, and disposable Compose validation.
+- Add additive migrations, explicit API/form contracts, synthetic reference data, and acceptance coverage for both fresh databases and incomplete legacy profiles.
+- Account/password administration stays in Django Admin for an authorized operator. Product workflows use their own interfaces.
+- Exclude appointments, billing, beds, prescriptions, diagnosis coding, external license-registry integration, FHIR, general account self-registration, a full clinical chart, and admission amendments. The local registry is educational and is not evidence of real-world licensure.
+
+Implementation decisions and the deliberate legacy-access transition are in design.md; execution order and completion gates are in tasks.md.

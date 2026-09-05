@@ -1,7 +1,10 @@
 from datetime import date
+from threading import Thread
 
 import pytest
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
+from django.db import close_old_connections
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -13,6 +16,7 @@ from patients.services import (
     DuplicateActivePatientDNIError,
     create_patient,
     deactivate_patient,
+    update_patient,
 )
 
 
@@ -67,6 +71,40 @@ def test_patient_service_rejects_duplicate_dni_without_partial_write():
 
     assert error.value.patient == existing
     assert Patient.all_objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_patient_creation_reports_a_concurrent_duplicate_as_a_duplicate_conflict(
+    monkeypatch,
+):
+    data = valid_patient_data()
+    original_full_clean = Patient.full_clean
+    competing_errors: list[Exception] = []
+
+    def insert_competing_patient() -> None:
+        close_old_connections()
+        try:
+            Patient.all_objects.create(**data)
+        except Exception as error:  # pragma: no cover - asserted below.
+            competing_errors.append(error)
+        finally:
+            close_old_connections()
+
+    def full_clean_after_competing_insert(self, *args, **kwargs):
+        competing_insert = Thread(target=insert_competing_patient)
+        competing_insert.start()
+        competing_insert.join(timeout=10)
+        assert not competing_insert.is_alive()
+        return original_full_clean(self, *args, **kwargs)
+
+    monkeypatch.setattr(Patient, "full_clean", full_clean_after_competing_insert)
+
+    with pytest.raises(DuplicateActivePatientDNIError) as error:
+        create_patient(actor=administrative_actor(), **data)
+
+    assert not competing_errors
+    assert error.value.patient.dni == data["dni"]
+    assert Patient.all_objects.filter(dni=data["dni"]).count() == 1
 
 
 @pytest.mark.django_db
@@ -200,6 +238,28 @@ def test_patient_update_api_reports_inactive_patient_as_validation_error(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.data["__all__"] == ["Inactive patients cannot be updated."]
+
+
+@pytest.mark.django_db
+def test_update_reloads_a_stale_patient_after_deactivation():
+    patient = create_patient(actor=administrative_actor(), **valid_patient_data())
+    stale_patient = Patient.all_objects.get(pk=patient.pk)
+    deactivate_patient(
+        actor=administrative_actor(),
+        patient=Patient.all_objects.get(pk=patient.pk),
+        confirmed=True,
+    )
+
+    with pytest.raises(ValidationError) as error:
+        update_patient(
+            actor=administrative_actor(),
+            patient=stale_patient,
+            changes={"phone": "+54 11 5555-9999"},
+        )
+
+    assert "Inactive patients cannot be updated." in str(error.value)
+    patient.refresh_from_db()
+    assert patient.phone == valid_patient_data()["phone"]
 
 
 @pytest.mark.django_db
