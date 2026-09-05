@@ -237,36 +237,62 @@ def validate_compose_stack(root: Path, artifact_dir: Path) -> tuple[int, int]:
         succeeded = True
         return isolated_count, len(journey_results)
     finally:
-        logs = run(
-            compose_command(project_name, "logs", "--no-color", "web", "db"),
-            cwd=root,
-            env=environment,
-            capture_output=True,
-            check=False,
-        )
-        cleanup = run(
-            compose_command(
-                project_name,
-                "down",
-                "--rmi",
-                "local",
-                "--volumes",
-                "--remove-orphans",
-            ),
-            cwd=root,
-            env=environment,
-            check=False,
-        )
-        cleanup_failed = cleanup.returncode != 0
-        if not succeeded or cleanup_failed:
-            (artifact_dir / "compose.log").write_text(
-                f"{logs.stdout}\n{logs.stderr}",
-                encoding="utf-8",
+        logs: subprocess.CompletedProcess[str] | None = None
+        cleanup: subprocess.CompletedProcess[str] | None = None
+        cleanup_error: OSError | None = None
+        try:
+            logs = run(
+                compose_command(project_name, "logs", "--no-color", "web", "db"),
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                check=False,
             )
+        except OSError as error:
+            print(f"Unable to capture Compose logs: {error}", file=sys.stderr)
+        try:
+            cleanup = run(
+                compose_command(
+                    project_name,
+                    "down",
+                    "--rmi",
+                    "local",
+                    "--volumes",
+                    "--remove-orphans",
+                ),
+                cwd=root,
+                env=environment,
+                check=False,
+            )
+        except OSError as error:
+            cleanup_error = error
+            print(f"Unable to run Compose cleanup: {error}", file=sys.stderr)
+        cleanup_failed = cleanup_error is not None or (
+            cleanup is not None and cleanup.returncode != 0
+        )
+        if not succeeded or cleanup_failed:
+            log_output = (
+                f"{logs.stdout}\n{logs.stderr}"
+                if logs is not None
+                else "Compose logs were unavailable."
+            )
+            try:
+                (artifact_dir / "compose.log").write_text(
+                    log_output,
+                    encoding="utf-8",
+                )
+            except OSError as error:
+                print(f"Unable to save Compose logs: {error}", file=sys.stderr)
             print(f"Compose validation artifacts: {artifact_dir}", file=sys.stderr)
         if cleanup_failed and succeeded:
+            detail = (
+                str(cleanup_error)
+                if cleanup_error is not None
+                else f"exit code {cleanup.returncode if cleanup is not None else 'unknown'}"
+            )
             raise ValidationError(
-                f"Compose validation passed but cleanup failed for {project_name}."
+                "Compose validation passed but cleanup failed for "
+                f"{project_name}: {detail}."
             )
 
 

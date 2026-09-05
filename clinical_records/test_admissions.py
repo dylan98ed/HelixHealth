@@ -510,6 +510,35 @@ def test_medical_search_does_not_offer_admission_for_missing_or_inactive_patient
 
 
 @pytest.mark.django_db
+def test_inactive_patient_internal_id_is_hidden_from_admission_ui_and_api(
+    client,
+    user_factory,
+):
+    inactive_patient = Patient.all_objects.create(**patient_attributes(is_active=False))
+    user, _ = create_professional_user(user_factory)
+    client.force_login(user)
+
+    ui_response = client.get(
+        reverse(
+            "clinical_records:patient-admissions",
+            args=[inactive_patient.pk],
+        )
+    )
+    api_response = client.post(
+        reverse(
+            "clinical_records:api-create-admission",
+            args=[inactive_patient.pk],
+        ),
+        admission_data(),
+    )
+
+    assert ui_response.status_code == status.HTTP_404_NOT_FOUND
+    assert api_response.status_code == status.HTTP_404_NOT_FOUND
+    assert inactive_patient.dni.encode() not in ui_response.content
+    assert Admission.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_medical_search_reports_invalid_dni_and_rejects_non_professional(
     client,
     user_factory,

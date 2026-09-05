@@ -76,6 +76,23 @@ def browser_admission_patient(browser_medical_professional):
 
 
 @pytest.fixture
+def browser_inactive_admission_patient(browser_medical_professional):
+    return Patient.all_objects.create(
+        dni="88776655",
+        clinical_record_number="HC-BROWSER-INACTIVE",
+        first_name="Archived",
+        last_name="Patient",
+        date_of_birth=date(1990, 1, 1),
+        sex="unspecified",
+        phone="+54 11 5555-0189",
+        email="archived.patient@example.test",
+        address="Archived Test Street 123",
+        health_insurer="Browser Health",
+        is_active=False,
+    )
+
+
+@pytest.fixture
 def next_clinical_record_number(browser_patient_administrator):
     previous_number = generate_clinical_record_number()
     next_value = int(previous_number.removeprefix("HC-")) + 1
@@ -341,3 +358,36 @@ def test_medical_professional_records_admission_through_ui(
     expect(
         history.get_by_text(browser_medical_professional.username, exact=True)
     ).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_medical_professional_cannot_open_inactive_patient_by_internal_id(
+    browser_medical_professional,
+    browser_inactive_admission_patient,
+    live_server,
+    browser_page,
+):
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_medical_professional.username,
+        password=TEST_PASSWORD,
+    )
+    dashboard_url = reverse("clinical_records:dashboard")
+    expect(browser_page).to_have_url(f"{live_server.url}{dashboard_url}")
+    expect(
+        browser_page.get_by_text(browser_inactive_admission_patient.dni, exact=True)
+    ).to_have_count(0)
+
+    inactive_admission_url = reverse(
+        "clinical_records:patient-admissions",
+        args=[browser_inactive_admission_patient.pk],
+    )
+    denied_response = browser_page.goto(f"{live_server.url}{inactive_admission_url}")
+
+    assert denied_response is not None
+    assert denied_response.status == 404
+    expect(
+        browser_page.get_by_text(browser_inactive_admission_patient.dni, exact=True)
+    ).to_have_count(0)

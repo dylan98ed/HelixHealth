@@ -100,7 +100,7 @@ def admission_patient_search_results(request: HttpRequest) -> HttpResponse:
 @medical_professional_required
 @require_http_methods(["GET", "POST"])
 def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
-    patient = get_object_or_404(Patient.all_objects, pk=patient_pk)
+    patient = get_object_or_404(Patient.objects, pk=patient_pk)
     form = AdmissionForm(request.POST or None)
 
     if request.method == "POST" and form.is_valid():
@@ -150,7 +150,7 @@ class AdmissionCreateAPIView(GenericAPIView):
     serializer_class = AdmissionCreateSerializer
 
     def get_patient(self, patient_pk: int) -> Patient:
-        return get_object_or_404(Patient.all_objects, pk=patient_pk)
+        return get_object_or_404(Patient.objects, pk=patient_pk)
 
     @extend_schema(
         request=AdmissionCreateSerializer,

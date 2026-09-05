@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 
 def load_validator() -> ModuleType:
     script = (
@@ -69,3 +71,32 @@ def test_isolated_browser_suite_uses_disposable_postgresql(
     assert pytest_environment is not None
     assert pytest_environment["DB_HOST"] == "127.0.0.1"
     assert pytest_environment["DB_PORT"] == "48124"
+
+
+def test_cleanup_oserror_does_not_mask_the_validation_failure(
+    monkeypatch,
+    tmp_path,
+):
+    validator = load_validator()
+
+    def fake_run(
+        command,
+        *,
+        cwd,
+        env=None,
+        capture_output=False,
+        check=True,
+    ):
+        del cwd, env, capture_output, check
+        if "build" in command:
+            raise validator.ValidationError("original validation failure")
+        raise OSError("docker executable unavailable during cleanup")
+
+    monkeypatch.setattr(validator, "run", fake_run)
+
+    with pytest.raises(validator.ValidationError, match="original validation failure"):
+        validator.validate_compose_stack(tmp_path, tmp_path)
+
+    assert (tmp_path / "compose.log").read_text(encoding="utf-8") == (
+        "Compose logs were unavailable."
+    )
