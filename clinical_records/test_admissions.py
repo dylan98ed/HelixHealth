@@ -1,10 +1,11 @@
 from datetime import date
 from decimal import Decimal
+from threading import Event, Thread
 
 import pytest
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError, connection, transaction
+from django.db import IntegrityError, close_old_connections, connection, transaction
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -19,6 +20,7 @@ from clinical_records.forms import AdmissionForm
 from clinical_records.models import Admission
 from clinical_records.services import InactivePatientError, create_admission
 from patients.models import Patient
+from patients.services import deactivate_patient
 from professionals.models import Professional
 
 
@@ -258,6 +260,77 @@ def test_creation_rejects_an_inactive_patient_without_partial_write(user_factory
     assert Admission.objects.count() == 0
 
 
+@pytest.mark.django_db(transaction=True)
+def test_deactivation_serializes_against_an_admission_with_a_stale_patient(
+    user_factory,
+    monkeypatch,
+):
+    Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)
+    patient = Patient.objects.create(**patient_attributes())
+    stale_patient = Patient.all_objects.get(pk=patient.pk)
+    user, _ = create_professional_user(user_factory)
+    deactivation_locked = Event()
+    release_deactivation = Event()
+    admission_finished = Event()
+    errors: list[Exception] = []
+    original_save = Patient.save
+
+    def pause_before_deactivation_commit(self, *args, **kwargs):
+        if self.pk == patient.pk and self.is_active is False:
+            deactivation_locked.set()
+            assert release_deactivation.wait(timeout=10)
+        return original_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(Patient, "save", pause_before_deactivation_commit)
+
+    def deactivate() -> None:
+        close_old_connections()
+        try:
+            deactivate_patient(
+                actor=ActorContext(
+                    user_id=1,
+                    roles=frozenset({ActorRole.ADMINISTRATIVE}),
+                ),
+                patient=Patient.all_objects.get(pk=patient.pk),
+                confirmed=True,
+            )
+        except Exception as error:  # pragma: no cover - asserted below.
+            errors.append(error)
+        finally:
+            close_old_connections()
+
+    def create_after_lock() -> None:
+        close_old_connections()
+        try:
+            create_admission(
+                actor=professional_actor(user),
+                patient=stale_patient,
+                **admission_data(),
+            )
+        except Exception as error:  # pragma: no cover - asserted below.
+            errors.append(error)
+        finally:
+            admission_finished.set()
+            close_old_connections()
+
+    deactivation_thread = Thread(target=deactivate)
+    deactivation_thread.start()
+    assert deactivation_locked.wait(timeout=10)
+
+    admission_thread = Thread(target=create_after_lock)
+    admission_thread.start()
+    assert not admission_finished.wait(timeout=0.2)
+    release_deactivation.set()
+    deactivation_thread.join(timeout=10)
+    admission_thread.join(timeout=10)
+
+    assert not deactivation_thread.is_alive()
+    assert not admission_thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], InactivePatientError)
+    assert Admission.objects.count() == 0
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize("reason", ["", "   "])
 def test_creation_rejects_blank_consultation_reason_atomically(user_factory, reason):
@@ -420,6 +493,31 @@ def test_non_htmx_admission_uses_post_redirect_get(client, user_factory):
     assert destination.status_code == 200
     assert b"<!doctype html>" in destination.content
     assert b"Persistent headache" in destination.content
+
+
+@pytest.mark.django_db
+def test_patient_admission_history_is_paginated(client, user_factory):
+    patient = Patient.objects.create(**patient_attributes())
+    user, professional = create_professional_user(user_factory)
+    for offset in range(21):
+        Admission.objects.create(
+            patient=patient,
+            professional=professional,
+            **admission_data(consultation_reason=f"History {offset}"),
+        )
+    client.force_login(user)
+    url = reverse("clinical_records:patient-admissions", args=[patient.pk])
+
+    first_page = client.get(url)
+    second_page = client.get(url, {"history_page": 2})
+
+    assert first_page.status_code == 200
+    assert b"History 20" in first_page.content
+    assert b"History 0" not in first_page.content
+    assert b"Admission history pagination" in first_page.content
+    assert second_page.status_code == 200
+    assert b"History 0" in second_page.content
+    assert b"History 20" not in second_page.content
 
 
 @pytest.mark.django_db

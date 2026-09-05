@@ -49,6 +49,7 @@
         <p>No active patients are available.</p>
       {% endfor %}
     </div>
+    {% include "_pagination.html" with page_obj=active_patients_page page_parameter="page" label="Active patients" query_dni=form.cleaned_data.dni %}
   </section>
 {% endblock %}
 

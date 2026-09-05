@@ -4,6 +4,7 @@ from typing import Any
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
@@ -32,6 +33,9 @@ from clinical_records.services import (
 )
 from patients.models import Patient
 
+PATIENTS_PER_PAGE = 20
+ADMISSIONS_PER_PAGE = 20
+
 
 def medical_professional_required(
     view_function: Callable[..., HttpResponse],
@@ -59,7 +63,7 @@ def admission_search_context(
     *,
     bind_empty_query: bool = False,
 ) -> dict[str, object]:
-    query = request.GET if request.GET or bind_empty_query else None
+    query = request.GET if "dni" in request.GET or bind_empty_query else None
     form = PatientAdmissionSearchForm(query)
     patient = None
     if form.is_bound and form.is_valid():
@@ -73,12 +77,16 @@ def admission_search_context(
 @medical_professional_required
 @require_http_methods(["GET"])
 def clinical_workspace(request: HttpRequest) -> HttpResponse:
+    active_patients = Paginator(Patient.objects.all(), PATIENTS_PER_PAGE).get_page(
+        request.GET.get("page")
+    )
     return render(
         request,
         "clinical_records/admission_search.html",
         {
             **admission_search_context(request),
-            "active_patients": Patient.objects.all(),
+            "active_patients": active_patients,
+            "active_patients_page": active_patients,
         },
     )
 
@@ -128,12 +136,15 @@ def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
                 patient_pk=patient.pk,
             )
 
+    admissions = Paginator(
+        Admission.objects.filter(patient=patient).select_related("professional__user"),
+        ADMISSIONS_PER_PAGE,
+    ).get_page(request.GET.get("history_page"))
     context = {
         "patient": patient,
         "form": form,
-        "admissions": Admission.objects.filter(patient=patient).select_related(
-            "professional__user"
-        ),
+        "admissions": admissions,
+        "admissions_page": admissions,
     }
     if is_htmx(request) and request.method == "POST":
         return render(

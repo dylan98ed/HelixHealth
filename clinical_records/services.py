@@ -50,11 +50,14 @@ def create_admission(
     temperature: Decimal,
 ) -> Admission:
     professional = active_professional_for_actor(actor)
-    if not patient.is_active:
+    locked_patient = (
+        Patient.all_objects.select_for_update().filter(pk=patient.pk).first()
+    )
+    if locked_patient is None or not locked_patient.is_active:
         raise InactivePatientError("Admissions require an active patient.")
 
     admission = Admission(
-        patient=patient,
+        patient=locked_patient,
         professional=professional,
         consultation_reason=consultation_reason.strip(),
         systolic_blood_pressure=systolic_blood_pressure,

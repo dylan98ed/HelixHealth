@@ -19,6 +19,7 @@
     {% empty %}
       <p>No admissions have been recorded.</p>
     {% endfor %}
+    {% include "_pagination.html" with page_obj=admissions_page page_parameter="history_page" label="Admission history" %}
   </section>
 {% endblock %}
 

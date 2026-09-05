@@ -17,6 +17,7 @@ personas = importlib.import_module("access_control.acceptance_personas")
 
 ACCEPTANCE_PASSWORD_ENV = personas.ACCEPTANCE_PASSWORD_ENV
 ACTIVE_PATIENT_DNI = personas.ACTIVE_PATIENT_DNI
+ADMINISTRATIVE_UPDATED_PHONE = personas.ADMINISTRATIVE_UPDATED_PHONE
 ADMINISTRATOR_USERNAME = personas.ADMINISTRATOR_USERNAME
 ADMISSION_REASON = personas.ADMISSION_REASON
 BROWSER_CREATED_USERNAME = personas.BROWSER_CREATED_USERNAME
@@ -26,6 +27,7 @@ MEDICAL_ACTIVE_USERNAME = personas.MEDICAL_ACTIVE_USERNAME
 MEDICAL_INACTIVE_USERNAME = personas.MEDICAL_INACTIVE_USERNAME
 MEDICAL_LEGACY_STAFF_USERNAME = personas.MEDICAL_LEGACY_STAFF_USERNAME
 MEDICAL_UNPROVISIONED_USERNAME = personas.MEDICAL_UNPROVISIONED_USERNAME
+PAGINATION_SECOND_PAGE_DNI = personas.PAGINATION_SECOND_PAGE_DNI
 REGISTERED_PATIENT_DNI = personas.REGISTERED_PATIENT_DNI
 
 Journey = Callable[[Page], None]
@@ -157,6 +159,40 @@ def main() -> int:
         expect(page.get_by_role("heading", name="Compose Registered")).to_be_visible()
         expect(page.get_by_text(REGISTERED_PATIENT_DNI, exact=True)).to_be_visible()
 
+    def manage_patient(page: Page) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        expect(page).to_have_url(f"{base_url}/patients/search/")
+        page.get_by_label("DNI").fill(ACTIVE_PATIENT_DNI)
+        page.get_by_role("button", name="Search patient").click()
+        expect(page.get_by_text("Acceptance Patient", exact=False)).to_be_visible()
+        page.get_by_role("link", name="Open patient record").click()
+        expect(page.get_by_role("heading", name="Acceptance Patient")).to_be_visible()
+        page.get_by_role("link", name="Edit patient").click()
+        page.get_by_label("Phone").fill(ADMINISTRATIVE_UPDATED_PHONE)
+        page.get_by_role("button", name="Save changes").click()
+        expect(
+            page.get_by_text(ADMINISTRATIVE_UPDATED_PHONE, exact=True)
+        ).to_be_visible()
+        page.get_by_role("link", name="Deactivate patient").click()
+        page.get_by_role("button", name="Deactivate patient").click()
+        expect(
+            page.get_by_text("Patient deactivation requires explicit confirmation.")
+        ).to_be_visible()
+        page.get_by_label("I confirm this patient should be deactivated.").check()
+        page.get_by_role("button", name="Deactivate patient").click()
+        expect(page.get_by_text("Inactive", exact=True)).to_be_visible()
+        expect(page.get_by_role("link", name="Edit patient")).to_have_count(0)
+
+    def paginated_workspace(page: Page) -> None:
+        application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
+        expect(page).to_have_url(f"{base_url}/clinical-records/")
+        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
+        pagination = page.get_by_role("navigation", name="Active patients pagination")
+        expect(pagination).to_be_visible()
+        pagination.get_by_role("link", name="Next").click()
+        expect(page).to_have_url(re.compile(r"/clinical-records/\?page=2$"))
+        expect(page.get_by_text(PAGINATION_SECOND_PAGE_DNI, exact=True)).to_be_visible()
+
     def django_admin_user_creation(page: Page) -> None:
         page.goto(f"{base_url}/admin/login/", wait_until="networkidle")
         page.get_by_label("Username").fill(DJANGO_ADMIN_USERNAME)
@@ -188,6 +224,8 @@ def main() -> int:
         ("medical-inactive-denied", inactive_medical),
         ("medical-admission", record_admission),
         ("administrative-patient-registration", register_patient),
+        ("administrative-patient-management", manage_patient),
+        ("medical-workspace", paginated_workspace),
         ("django-admin-user-creation", django_admin_user_creation),
     ]
 

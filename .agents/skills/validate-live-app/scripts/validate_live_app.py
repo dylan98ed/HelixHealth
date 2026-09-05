@@ -86,6 +86,28 @@ def wait_for_http(base_url: str, *, timeout_seconds: float = 60.0) -> None:
     )
 
 
+def validate_production_http(base_url: str) -> None:
+    """Check the production server, static middleware, and host allow-list."""
+    static_url = f"{base_url}/static/vendor/bootstrap/5.3.8/bootstrap.min.css"
+    with urllib.request.urlopen(static_url, timeout=10) as response:  # noqa: S310
+        if response.status != 200 or not response.read(100):
+            raise ValidationError("Production static assets were not served.")
+
+    invalid_host = urllib.request.Request(
+        f"{base_url}/",
+        headers={"Host": "untrusted.example.test"},
+    )
+    try:
+        urllib.request.urlopen(invalid_host, timeout=10)  # noqa: S310
+    except urllib.error.HTTPError as error:
+        if error.code == 400:
+            return
+        raise ValidationError(
+            f"Unexpected status for an untrusted Host header: {error.code}"
+        ) from error
+    raise ValidationError("The production Host allow-list accepted an untrusted host.")
+
+
 def compose_environment() -> tuple[dict[str, str], str, str]:
     web_port = available_port()
     db_port = available_port()
@@ -97,7 +119,12 @@ def compose_environment() -> tuple[dict[str, str], str, str]:
     environment = {
         **os.environ,
         "COMPOSE_PROJECT_NAME": project_name,
-        "DJANGO_ENVIRONMENT": "development",
+        "DJANGO_ENVIRONMENT": "production",
+        "DJANGO_SECRET_KEY": secrets.token_urlsafe(50),
+        "DJANGO_ALLOWED_HOSTS": "127.0.0.1,localhost",
+        # The disposable browser probe uses HTTP. Deployments retain the secure
+        # default, which redirects HTTP before serving an authenticated page.
+        "DJANGO_SECURE_SSL_REDIRECT": "false",
         "DB_HOST": "127.0.0.1",
         "DB_NAME": "helixhealth_acceptance",
         "DB_USER": "helixhealth_acceptance",
@@ -115,6 +142,10 @@ def compose_command(project_name: str, *arguments: str) -> list[str]:
     return [
         "docker",
         "compose",
+        "-f",
+        "compose.yaml",
+        "-f",
+        "compose.production.yaml",
         "--project-name",
         project_name,
         *arguments,
@@ -177,7 +208,27 @@ def validate_compose_stack(root: Path, artifact_dir: Path) -> tuple[int, int]:
                 "run",
                 "--rm",
                 "-e",
+                "DJANGO_SECURE_SSL_REDIRECT=true",
+                "web",
+                "python",
+                "manage.py",
+                "check",
+                "--deploy",
+                "--fail-level",
+                "WARNING",
+            ),
+            cwd=root,
+            env=environment,
+        )
+        run(
+            compose_command(
+                project_name,
+                "run",
+                "--rm",
+                "-e",
                 ACCEPTANCE_PASSWORD_ENV,
+                "-e",
+                "DJANGO_ENVIRONMENT=development",
                 "web",
                 "python",
                 "manage.py",
@@ -192,6 +243,7 @@ def validate_compose_stack(root: Path, artifact_dir: Path) -> tuple[int, int]:
             env=environment,
         )
         wait_for_http(base_url)
+        validate_production_http(base_url)
         run(
             compose_command(
                 project_name,

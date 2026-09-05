@@ -49,7 +49,7 @@ if ENVIRONMENT in {"development", "test"}:
 def env_bool(name, *, default=False):
     """Read a strict boolean environment variable."""
     value = os.environ.get(name)
-    if value is None:
+    if value is None or not value.strip():
         return default
 
     normalized = value.strip().lower()
@@ -58,6 +58,14 @@ def env_bool(name, *, default=False):
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ImproperlyConfigured(f"{name} must be a boolean value.")
+
+
+def env_list(name, *, default=()):
+    """Read a comma-separated setting and reject empty production values."""
+    value = os.environ.get(name)
+    if value is None:
+        return list(default)
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def database_env(name, *, local_default):
@@ -86,7 +94,17 @@ if not SECRET_KEY:
     # An ephemeral key keeps local setup simple without committing a reusable secret.
     SECRET_KEY = secrets.token_urlsafe(50)
 
-ALLOWED_HOSTS: list[str] = []
+if ENVIRONMENT in {"development", "test"}:
+    ALLOWED_HOSTS = env_list(
+        "DJANGO_ALLOWED_HOSTS",
+        default=("localhost", "127.0.0.1", "testserver"),
+    )
+else:
+    ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS")
+    if not ALLOWED_HOSTS:
+        raise ImproperlyConfigured(
+            "DJANGO_ALLOWED_HOSTS must list the production host names."
+        )
 
 
 # Application definition
@@ -110,6 +128,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
@@ -154,6 +173,23 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = not DEBUG
+
+SECURE_SSL_REDIRECT = env_bool(
+    "DJANGO_SECURE_SSL_REDIRECT",
+    default=ENVIRONMENT == "production",
+)
+SECURE_HSTS_SECONDS = int(
+    os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "31536000" if not DEBUG else "0")
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
+    "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    default=not DEBUG,
+)
+SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", default=not DEBUG)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+if env_bool("DJANGO_TRUST_X_FORWARDED_PROTO", default=False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -249,6 +285,13 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+if ENVIRONMENT == "production":
+    STORAGES = {
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        },
+    }
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

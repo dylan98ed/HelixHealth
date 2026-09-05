@@ -9,6 +9,7 @@ from django.test import override_settings
 from access_control.acceptance_personas import (
     ACCEPTANCE_PASSWORD_ENV,
     ACTIVE_PATIENT_DNI,
+    ADMINISTRATIVE_UPDATED_PHONE,
     ADMINISTRATOR_USERNAME,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
@@ -114,5 +115,9 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
         heart_rate=72,
         temperature=Decimal("36.7"),
     )
+    managed_patient = Patient.all_objects.get(dni=ACTIVE_PATIENT_DNI)
+    managed_patient.phone = ADMINISTRATIVE_UPDATED_PHONE
+    managed_patient.is_active = False
+    managed_patient.save(update_fields=["phone", "is_active"])
 
     call_command("verify_acceptance")

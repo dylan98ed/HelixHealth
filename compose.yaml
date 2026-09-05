@@ -22,7 +22,9 @@ services:
     build:
       context: .
     environment:
-      DJANGO_ENVIRONMENT: development
+      DJANGO_ENVIRONMENT: ${DJANGO_ENVIRONMENT:-development}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-}
       DB_HOST: db
       DB_PORT: 5432
       DB_NAME: ${DB_NAME:-helixhealth_db}
@@ -32,6 +34,7 @@ services:
       - "${DJANGO_PORT:-8000}:8000"
     volumes:
       - .:/app
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     depends_on:
       db:
         condition: service_healthy

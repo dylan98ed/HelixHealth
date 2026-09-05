@@ -22,6 +22,7 @@ def run_settings_probe(**environment):
         "DJANGO_ENVIRONMENT",
         "DJANGO_DEBUG",
         "DJANGO_SECRET_KEY",
+        "DJANGO_ALLOWED_HOSTS",
         "DB_HOST",
         "DB_PORT",
         "DB_NAME",
@@ -36,6 +37,7 @@ def run_settings_probe(**environment):
             "DB_NAME": "helixhealth",
             "DB_USER": "helixhealth",
             "DB_PASSWORD": "settings-probe-only",
+            "DJANGO_ALLOWED_HOSTS": "probe.example.test",
         }
     )
     process_environment.update(environment)
@@ -116,6 +118,17 @@ def test_whitespace_only_database_value_is_missing_in_production():
 
     assert result.returncode != 0
     assert "DB_HOST must be set" in result.stderr
+
+
+def test_production_requires_allowed_hosts():
+    result = run_settings_probe(
+        DJANGO_ENVIRONMENT="production",
+        DJANGO_SECRET_KEY="production-secret-from-environment",
+        DJANGO_ALLOWED_HOSTS="  ",
+    )
+
+    assert result.returncode != 0
+    assert "DJANGO_ALLOWED_HOSTS must list" in result.stderr
 
 
 def test_local_environment_loader_accepts_utf8_bom(tmp_path, monkeypatch):

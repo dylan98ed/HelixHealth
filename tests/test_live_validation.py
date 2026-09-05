@@ -53,6 +53,7 @@ def test_isolated_browser_suite_uses_disposable_postgresql(
     monkeypatch.setattr(validator, "available_port", lambda: next(ports))
     monkeypatch.setattr(validator, "run", fake_run)
     monkeypatch.setattr(validator, "wait_for_http", lambda base_url: None)
+    monkeypatch.setattr(validator, "validate_production_http", lambda base_url: None)
     monkeypatch.setattr(validator, "require_executed_browser_tests", lambda report: 4)
 
     assert validator.validate_compose_stack(tmp_path, tmp_path) == (4, 1)
@@ -71,6 +72,8 @@ def test_isolated_browser_suite_uses_disposable_postgresql(
     assert pytest_environment is not None
     assert pytest_environment["DB_HOST"] == "127.0.0.1"
     assert pytest_environment["DB_PORT"] == "48124"
+    assert pytest_environment["DJANGO_ENVIRONMENT"] == "production"
+    assert pytest_environment["DJANGO_ALLOWED_HOSTS"] == "127.0.0.1,localhost"
 
 
 def test_cleanup_oserror_does_not_mask_the_validation_failure(

@@ -118,6 +118,14 @@ class Command(BaseCommand):
             last_name="Patient",
             is_active=False,
         )
+        for offset in range(21):
+            self._upsert_patient(
+                dni=f"200000{offset:02d}",
+                clinical_record_number=f"HC-ACCEPTANCE-PAGE-{offset:02d}",
+                first_name=f"Patient {offset:02d}",
+                last_name="Zpagination",
+                is_active=True,
+            )
 
         self.stdout.write(self.style.SUCCESS("Acceptance personas seeded."))
 

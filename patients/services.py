@@ -53,7 +53,11 @@ def create_patient(
         address=address,
         health_insurer=health_insurer,
     )
-    patient.full_clean()
+    # The partial unique constraint is enforced by PostgreSQL.  Checking it in
+    # full_clean() would leave a race between this initial lookup and the
+    # eventual INSERT, and surface a Django ValidationError instead of the
+    # duplicate conflict understood by the UI and API.
+    patient.full_clean(validate_unique=False, validate_constraints=False)
 
     try:
         with transaction.atomic():
@@ -75,7 +79,10 @@ def update_patient(
     changes: dict[str, object],
 ) -> Patient:
     ADMINISTRATIVE_POLICY.require(actor)
-    if not patient.is_active:
+    locked_patient = (
+        Patient.all_objects.select_for_update().filter(pk=patient.pk).first()
+    )
+    if locked_patient is None or not locked_patient.is_active:
         raise ValidationError({"__all__": "Inactive patients cannot be updated."})
 
     mutable_fields = {
@@ -91,11 +98,11 @@ def update_patient(
     for field_name, value in changes.items():
         if field_name not in mutable_fields:
             raise ValidationError({field_name: "This field is immutable."})
-        setattr(patient, field_name, value)
+        setattr(locked_patient, field_name, value)
 
-    patient.full_clean()
-    patient.save(update_fields=sorted(changes))
-    return patient
+    locked_patient.full_clean()
+    locked_patient.save(update_fields=sorted(changes))
+    return locked_patient
 
 
 @transaction.atomic
@@ -111,10 +118,15 @@ def deactivate_patient(
             "Patient deactivation requires explicit confirmation."
         )
 
-    if patient.is_active:
-        patient.is_active = False
-        patient.save(update_fields=["is_active"])
-    return patient
+    locked_patient = (
+        Patient.all_objects.select_for_update().filter(pk=patient.pk).first()
+    )
+    if locked_patient is None:
+        return patient
+    if locked_patient.is_active:
+        locked_patient.is_active = False
+        locked_patient.save(update_fields=["is_active"])
+    return locked_patient
 
 
 def lookup_active_patient_by_dni(

@@ -2,6 +2,8 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from access_control.acceptance_personas import (
+    ACTIVE_PATIENT_DNI,
+    ADMINISTRATIVE_UPDATED_PHONE,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
     MEDICAL_ACTIVE_USERNAME,
@@ -47,6 +49,13 @@ class Command(BaseCommand):
         if not Patient.objects.filter(dni=REGISTERED_PATIENT_DNI).exists():
             failures.append("the administrative patient registration was not persisted")
 
+        if not Patient.all_objects.filter(
+            dni=ACTIVE_PATIENT_DNI,
+            phone=ADMINISTRATIVE_UPDATED_PHONE,
+            is_active=False,
+        ).exists():
+            failures.append("the administrative patient update and deactivation failed")
+
         if not user_model.objects.filter(username=BROWSER_CREATED_USERNAME).exists():
             failures.append("the Django Admin user creation was not persisted")
 
@@ -56,6 +65,6 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 "Acceptance persistence verified: provisioned identities, inactive "
-                "state, admission, patient, and Django user."
+                "state, admission, patient management, and Django user."
             )
         )

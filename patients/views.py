@@ -4,6 +4,7 @@ from typing import Any
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
@@ -35,6 +36,8 @@ from patients.services import (
     lookup_active_patient_by_dni,
     update_patient,
 )
+
+ADMISSIONS_PER_PAGE = 20
 
 
 def administrative_required(
@@ -135,13 +138,18 @@ def patient_search_results(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def patient_detail(request: HttpRequest, pk: int) -> HttpResponse:
     patient = get_object_or_404(Patient.all_objects, pk=pk)
-    admissions = Admission.objects.filter(patient=patient).select_related(
-        "professional__user"
-    )
+    admissions = Paginator(
+        Admission.objects.filter(patient=patient).select_related("professional__user"),
+        ADMISSIONS_PER_PAGE,
+    ).get_page(request.GET.get("history_page"))
     return render(
         request,
         "patients/detail.html",
-        {"patient": patient, "admissions": admissions},
+        {
+            "patient": patient,
+            "admissions": admissions,
+            "admissions_page": admissions,
+        },
     )
 
 
@@ -287,7 +295,7 @@ class PatientDeactivateAPIView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            deactivate_patient(
+            patient = deactivate_patient(
                 actor=actor_context_from_user(request.user),
                 patient=patient,
                 confirmed=serializer.validated_data["confirm"],
