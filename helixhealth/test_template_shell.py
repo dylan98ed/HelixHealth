@@ -24,7 +24,10 @@ def test_smoke_page_uses_pinned_local_frontend_assets(client):
 
     assert response.status_code == 200
     html = response.content.decode()
-    assert "Foundation smoke page" in html
+    assert "A clearer path to" in html
+    assert "Foundation smoke page" not in html
+    assert static("app.css") in html
+    assert static("app.js") in html
     assert "integrity=" not in html
 
     parser = AssetURLParser()

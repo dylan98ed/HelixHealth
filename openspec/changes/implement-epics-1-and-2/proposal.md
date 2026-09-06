@@ -4,7 +4,7 @@ HelixHealth implements the OpenHIS-UNLaM educational hospital workflow: identify
 
 ## What Changes
 
-- Preserve HU-01/HU-02 patient lifecycle and HU-03 admissions, including immutable identifiers/events, concurrency protections, exact-DNI search, and pagination.
+- Preserve HU-01/HU-02 patient lifecycle and HU-03 admissions, including immutable identifiers/events, concurrency protections, exact-DNI search, and pagination. The implemented public landing page and responsive administrative/clinical directories also provide live first-name/surname filtering.
 - Extend the existing professional identity in place for HU-04/HU-05: complete registration, maintenance, search, deactivation, and explicit reactivation.
 - **BREAKING at HU-04 rollout:** medical group membership and an incomplete legacy profile will no longer grant clinical access. Preserve existing profile IDs and admissions; an application administrator completes the profile. Preserve intentionally inactive profiles until explicit reactivation.
 - Provide the minimal supporting workflows for HU-06: administrators assign/revoke patient care relationships; assigned professionals record or correct a plain-text intervention note. Corrections preserve the original note.

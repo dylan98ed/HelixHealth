@@ -2,6 +2,8 @@ Execution rules: this file is the implementation queue; the two specs define obs
 
 Work sequentially from the first unchecked task. Each task ends after its stated verification; record results before checking it off. Read its D-section, named existing patterns, AGENTS.md, and applicable nested instructions first. Create the named new test files as part of that task; do not assume they already exist. Do not mark future work complete merely because planning artifacts validate.
 
+The public landing page, shared responsive styling, and live patient-name filtering are also implemented. Preserve patients/directory.py and the shared search templates alongside the exact-DNI contracts; later work must retain both search paths and their browser regressions.
+
 API/HTML names and payloads come from D5-D7; do not invent parallel routes or custom error shapes. Keep normal refactor choices local, but record any discovered contract contradiction before implementing a divergent behavior. Do not broaden into appointments, account self-registration, or a full clinical chart.
 
 Sections 5-8 form one releasable HU-04/HU-05 slice. Section 8.7's stricter eligibility must ship with completion/discovery, not alone. Sections 9-11 form HU-06; audited intervention routes ship only after audit/authorization are ready. Later sections depend on earlier sections unless a task states a narrower prerequisite. Commands use PostgreSQL; never substitute SQLite.

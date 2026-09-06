@@ -31,9 +31,9 @@ from clinical_records.services import (
     create_admission,
     lookup_active_patient_for_admission,
 )
+from patients.directory import patient_directory_context
 from patients.models import Patient
 
-PATIENTS_PER_PAGE = 20
 ADMISSIONS_PER_PAGE = 20
 
 
@@ -77,18 +77,19 @@ def admission_search_context(
 @medical_professional_required
 @require_http_methods(["GET"])
 def clinical_workspace(request: HttpRequest) -> HttpResponse:
-    active_patients = Paginator(Patient.objects.all(), PATIENTS_PER_PAGE).get_page(
-        request.GET.get("page")
+    context = {
+        **admission_search_context(request),
+        **patient_directory_context(request),
+        "clinical_directory": True,
+    }
+    template = (
+        "patients/_directory.html"
+        if is_htmx(request) and request.headers.get("HX-Target") == "patient-directory"
+        else "clinical_records/admission_search.html"
     )
-    return render(
-        request,
-        "clinical_records/admission_search.html",
-        {
-            **admission_search_context(request),
-            "active_patients": active_patients,
-            "active_patients_page": active_patients,
-        },
-    )
+    response = render(request, template, context)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @medical_professional_required

@@ -5,12 +5,14 @@
   hx-target="#admission-workflow"
   hx-swap="outerHTML"
   id="admission-workflow"
+  class="form-panel"
   novalidate
 >
   {% csrf_token %}
   {% if form.non_field_errors %}
     <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
   {% endif %}
+  <div class="form-grid">
   {% for field in form %}
     <div class="mb-3">
       <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -23,5 +25,6 @@
       {% endif %}
     </div>
   {% endfor %}
+  </div>
   <button class="btn btn-primary" type="submit">Record admission</button>
 </form>

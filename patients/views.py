@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from access_control.actors import actor_context_from_user
 from access_control.policies import ADMINISTRATIVE_POLICY, IsAdministrativeActor
 from clinical_records.models import Admission
+from patients.directory import patient_directory_context
 from patients.forms import PatientRegistrationForm, PatientSearchForm, PatientUpdateForm
 from patients.models import Patient
 from patients.serializers import (
@@ -63,7 +64,7 @@ def patient_search_context(
     *,
     bind_empty_query: bool = False,
 ) -> dict[str, object]:
-    query = request.GET if request.GET or bind_empty_query else None
+    query = request.GET if "dni" in request.GET or bind_empty_query else None
     form = PatientSearchForm(query)
     patient = None
     if form.is_bound and form.is_valid():
@@ -117,7 +118,18 @@ def patient_registration(request: HttpRequest) -> HttpResponse:
 @administrative_required
 @require_http_methods(["GET"])
 def patient_search(request: HttpRequest) -> HttpResponse:
-    return render(request, "patients/search.html", patient_search_context(request))
+    context = {
+        **patient_search_context(request),
+        **patient_directory_context(request),
+    }
+    template = (
+        "patients/_directory.html"
+        if is_htmx(request) and request.headers.get("HX-Target") == "patient-directory"
+        else "patients/search.html"
+    )
+    response = render(request, template, context)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @administrative_required

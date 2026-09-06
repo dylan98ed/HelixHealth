@@ -1,0 +1,23 @@
+{% if name_form.errors %}
+  <div class="alert alert-danger" role="alert">{{ name_form.q.errors }}</div>
+{% else %}
+  <div class="directory-heading"><h2 id="active-patients-heading" class="h5 mb-0">{% if name_query %}Search results{% else %}Active patients{% endif %}</h2><span class="result-count">{{ active_patients_page.paginator.count }} patient{{ active_patients_page.paginator.count|pluralize }}{% if name_query %} matching “{{ name_query }}”{% endif %}</span></div>
+  <div class="patient-list">
+    {% for patient in active_patients %}
+      <article class="patient-row" data-active-patient-id="{{ patient.pk }}">
+        <span class="patient-avatar" aria-hidden="true">{{ patient.first_name|first }}{{ patient.last_name|first }}</span>
+        <div class="patient-identity"><h3 class="h6 mb-1">{{ patient.first_name }} {{ patient.last_name }}</h3><span class="search-hint">Born {{ patient.date_of_birth|date:"d M Y" }}</span></div>
+        <div class="patient-identifier"><span class="data-label">DNI</span><span>{{ patient.dni }}</span></div>
+        <div class="patient-identifier"><span class="data-label">Clinical record</span><span>{{ patient.clinical_record_number }}</span></div>
+        {% if clinical_directory %}
+          <a class="btn btn-outline-secondary patient-action" aria-label="Record admission for {{ patient.first_name }} {{ patient.last_name }}" href="{% url 'clinical_records:patient-admissions' patient.pk %}">Record admission<span aria-hidden="true"> ↗</span></a>
+        {% else %}
+          <a class="btn btn-outline-secondary patient-action" aria-label="Open patient record for {{ patient.first_name }} {{ patient.last_name }}" href="{% url 'patients:detail' patient.pk %}">Open patient record<span aria-hidden="true"> ↗</span></a>
+        {% endif %}
+      </article>
+    {% empty %}
+      <div class="empty-state"><span class="empty-symbol" aria-hidden="true">⌕</span><h3 class="h5">{% if name_query %}No matching patients{% else %}No active patients yet{% endif %}</h3><p>{% if name_query %}Try a shorter name, check the spelling, or clear your search.{% elif clinical_directory %}Registered patients will appear here when they are available for admission.{% else %}Register your first patient to start building their record.{% endif %}</p>{% if not clinical_directory %}<a class="btn btn-primary" href="{% url 'patients:register' %}">Register a patient</a>{% endif %}</div>
+    {% endfor %}
+  </div>
+  {% include "_pagination.html" with page_obj=active_patients_page page_parameter="page" label="Active patients" query_q=name_query query_dni="" %}
+{% endif %}

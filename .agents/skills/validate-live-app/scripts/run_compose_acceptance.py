@@ -107,6 +107,8 @@ def main() -> int:
     def record_admission(page: Page) -> None:
         application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
         expect(page).to_have_url(f"{base_url}/clinical-records/")
+        page.get_by_label("Name or surname").fill("patient acceptance")
+        expect(page.locator(".result-count")).to_contain_text("1 patient")
         patient_card = page.locator("article").filter(has_text="Acceptance Patient")
         expect(patient_card).to_be_visible()
         patient_card.get_by_role(
@@ -162,9 +164,9 @@ def main() -> int:
     def manage_patient(page: Page) -> None:
         application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
         expect(page).to_have_url(f"{base_url}/patients/search/")
-        page.get_by_label("DNI").fill(ACTIVE_PATIENT_DNI)
-        page.get_by_role("button", name="Search patient").click()
-        expect(page.get_by_text("Acceptance Patient", exact=False)).to_be_visible()
+        page.get_by_label("Name or surname").fill("accept")
+        expect(page.locator(".result-count")).to_contain_text("1 patient")
+        expect(page.get_by_text("Acceptance Patient", exact=True)).to_be_visible()
         page.get_by_role("link", name="Open patient record").click()
         expect(page.get_by_role("heading", name="Acceptance Patient")).to_be_visible()
         page.get_by_role("link", name="Edit patient").click()
@@ -192,6 +194,32 @@ def main() -> int:
         pagination.get_by_role("link", name="Next").click()
         expect(page).to_have_url(re.compile(r"/clinical-records/\?page=2$"))
         expect(page.get_by_text(PAGINATION_SECOND_PAGE_DNI, exact=True)).to_be_visible()
+
+    def live_patient_search(page: Page) -> None:
+        page.set_viewport_size({"width": 390, "height": 844})
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        search = page.get_by_label("Name or surname")
+        search.fill("zpagination")
+        expect(page.locator(".result-count")).to_contain_text("zpagination")
+        page.get_by_role("link", name="Next", exact=True).click()
+        expect(search).to_have_value("zpagination")
+        expect(page.get_by_text(PAGINATION_SECOND_PAGE_DNI, exact=True)).to_be_visible()
+        search.fill("00 patient")
+        expect(page.locator(".result-count")).to_contain_text("1 patient")
+        expect(page.get_by_text("20000000", exact=True)).to_be_visible()
+        search.fill("Inactive")
+        expect(page.get_by_role("heading", name="No matching patients")).to_be_visible()
+        search.fill("")
+        expect(page.get_by_role("heading", name="Active patients")).to_be_visible()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        search.fill("20 zpagination")
+        expect(page.locator(".result-count")).to_contain_text("1 patient")
+        page.get_by_role(
+            "link", name="Open patient record for Patient 20 Zpagination"
+        ).click()
+        expect(page.get_by_text(PAGINATION_SECOND_PAGE_DNI, exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="Personal details")).to_be_visible()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
 
     def django_admin_user_creation(page: Page) -> None:
         page.goto(f"{base_url}/admin/login/", wait_until="networkidle")
@@ -226,6 +254,7 @@ def main() -> int:
         ("administrative-patient-registration", register_patient),
         ("administrative-patient-management", manage_patient),
         ("medical-workspace", paginated_workspace),
+        ("administrative-live-name-search-mobile", live_patient_search),
         ("django-admin-user-creation", django_admin_user_creation),
     ]
 

@@ -14,6 +14,7 @@ Read the applicable rows before implementing a task:
 | Roles and clinical eligibility | access_control/actors.py, policies.py, medical_professionals.py |
 | Login/navigation integration | access_control/views.py, middleware.py, context_processors.py; helixhealth/views.py |
 | Pagination | templates/_pagination.html and patient/clinical views (20 rows) |
+| Live patient-name filtering and shared visual shell | patients/directory.py; templates/patients/_name_search.html and _directory.html; static/app.css and app.js |
 | Acceptance | tests/test_browser_workflows.py; .agents/skills/validate-live-app/scripts/; access_control/management/commands/seed_acceptance.py and verify_acceptance.py |
 | Operations | README.md, pyproject.toml, compose.yaml, compose.production.yaml, docker-entrypoint.sh, helixhealth/settings.py |
 
@@ -32,6 +33,8 @@ Professional already has an immutable id, protected one-to-one user, and is_acti
 Keep Python 3.13, Django 5.2 LTS, DRF, PostgreSQL 18, HTMX/Bootstrap, and uv.lock. No new runtime package is required for the remaining domain work. professionals owns professional identity data; clinical_records owns care relationships and interventions; access_control owns shared policies; audit owns immutable events. Put rules in services used by both forms and API serializers. A second implementation in views is prohibited.
 
 Preserve conditional active-patient DNI uniqueness, immutable patient identifiers, row-locked patient updates/deactivation/admission, conflict handling outside rolled-back savepoints, immutable admissions, and bounded lists/history. Do not restore full-table rendering to satisfy the phrase "all active patients." Do not make database uniqueness prechecks the sole protection against duplicates.
+
+Patient directories also support q (up to 150 characters): trimmed whitespace-separated terms each match first_name or last_name case-insensitively. Both role-protected workspace views reuse patients/directory.py; a 300 ms HTMX typing delay replaces the results region, and GET submission works without JavaScript. Query changes start at page one; pagination retains q. Exact-DNI endpoints and their existing contracts remain separate. Preserve these implemented name-search and responsive landing-page improvements during later work.
 
 ### D2. Extend Professional in place
 

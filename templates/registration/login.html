@@ -1,33 +1,21 @@
 {% extends "base.html" %}
-
 {% block title %}Sign in · HelixHealth{% endblock %}
-
 {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-md-6 col-lg-4">
-      <section class="card shadow-sm" aria-labelledby="login-heading">
-        <div class="card-body p-4">
-          <h1 class="h3" id="login-heading">Sign in to HelixHealth</h1>
-          {% if form.errors %}
-            <div class="alert alert-danger" role="alert">
-              Your username or password is incorrect.
-            </div>
-          {% endif %}
-          <form method="post">
-            {% csrf_token %}
-            {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-            <div class="mb-3">
-              <label class="form-label" for="{{ form.username.id_for_label }}">Username</label>
-              {{ form.username }}
-            </div>
-            <div class="mb-3">
-              <label class="form-label" for="{{ form.password.id_for_label }}">Password</label>
-              {{ form.password }}
-            </div>
-            <button class="btn btn-primary w-100" type="submit">Sign in</button>
-          </form>
-        </div>
-      </section>
-    </div>
+  <div class="login-layout">
+    <div class="login-intro"><p class="eyebrow">Welcome back</p><h2>Your team.<br>Your patients.<br>One workspace.</h2><p>Sign in with your hospital account to continue your work.</p><a class="quiet-link" href="{% url 'home' %}">← Back to home</a></div>
+    <section class="login-card" aria-labelledby="login-heading">
+      <span class="brand-mark mb-4" aria-hidden="true">H<span>+</span></span>
+      <h1 class="h3" id="login-heading">Sign in to HelixHealth</h1>
+      <p class="text-body-secondary mb-4">Enter your account details below.</p>
+      {% if form.errors %}<div class="alert alert-danger" role="alert">Your username or password is incorrect.</div>{% endif %}
+      <form method="post">
+        {% csrf_token %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+        <div class="mb-3"><label class="form-label" for="{{ form.username.id_for_label }}">Username</label>{{ form.username }}</div>
+        <div class="mb-4"><label class="form-label" for="{{ form.password.id_for_label }}">Password</label>{{ form.password }}</div>
+        <button class="btn btn-primary w-100" type="submit">Sign in</button>
+      </form>
+      <p class="login-help">Need an account or help signing in?<br>Contact your hospital administrator.</p>
+    </section>
   </div>
 {% endblock %}

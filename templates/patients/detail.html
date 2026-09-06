@@ -1,33 +1,27 @@
 {% extends "base.html" %}
-
 {% block title %}Patient {{ patient.clinical_record_number }} · HelixHealth{% endblock %}
-
 {% block content %}
-  <h1>{{ patient.first_name }} {{ patient.last_name }}</h1>
-  <dl class="row">
-    <dt class="col-sm-4">Internal ID</dt><dd class="col-sm-8">{{ patient.pk }}</dd>
-    <dt class="col-sm-4">DNI</dt><dd class="col-sm-8">{{ patient.dni }}</dd>
-    <dt class="col-sm-4">Clinical record number</dt><dd class="col-sm-8">{{ patient.clinical_record_number }}</dd>
-    <dt class="col-sm-4">Date of birth</dt><dd class="col-sm-8">{{ patient.date_of_birth }}</dd>
-    <dt class="col-sm-4">Sex</dt><dd class="col-sm-8">{{ patient.sex }}</dd>
-    <dt class="col-sm-4">Phone</dt><dd class="col-sm-8">{{ patient.phone }}</dd>
-    <dt class="col-sm-4">Email</dt><dd class="col-sm-8">{{ patient.email }}</dd>
-    <dt class="col-sm-4">Address</dt><dd class="col-sm-8">{{ patient.address }}</dd>
-    <dt class="col-sm-4">Health insurer</dt><dd class="col-sm-8">{{ patient.health_insurer }}</dd>
-    <dt class="col-sm-4">Status</dt><dd class="col-sm-8">{% if patient.is_active %}Active{% else %}Inactive{% endif %}</dd>
-  </dl>
+  <a class="quiet-link d-inline-block mb-4" href="{% url 'patients:search' %}">← Back to patients</a>
+  <header class="page-heading">
+    <div><p class="eyebrow">Patient record</p><h1>{{ patient.first_name }} {{ patient.last_name }}</h1><p>Clinical record <strong>{{ patient.clinical_record_number }}</strong></p></div>
+    <span class="workspace-badge">{% if patient.is_active %}<span class="status-dot" aria-hidden="true"></span>Active{% else %}Inactive{% endif %}</span>
+  </header>
+  <div class="record-grid">
+    <section class="form-panel" aria-labelledby="personal-heading">
+      <h2 class="h5 mb-4" id="personal-heading">Personal details</h2>
+      <dl class="record-details"><dt>DNI</dt><dd>{{ patient.dni }}</dd><dt>Date of birth</dt><dd>{{ patient.date_of_birth }}</dd><dt>Sex</dt><dd>{{ patient.sex }}</dd><dt>Health insurer</dt><dd>{{ patient.health_insurer }}</dd></dl>
+    </section>
+    <section class="form-panel" aria-labelledby="contact-heading">
+      <h2 class="h5 mb-4" id="contact-heading">Contact information</h2>
+      <dl class="record-details"><dt>Phone</dt><dd>{{ patient.phone }}</dd><dt>Email</dt><dd>{{ patient.email }}</dd><dt>Address</dt><dd>{{ patient.address }}</dd></dl>
+    </section>
+  </div>
   {% if patient.is_active %}
-    <a class="btn btn-primary" href="{% url 'patients:update' patient.pk %}">Edit patient</a>
-    <a class="btn btn-outline-danger" href="{% url 'patients:deactivate' patient.pk %}">Deactivate patient</a>
+    <div class="d-flex flex-wrap gap-2 mt-4"><a class="btn btn-primary" href="{% url 'patients:update' patient.pk %}">Edit patient</a><a class="btn btn-outline-danger" href="{% url 'patients:deactivate' patient.pk %}">Deactivate patient</a></div>
   {% endif %}
-
   <section class="mt-5" aria-labelledby="admissions-heading">
-    <h2 id="admissions-heading">Admissions</h2>
-    {% for admission in admissions %}
-      {% include "clinical_records/_admission_record.html" %}
-    {% empty %}
-      <p>No admissions have been recorded.</p>
-    {% endfor %}
+    <h2 class="h4 mb-4" id="admissions-heading">Admissions</h2>
+    {% for admission in admissions %}{% include "clinical_records/_admission_record.html" %}{% empty %}<div class="form-panel text-body-secondary">No admissions have been recorded.</div>{% endfor %}
     {% include "_pagination.html" with page_obj=admissions_page page_parameter="history_page" label="Admissions" %}
   </section>
 {% endblock %}

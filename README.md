@@ -146,6 +146,23 @@ If a trusted reverse proxy terminates TLS and forwards requests over HTTP, set
 Django's proxy SSL header and prevents redirect loops; do not enable it when
 clients can reach the application directly.
 
+## Using the application
+
+Start at `/` and choose **Sign in** or **Open your workspace**. Administrative
+users reach **Patient search**; medical professionals reach **Clinical workspace**.
+The public landing page shows no patient information.
+
+Both workspaces list active patients, 20 per page. Type part of a first name,
+surname, or full name into **Name or surname** to filter the list automatically.
+Full names work in either order, and matching ignores letter case. Clear the
+field to show all active patients again. **Next** and **Previous** retain the
+current filter. If JavaScript is unavailable, use **Search names** to submit the
+same search. The separate **DNI** field still performs an exact lookup.
+
+Open a patient's record to review details or, in the clinical workspace, choose
+**Record admission**. Administrative users can create a patient with **New patient**
+and edit existing records. These screens also support narrow mobile layouts.
+
 ## Tests
 
 Start PostgreSQL before running the test suite. Tests use PostgreSQL, never

@@ -3,11 +3,13 @@
 {% block title %}Edit patient · HelixHealth{% endblock %}
 
 {% block content %}
+  <p class="eyebrow">Patient management</p>
   <h1>Edit patient</h1>
   <p>DNI: {{ patient.dni }} · Clinical record: {{ patient.clinical_record_number }}</p>
-  <form method="post" novalidate>
+  <form method="post" class="form-panel" novalidate>
     {% csrf_token %}
-    {{ form.as_div }}
+    <div class="form-grid">{{ form.as_div }}</div>
     <button class="btn btn-primary" type="submit">Save changes</button>
+    <a class="btn btn-outline-secondary" href="{% url 'patients:detail' patient.pk %}">Cancel</a>
   </form>
 {% endblock %}

@@ -406,6 +406,8 @@ def test_medical_professional_records_admission_through_ui(
     expect(
         browser_page.get_by_role("heading", name="Clinical workspace")
     ).to_be_visible()
+    browser_page.get_by_label("Name or surname").fill("patient admission")
+    expect(browser_page.locator(".result-count")).to_contain_text("1 patient")
     patient_card = browser_page.locator(
         f'[data-active-patient-id="{browser_admission_patient.pk}"]'
     )
@@ -580,9 +582,114 @@ def test_medical_professional_cannot_open_inactive_patient_by_internal_id(
         args=[browser_inactive_admission_patient.pk],
     )
     denied_response = browser_page.goto(f"{live_server.url}{inactive_admission_url}")
-
     assert denied_response is not None
     assert denied_response.status == 404
     expect(
         browser_page.get_by_text(browser_inactive_admission_patient.dni, exact=True)
     ).to_have_count(0)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_administrator_live_name_search_and_mobile_record(
+    browser_patient_administrator,
+    browser_search_patient,
+    browser_inactive_admission_patient,
+    live_server,
+    browser_page,
+    tmp_path,
+):
+    browser_page.set_viewport_size({"width": 390, "height": 844})
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_patient_administrator.username,
+        password=TEST_PASSWORD,
+    )
+    search = browser_page.get_by_label("Name or surname")
+    for query in ("search", "PATIENT searchable"):
+        search.fill(query)
+        expect(browser_page.locator(".result-count")).to_contain_text(query)
+        expect(
+            browser_page.get_by_text("Searchable Patient", exact=True)
+        ).to_be_visible()
+    search.fill("Archived")
+    expect(
+        browser_page.get_by_role("heading", name="No matching patients")
+    ).to_be_visible()
+    expect(browser_page.get_by_text("88776655", exact=True)).to_have_count(0)
+    browser_page.route(
+        "**/patients/search/?q=connection-test", lambda route: route.abort()
+    )
+    search.fill("connection-test")
+    expect(browser_page.locator("#search-feedback")).to_be_visible()
+    browser_page.unroute("**/patients/search/?q=connection-test")
+    search.fill("")
+    expect(browser_page.get_by_role("heading", name="Active patients")).to_be_visible()
+    expect(browser_page.locator("#search-feedback")).to_be_hidden()
+    assert browser_page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    browser_page.screenshot(path=str(tmp_path / "directory-mobile.png"), full_page=True)
+    browser_page.get_by_role(
+        "link", name="Open patient record for Searchable Patient"
+    ).click()
+    expect(browser_page).to_have_url(re.compile(r"/patients/\d+/$"))
+    expect(
+        browser_page.get_by_text(browser_search_patient.dni, exact=True)
+    ).to_be_visible()
+    expect(browser_page.get_by_role("heading", name="Personal details")).to_be_visible()
+    assert browser_page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    browser_page.screenshot(path=str(tmp_path / "record-mobile.png"), full_page=True)
+    print(f"UI screenshots: {tmp_path}")
+    browser_page.get_by_role("link", name="Edit patient").click()
+    browser_page.get_by_label("Phone").fill("+54 11 5555-0155")
+    browser_page.get_by_role("button", name="Save changes").click()
+    expect(browser_page.get_by_text("+54 11 5555-0155", exact=True)).to_be_visible()
+    browser_page.reload()
+    expect(browser_page.get_by_text("+54 11 5555-0155", exact=True)).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_live_name_filter_across_pages_and_without_javascript(
+    browser_medical_professional,
+    browser_paginated_patients,
+    browser,
+    live_server,
+    browser_page,
+):
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_medical_professional.username,
+        password=TEST_PASSWORD,
+    )
+    search = browser_page.get_by_label("Name or surname")
+    search.fill("zpagination")
+    expect(browser_page.locator(".result-count")).to_contain_text("zpagination")
+    browser_page.get_by_role("link", name="Next", exact=True).click()
+    expect(search).to_have_value("zpagination")
+    expect(browser_page.get_by_text("30000020", exact=True)).to_be_visible()
+    search.fill("patient 00")
+    expect(browser_page.locator(".result-count")).to_contain_text("1 patient")
+    expect(browser_page.get_by_text("30000000", exact=True)).to_be_visible()
+    expect(browser_page.get_by_text("30000020", exact=True)).to_have_count(0)
+    # A new signed-out session proves that the visible GET form works without HTMX.
+    context = browser.new_context(java_script_enabled=False)
+    try:
+        page = context.new_page()
+        login_through_application(
+            page,
+            live_server.url,
+            username=browser_medical_professional.username,
+            password=TEST_PASSWORD,
+        )
+        page.get_by_label("Name or surname").fill("20 Zpagination")
+        page.get_by_role("button", name="Search names").click()
+        expect(page.get_by_text("30000020", exact=True)).to_be_visible()
+        expect(page.get_by_text("30000000", exact=True)).to_have_count(0)
+        page.get_by_role(
+            "link", name="Record admission for Patient 20 Zpagination"
+        ).click()
+        expect(page.get_by_role("heading", name="Patient admission")).to_be_visible()
+    finally:
+        context.close()

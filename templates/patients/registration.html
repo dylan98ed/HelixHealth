@@ -3,8 +3,8 @@
 {% block title %}Register patient · HelixHealth{% endblock %}
 
 {% block content %}
-  <h1>Register patient</h1>
-  <div id="registration-result">
+  <header class="page-heading"><div><p class="eyebrow">Patient management</p><h1>Register patient</h1><p>Create a record with the patient's identity and contact details.</p></div><a class="quiet-link" href="{% url 'patients:search' %}">← Back to patients</a></header>
+  <div id="registration-result" class="form-panel">
     {% include "patients/_registration_form.html" %}
   </div>
 {% endblock %}

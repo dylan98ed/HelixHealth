@@ -51,6 +51,25 @@ The system SHALL permit an administrator to view all retained patient details an
 - **WHEN** deactivation commits before an overlapping update or admission obtains permission to write, even if that request holds an earlier active patient object
 - **THEN** the later operation is rejected without mutation; already-committed clinical history is preserved
 
+### Requirement: Discoverable landing page and live patient-name search
+The public landing page SHALL explain the existing patient/admission workflows and expose application sign-in without displaying patient data. Administrative and eligible medical workspaces SHALL list active patients with a name/surname filter, clear feedback, and visible record/admission actions. Name filtering SHALL match case-insensitive partial names, require every whitespace-separated search term to match either name field, and accept full names in either order. Lists SHALL remain ordered by surname/name/ID and bounded to 20 patients per page.
+
+#### Scenario: Filter while typing
+- **WHEN** an authorized user enters a first name, surname, or full name in the workspace's Name or surname field
+- **THEN** the list updates after a short typing pause without a full-page reload and shows the matching count and appropriate record actions
+
+#### Scenario: Clear, paginate, or recover a search
+- **WHEN** a user clears the name field, changes the query while on a later page, or follows Next/Previous
+- **THEN** clearing restores active patients, changing the query searches from the first page, and pagination retains the current filter
+
+#### Scenario: Empty results or failed connection
+- **WHEN** the query has no match or the search request fails
+- **THEN** an empty result explains how to adjust the search, while a failed request identifies the connection problem and clearly marks retained results as belonging to the previous search
+
+#### Scenario: Mobile and JavaScript-free access
+- **WHEN** a user starts signed out at / on a narrow screen or with JavaScript disabled, signs in, and submits Search names
+- **THEN** visible navigation and forms remain usable, and the matching list leads to the authorized patient record or admission workflow
+
 ### Requirement: HU-02 - Search for a patient by DNI
 The system SHALL perform exact active-patient DNI lookup after trimming surrounding whitespace. It SHALL reject punctuation/internal whitespace/noncanonical characters. Search results SHALL show full name and clinical record number, with one action to open detail. An unmatched valid DNI SHALL offer registration prefilled with that DNI without creating a patient automatically.
 
