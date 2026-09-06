@@ -1,9 +1,11 @@
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.db import connections
 from django.urls import reverse
 from playwright.sync_api import Page, expect
 
@@ -11,9 +13,60 @@ from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROU
 from clinical_records.models import Admission
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
-from professionals.models import Professional
+from professionals.models import HospitalService, Professional, Specialty
+from tests.professional_journeys import fill_professional_registration
 
 TEST_PASSWORD = "Browser-test-password-2026!"
+
+
+@pytest.fixture
+def browser_professional_references(db):
+    Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)
+    Specialty.objects.get_or_create(
+        code="general-medicine", defaults={"name": "General Medicine"}
+    )
+    HospitalService.objects.get_or_create(
+        code="inpatient-ward", defaults={"name": "Inpatient Ward"}
+    )
+
+
+def read_professional_state(username):
+    def load():
+        try:
+            user = get_user_model().objects.get(username=username)
+            profile = Professional.objects.filter(user=user).first()
+            return {
+                "pk": profile.pk if profile else None,
+                "complete": profile.is_registration_complete if profile else False,
+                "active": profile.is_active if profile else False,
+                "number": profile.registration_number if profile else None,
+                "dni": profile.dni if profile else None,
+                "staff": user.is_staff,
+                "groups": list(user.groups.values_list("name", flat=True)),
+                "admissions": list(
+                    Admission.objects.filter(professional=profile)
+                    .order_by("pk")
+                    .values_list("pk", "professional_id")
+                )
+                if profile
+                else [],
+            }
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(load).result()
+
+
+@pytest.fixture
+def browser_legacy_registration(db, initially_active):
+    # Old identity and history are the explicit starting state under test.
+    create_history_patient(dni="45556667", clinical_record_number="HC-LEGACY-COMPLETE")
+    username = "history-professional-45556667"
+    Professional.objects.filter(user__username=username).update(
+        is_active=initially_active
+    )
+    return username, read_professional_state(username)
 
 
 @pytest.fixture
@@ -693,3 +746,156 @@ def test_live_name_filter_across_pages_and_without_javascript(
         expect(page.get_by_role("heading", name="Patient admission")).to_be_visible()
     finally:
         context.close()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("javascript_enabled", [True, False])
+def test_admin_discovers_registration_for_account_without_profile_or_role(
+    browser_superuser,
+    browser_patient_administrator,
+    browser_professional_references,
+    live_server,
+    javascript_enabled,
+    browser,
+):
+    # Provision the subject through the supported account-operator UI.
+    with browser.new_context() as operator_context:
+        operator = operator_context.new_page()
+        login_through_admin(
+            operator,
+            live_server.url,
+            username=browser_superuser.username,
+            password=TEST_PASSWORD,
+        )
+        operator.get_by_role("link", name="Users", exact=True).click()
+        operator.get_by_role("link", name="Add user", exact=True).click()
+        operator.get_by_label("Username").fill("registration-subject")
+        operator.locator("#id_password1").fill(TEST_PASSWORD)
+        operator.locator("#id_password2").fill(TEST_PASSWORD)
+        operator.get_by_role("button", name="Save", exact=True).click()
+        expect(
+            operator.get_by_text(re.compile("was added successfully"))
+        ).to_be_visible()
+    username = "registration-subject"
+    original = read_professional_state(username)
+    assert original["pk"] is None and not original["groups"]
+    with browser.new_context(
+        java_script_enabled=javascript_enabled, viewport={"width": 390, "height": 844}
+    ) as context:
+        page = context.new_page()
+        login_through_application(
+            page,
+            live_server.url,
+            username=browser_patient_administrator.username,
+            password=TEST_PASSWORD,
+        )
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="Professionals", exact=True)
+        ).to_be_visible()
+        page.get_by_role("link", name="Register professional", exact=True).click()
+        page.get_by_label("Username", exact=True).fill("unknown-account")
+        page.get_by_role("button", name="Register professional", exact=True).click()
+        expect(page.locator('[data-field-error="dni"]')).to_be_visible()
+        fill_professional_registration(page, dni="01234567")
+        page.get_by_role("button", name="Register professional", exact=True).click()
+        expect(page.locator('[data-field-error="username"]')).to_contain_text(
+            "existing active account"
+        )
+        assert read_professional_state(username) == original
+        page.get_by_label("Username", exact=True).fill(username)
+        page.get_by_role("button", name="Register professional", exact=True).click()
+        if javascript_enabled:
+            expect(page.get_by_role("status")).to_contain_text(
+                "Professional registered"
+            )
+            page.get_by_role(
+                "link", name="Open professional record", exact=True
+            ).click()
+        expect(
+            page.get_by_role("heading", name="Lovelace, Ada", exact=True)
+        ).to_be_visible()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        profile = read_professional_state(username)
+        expect(page).to_have_url(f"{live_server.url}/professionals/{profile['pk']}/")
+        expect(page.get_by_text(profile["number"], exact=True)).to_be_visible()
+        assert profile["complete"] and profile["dni"] == "01234567"
+        assert profile["groups"] == [MEDICAL_PROFESSIONAL_GROUP]
+        assert not profile["staff"]
+    with browser.new_context() as medical_context:
+        page = medical_context.new_page()
+        login_through_application(
+            page, live_server.url, username=username, password=TEST_PASSWORD
+        )
+        expect(page).to_have_url(f"{live_server.url}/clinical-records/")
+        expect(
+            page.get_by_role("heading", name="Clinical workspace", exact=True)
+        ).to_be_visible()
+        expect(
+            page.get_by_role("link", name="Professionals", exact=True)
+        ).to_have_count(0)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("initially_active", [True, False])
+def test_admin_completes_legacy_profile_from_visible_incomplete_tab(
+    browser_patient_administrator,
+    browser_professional_references,
+    browser_legacy_registration,
+    live_server,
+    initially_active,
+    browser_page,
+):
+    username, original = browser_legacy_registration
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_patient_administrator.username,
+        password=TEST_PASSWORD,
+    )
+    browser_page.get_by_role("link", name="Professionals", exact=True).click()
+    browser_page.get_by_role("navigation", name="Professional status").get_by_role(
+        "link", name="Incomplete", exact=True
+    ).click()
+    browser_page.get_by_role("link", name=username, exact=True).click()
+    browser_page.get_by_role("link", name="Complete registration", exact=True).click()
+    expect(browser_page.get_by_label("Username", exact=True)).to_be_disabled()
+    fill_professional_registration(browser_page, dni="02345678")
+    browser_page.get_by_role("button", name="Complete registration", exact=True).click()
+    expect(browser_page.get_by_role("status")).to_contain_text(
+        "Professional registered" if initially_active else "profile remains inactive"
+    )
+    browser_page.get_by_role(
+        "link", name="Open professional record", exact=True
+    ).click()
+    expect(browser_page).to_have_url(
+        f"{live_server.url}/professionals/{original['pk']}/"
+    )
+    saved = read_professional_state(username)
+    assert saved["complete"] and saved["active"] == initially_active
+    assert saved["admissions"] == original["admissions"]
+    if not initially_active:
+        browser_page.get_by_role("link", name="Edit professional", exact=True).click()
+        browser_page.get_by_label("Last name", exact=True).fill("Byron")
+        browser_page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(
+            browser_page.get_by_role("heading", name="Byron, Ada", exact=True)
+        ).to_be_visible()
+        assert not read_professional_state(username)["active"]
+        browser_page.get_by_role(
+            "link", name="Reactivate professional", exact=True
+        ).click()
+        browser_page.get_by_role(
+            "button", name="Reactivate professional", exact=True
+        ).click()
+        expect(browser_page.locator('[data-field-error="confirm"]')).to_be_visible()
+        browser_page.get_by_label(
+            "I confirm this change to the professional's status."
+        ).check()
+        browser_page.get_by_role(
+            "button", name="Reactivate professional", exact=True
+        ).click()
+        expect(browser_page.get_by_text("Active", exact=True)).to_be_visible()
+        assert read_professional_state(username)["active"]

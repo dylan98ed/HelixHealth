@@ -40,6 +40,7 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("admin/", admin.site.urls),
     path("patients/", include("patients.urls")),
+    path("professionals/", include("professionals.urls")),
     path("clinical-records/", include("clinical_records.urls")),
     path(
         "api/schema/",

@@ -1,0 +1,10 @@
+{% if form.errors %}<div role="alert">{{ form.dni.errors }}</div>
+{% elif form.is_bound %}
+  {% if professional %}
+    <h2 class="h5">{{ professional.display_name }}</h2><p>{{ professional.registration_number }}</p>
+    <a href="{% url 'professionals:detail' professional.pk %}">Open professional record</a>
+  {% else %}
+    <p>No active registered professional matches this DNI.</p>
+    <a href="{% url 'professionals:register' %}?dni={{ form.cleaned_data.dni|urlencode }}">Register professional with this DNI</a>
+  {% endif %}
+{% endif %}

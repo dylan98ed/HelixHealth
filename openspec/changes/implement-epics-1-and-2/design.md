@@ -1,5 +1,7 @@
 ## Context
 
+Scheduling update: former tasks.md sections 10-12 are deferred. Retain D7-D8 intervention/audit contracts and their related acceptance, operational, and migration plans for later implementation; they do not authorize additional work beyond the remaining queue. D6 care relationships remains in scope, including shared pagination contracts referenced from D7. Epic-wide completion/evidence is deferred; verification required by retained tasks and repository instructions still applies.
+
 See proposal.md for purpose. This is an extension of a working application. HU-01/HU-02 and HU-03 are implemented. The reviewed baseline had 166 passing tests (10 isolated Chromium tests) and 8 passing disposable production-Compose journeys; those counts are historical, not a fixed future target.
 
 Read the applicable rows before implementing a task:

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Professionals · HelixHealth{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <div><p class="eyebrow">Care team directory</p><h1>Professionals</h1><p>Register professionals and maintain their existing profiles.</p></div>
+  <a class="btn btn-primary" href="{% url 'professionals:register' %}">Register professional</a>
+</header>
+<div class="d-flex flex-wrap gap-3 mb-4">
+  <nav class="d-flex gap-3" aria-label="Professional status">
+    <a href="?status=active" {% if status == 'active' %}aria-current="page"{% endif %}>Active</a>
+    <a href="?status=inactive" {% if status == 'inactive' %}aria-current="page"{% endif %}>Inactive</a>
+    <a href="?status=incomplete" {% if status == 'incomplete' %}aria-current="page"{% endif %}>Incomplete</a>
+  </nav>
+  <a class="ms-auto" href="{% url 'professionals:search' %}">Search by DNI</a>
+</div>
+<section aria-label="Professional records">
+{% for professional in page_obj %}
+  <article class="form-panel mb-3">
+    <div class="d-flex flex-wrap justify-content-between gap-3">
+      <div><h2 class="h5"><a href="{% url 'professionals:detail' professional.pk %}">{{ professional.display_name }}</a></h2>
+      <p class="mb-0">Username: {{ professional.user.username }} · {{ professional.registration_number|default:"Registration incomplete" }}</p></div>
+      <span>{{ professional.registration_status|capfirst }}{% if not professional.is_registration_complete and not professional.is_active %} · Inactive{% endif %}</span>
+    </div>
+  </article>
+{% empty %}
+  <div class="form-panel"><h2 class="h5">No {{ status }} professionals</h2><p class="mb-0">Use Register professional to add someone with an existing login account.</p></div>
+{% endfor %}
+</section>
+{% if page_obj.has_other_pages %}
+<nav class="d-flex justify-content-between align-items-center mt-4" aria-label="Professionals pagination">
+  {% if page_obj.has_previous %}<a href="?status={{ status }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}<a href="?status={{ status }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

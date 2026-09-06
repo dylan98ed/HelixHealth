@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ professional.display_name }} · HelixHealth{% endblock %}
+{% block content %}
+<a class="quiet-link d-inline-block mb-4" href="{% url 'professionals:index' %}">Back to professionals</a>
+<header class="page-heading">
+  <div><p class="eyebrow">Professional record</p><h1>{{ professional.display_name }}</h1><p>Username: {{ professional.user.username }}</p></div>
+  <span class="workspace-badge">{{ professional.registration_status|capfirst }}</span>
+</header>
+{% if not professional.is_registration_complete %}
+  <p class="alert alert-info">Registration is incomplete. Complete the profile with the professional's details.</p>
+{% elif not professional.is_active %}
+  <p class="alert alert-info">Registration complete; profile remains inactive. Reactivation requires confirmation.</p>
+{% endif %}
+<div class="record-grid">
+  <section class="form-panel" aria-label="Personal details"><h2 class="h5 mb-4">Personal details</h2>
+    <dl class="record-details"><dt>DNI</dt><dd>{{ professional.dni|default:"Not supplied" }}</dd><dt>Registration number</dt><dd>{{ professional.registration_number|default:"Not assigned" }}</dd><dt>Date of birth</dt><dd>{{ professional.date_of_birth|default:"Not supplied" }}</dd></dl>
+  </section>
+  <section class="form-panel" aria-label="Professional details"><h2 class="h5 mb-4">Professional details</h2>
+    <dl class="record-details"><dt>Specialty</dt><dd>{{ professional.specialty|default:"Not supplied" }}</dd><dt>Hospital service</dt><dd>{{ professional.hospital_service|default:"Not supplied" }}</dd><dt>Profile active</dt><dd>{{ professional.is_active|yesno:"Yes,No" }}</dd><dt>Clinical access</dt><dd>{% if clinically_eligible %}Available{% else %}Unavailable{% endif %}</dd></dl>
+  </section>
+</div>
+<div class="d-flex flex-wrap gap-2 mt-4">
+{% if not professional.is_registration_complete %}
+  <a class="btn btn-primary" href="{% url 'professionals:complete' professional.pk %}">Complete registration</a>
+{% else %}
+  <a class="btn btn-primary" href="{% url 'professionals:update' professional.pk %}">Edit professional</a>
+  {% if not professional.is_active %}<a class="btn btn-outline-primary" href="{% url 'professionals:reactivate' professional.pk %}">Reactivate professional</a>{% endif %}
+{% endif %}
+{% if professional.is_active %}<a class="btn btn-outline-danger" href="{% url 'professionals:deactivate' professional.pk %}">Deactivate professional</a>{% endif %}
+</div>
+{% endblock %}

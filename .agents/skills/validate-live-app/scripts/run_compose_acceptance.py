@@ -14,6 +14,7 @@ from playwright.sync_api import Browser, Page, expect, sync_playwright
 repository_root = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(repository_root))
 personas = importlib.import_module("access_control.acceptance_personas")
+professional_journeys = importlib.import_module("tests.professional_journeys")
 
 ACCEPTANCE_PASSWORD_ENV = personas.ACCEPTANCE_PASSWORD_ENV
 ACTIVE_PATIENT_DNI = personas.ACTIVE_PATIENT_DNI
@@ -257,6 +258,89 @@ def main() -> int:
         ("administrative-live-name-search-mobile", live_patient_search),
         ("django-admin-user-creation", django_admin_user_creation),
     ]
+
+    def register_professional(page: Page) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        page.get_by_role("link", name="Register professional", exact=True).click()
+        page.get_by_label("Username", exact=True).fill("unknown-account")
+        professional_journeys.fill_professional_registration(
+            page, dni=personas.REGISTERED_PROFESSIONAL_DNI
+        )
+        page.get_by_role("button", name="Register professional", exact=True).click()
+        expect(page.locator('[data-field-error="username"]')).to_contain_text(
+            "existing active account"
+        )
+        # This account was created through Django Admin in the preceding journey.
+        page.get_by_label("Username", exact=True).fill(BROWSER_CREATED_USERNAME)
+        page.get_by_role("button", name="Register professional", exact=True).click()
+        expect(page.get_by_role("status")).to_contain_text("Professional registered")
+        page.get_by_role("link", name="Open professional record", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="Lovelace, Ada", exact=True)
+        ).to_be_visible()
+        expect(
+            page.get_by_text(personas.REGISTERED_PROFESSIONAL_DNI, exact=True)
+        ).to_be_visible()
+
+    def registered_professional_login(page: Page) -> None:
+        application_login(page, base_url, BROWSER_CREATED_USERNAME, password)
+        expect(page).to_have_url(f"{base_url}/clinical-records/")
+        expect(
+            page.get_by_role("link", name="Professionals", exact=True)
+        ).to_have_count(0)
+
+    def complete_professional(
+        page: Page, username: str, dni: str, active: bool
+    ) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        page.get_by_role("navigation", name="Professional status").get_by_role(
+            "link", name="Incomplete", exact=True
+        ).click()
+        page.get_by_role("link", name=username, exact=True).click()
+        page.get_by_role("link", name="Complete registration", exact=True).click()
+        expect(page.get_by_label("Username", exact=True)).to_be_disabled()
+        professional_journeys.fill_professional_registration(
+            page, dni=dni, first_name="Legacy", last_name="Professional"
+        )
+        page.get_by_role("button", name="Complete registration", exact=True).click()
+        expect(page.get_by_role("status")).to_contain_text(
+            "Professional registered" if active else "profile remains inactive"
+        )
+        page.get_by_role("link", name="Open professional record", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="Professional, Legacy", exact=True)
+        ).to_be_visible()
+        if not active:
+            expect(
+                page.get_by_role("link", name="Reactivate professional", exact=True)
+            ).to_be_visible()
+
+    journeys.extend(
+        [
+            ("administrative-professional-registration", register_professional),
+            ("registered-professional-login", registered_professional_login),
+            (
+                "administrative-active-legacy-completion",
+                lambda page: complete_professional(
+                    page,
+                    MEDICAL_ACTIVE_USERNAME,
+                    personas.COMPLETED_ACTIVE_PROFESSIONAL_DNI,
+                    True,
+                ),
+            ),
+            (
+                "administrative-inactive-legacy-completion",
+                lambda page: complete_professional(
+                    page,
+                    MEDICAL_INACTIVE_USERNAME,
+                    personas.COMPLETED_INACTIVE_PROFESSIONAL_DNI,
+                    False,
+                ),
+            ),
+        ]
+    )
 
     results: list[dict[str, str]] = []
     summary = artifact_dir / "compose-browser-summary.json"

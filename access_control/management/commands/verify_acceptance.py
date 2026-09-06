@@ -6,12 +6,16 @@ from access_control.acceptance_personas import (
     ADMINISTRATIVE_UPDATED_PHONE,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
+    COMPLETED_ACTIVE_PROFESSIONAL_DNI,
+    COMPLETED_INACTIVE_PROFESSIONAL_DNI,
     MEDICAL_ACTIVE_USERNAME,
     MEDICAL_INACTIVE_USERNAME,
     MEDICAL_LEGACY_STAFF_USERNAME,
     MEDICAL_UNPROVISIONED_USERNAME,
     REGISTERED_PATIENT_DNI,
+    REGISTERED_PROFESSIONAL_DNI,
 )
+from access_control.roles import MEDICAL_PROFESSIONAL_GROUP
 from clinical_records.models import Admission
 from patients.models import Patient
 from professionals.models import Professional
@@ -58,6 +62,24 @@ class Command(BaseCommand):
 
         if not user_model.objects.filter(username=BROWSER_CREATED_USERNAME).exists():
             failures.append("the Django Admin user creation was not persisted")
+
+        for username, dni, active in (
+            (BROWSER_CREATED_USERNAME, REGISTERED_PROFESSIONAL_DNI, True),
+            (MEDICAL_ACTIVE_USERNAME, COMPLETED_ACTIVE_PROFESSIONAL_DNI, True),
+            (MEDICAL_INACTIVE_USERNAME, COMPLETED_INACTIVE_PROFESSIONAL_DNI, False),
+        ):
+            if not Professional.objects.filter(
+                user__username=username,
+                user__is_staff=False,
+                user__groups__name=MEDICAL_PROFESSIONAL_GROUP,
+                dni=dni,
+                is_active=active,
+                registration_completed_at__isnull=False,
+                registration_number__isnull=False,
+            ).exists():
+                failures.append(
+                    f"professional registration/completion was not persisted for {username}"
+                )
 
         if failures:
             raise CommandError("; ".join(failures))

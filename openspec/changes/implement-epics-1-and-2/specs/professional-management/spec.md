@@ -2,6 +2,8 @@
 
 Define the observable HU-04 through HU-06 professional lifecycle, care assignment, and audited intervention-note access for the hospital application.
 
+Scheduling note: intervention/audit implementation and epic-wide completion/evidence from former tasks.md sections 10-12 are deferred until later. Their requirements remain specified here for future work, including the HU-05 performance acceptance deferred with section 12. Care relationship work remains in the active queue. Removing tasks does not mark these requirements implemented or verified.
+
 ## ADDED Requirements
 
 ### Requirement: HU-04 - Register a professional against a known account
