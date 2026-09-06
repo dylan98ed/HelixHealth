@@ -14,7 +14,7 @@ def has_active_medical_professional_context(
     *,
     provision_missing: bool = False,
 ) -> bool:
-    """Return whether a medical-role user has an active professional identity."""
+    """Return legacy clinical eligibility while HU-04 completion UI rolls out."""
     if not user.is_authenticated or not user.is_active or user.pk is None:
         return False
 
@@ -25,9 +25,27 @@ def has_active_medical_professional_context(
     try:
         professional = Professional.objects.get(user_id=user.pk)
     except Professional.DoesNotExist:
-        return False
+        if not provision_missing:
+            return False
+        professional, _ = Professional.objects.get_or_create(user_id=user.pk)
 
-    return professional.is_active and professional.is_registration_complete
+    return professional.is_active
+
+
+def has_completed_active_medical_professional_context(
+    user: AbstractBaseUser | AnonymousUser,
+) -> bool:
+    """Return whether a medical-role user has completed registration."""
+    if not has_active_medical_professional_context(user):
+        return False
+    user_id = user.pk
+    if user_id is None:
+        return False
+    return Professional.objects.filter(
+        user_id=user_id,
+        is_active=True,
+        registration_completed_at__isnull=False,
+    ).exists()
 
 
 class IsActiveMedicalProfessionalActor(BasePermission):

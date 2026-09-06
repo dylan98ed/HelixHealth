@@ -37,7 +37,13 @@ class ConfirmationRequiredError(ProfessionalServiceError):
 def _actor(actor: ActorContext | None) -> ActorContext:
     authorized = ADMINISTRATIVE_POLICY.require(actor)
     user = (
-        get_user_model().objects.filter(pk=authorized.user_id, is_active=True).first()
+        get_user_model()
+        .objects.filter(
+            pk=authorized.user_id,
+            is_active=True,
+            groups__name=ADMINISTRATIVE_POLICY.required_role.value,
+        )
+        .first()
     )
     if user is None:
         raise PermissionDenied("An active administrative account is required.")
@@ -58,6 +64,29 @@ def _references(
     validate_active_reference(specialty, field_name="specialty")
     validate_active_reference(service, field_name="hospital service")
     return cast(Specialty, specialty), cast(HospitalService, service)
+
+
+def _replacement_specialty(code: str, current_id: int | None) -> Specialty:
+    specialty = Specialty.objects.select_for_update().filter(code=code).first()
+    if specialty is None or specialty.pk != current_id:
+        validate_active_reference(specialty, field_name="specialty")
+    return cast(Specialty, specialty)
+
+
+def _replacement_hospital_service(code: str, current_id: int | None) -> HospitalService:
+    service = HospitalService.objects.select_for_update().filter(code=code).first()
+    if service is None or service.pk != current_id:
+        validate_active_reference(service, field_name="hospital service")
+    return cast(HospitalService, service)
+
+
+def _is_active_dni_constraint(error: IntegrityError) -> bool:
+    cause = error.__cause__
+    return bool(
+        getattr(cause, "sqlstate", getattr(cause, "pgcode", None)) == "23505"
+        and getattr(getattr(cause, "diag", None), "constraint_name", None)
+        == "unique_active_professional_dni"
+    )
 
 
 @transaction.atomic
@@ -152,17 +181,13 @@ def update_professional(
         validate_professional_date_of_birth(changes["date_of_birth"])  # type: ignore[arg-type]
         profile.date_of_birth = changes["date_of_birth"]  # type: ignore[assignment]
     if "specialty_code" in changes:
-        if profile.hospital_service is None:
-            raise ValidationError({"hospital_service_code": "Reference is required."})
-        profile.specialty = _references(
-            str(changes["specialty_code"]), profile.hospital_service.code
-        )[0]
+        profile.specialty = _replacement_specialty(
+            str(changes["specialty_code"]), profile.specialty_id
+        )
     if "hospital_service_code" in changes:
-        if profile.specialty is None:
-            raise ValidationError({"specialty_code": "Reference is required."})
-        profile.hospital_service = _references(
-            profile.specialty.code, str(changes["hospital_service_code"])
-        )[1]
+        profile.hospital_service = _replacement_hospital_service(
+            str(changes["hospital_service_code"]), profile.hospital_service_id
+        )
     profile.full_clean()
     profile.save()
     return profile
@@ -211,5 +236,15 @@ def reactivate_professional(
     ):
         raise ProfessionalConflictError("An active professional already has this DNI.")
     profile.is_active = True
-    profile.save(update_fields=["is_active"])
+    try:
+        # The inner savepoint keeps the outer lifecycle transaction usable when
+        # a competing reactivation wins the partial unique-index race.
+        with transaction.atomic():
+            profile.save(update_fields=["is_active"])
+    except IntegrityError as error:
+        if _is_active_dni_constraint(error):
+            raise ProfessionalConflictError(
+                "An active professional already has this DNI."
+            ) from error
+        raise
     return profile

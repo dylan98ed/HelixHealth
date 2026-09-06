@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 
 from access_control.actors import ActorContext, ActorRole
 from access_control.policies import MissingActorError
@@ -115,6 +115,56 @@ def test_update_allows_only_mutable_completed_fields(admin_actor, references):
         update_professional(
             actor=admin_actor, professional=professional, changes={"dni": "12345678"}
         )
+
+
+@pytest.mark.django_db
+def test_update_replaces_retired_references_and_retains_unchanged_ones(
+    admin_actor, references
+):
+    get_user_model().objects.create_user(username="subject", password="x")
+    professional = register(admin_actor)
+    retired_specialty, retired_service = references
+    retired_specialty.is_active = False
+    retired_specialty.save(update_fields=["is_active"])
+    retired_service.is_active = False
+    retired_service.save(update_fields=["is_active"])
+    new_specialty = Specialty.objects.create(code="surgery", name="Surgery")
+    new_service = HospitalService.objects.create(code="icu", name="ICU")
+
+    retained = update_professional(
+        actor=admin_actor,
+        professional=professional,
+        changes={
+            "last_name": "Byron",
+            "specialty_code": retired_specialty.code,
+            "hospital_service_code": retired_service.code,
+        },
+    )
+    assert retained.specialty_id == retired_specialty.pk
+    assert retained.hospital_service_id == retired_service.pk
+
+    replaced = update_professional(
+        actor=admin_actor,
+        professional=retained,
+        changes={
+            "specialty_code": new_specialty.code,
+            "hospital_service_code": new_service.code,
+        },
+    )
+    assert replaced.specialty_id == new_specialty.pk
+    assert replaced.hospital_service_id == new_service.pk
+
+
+@pytest.mark.django_db
+def test_stale_administrative_actor_loses_authorization_when_group_is_removed(
+    admin_actor, references
+):
+    get_user_model().objects.create_user(username="subject", password="x")
+    admin = get_user_model().objects.get(pk=admin_actor.user_id)
+    admin.groups.clear()
+
+    with pytest.raises(PermissionDenied):
+        register(admin_actor)
 
 
 @pytest.mark.django_db
