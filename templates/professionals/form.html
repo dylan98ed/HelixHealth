@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} · HelixHealth{% endblock %}
+{% block content %}
+<a class="quiet-link d-inline-block mb-4" href="{% if professional %}{% url 'professionals:detail' professional.pk %}{% else %}{% url 'professionals:index' %}{% endif %}">Back to {% if professional %}professional{% else %}professionals{% endif %}</a>
+<header class="page-heading"><div><p class="eyebrow">Professional records</p><h1>{{ heading }}</h1>
+{% if professional %}<p>{{ professional.display_name }} · Username: {{ professional.user.username }}</p>{% else %}<p>Enter the existing login username and the professional's details. If an account is needed, ask your account administrator to create it first.</p>{% endif %}
+{% if professional and not professional.is_active %}<p>This profile is inactive. Saving its details keeps it inactive until you confirm reactivation.</p>{% endif %}</div></header>
+<section class="form-panel" id="professional-form-result" aria-label="Professional form">
+{% include "professionals/_form.html" %}
+</section>
+{% endblock %}

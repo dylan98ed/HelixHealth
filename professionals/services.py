@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from access_control.actors import ActorContext
@@ -27,7 +28,16 @@ class ProfessionalServiceError(ValueError):
 
 
 class ProfessionalConflictError(ProfessionalServiceError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        field: str | None = None,
+        existing_professional_id: int | None = None,
+    ):
+        super().__init__(message)
+        self.field = field
+        self.existing_professional_id = existing_professional_id
 
 
 class ConfirmationRequiredError(ProfessionalServiceError):
@@ -89,6 +99,38 @@ def _is_active_dni_constraint(error: IntegrityError) -> bool:
     )
 
 
+def lookup_professional_by_dni(
+    *, actor: ActorContext | None, dni: str
+) -> Professional | None:
+    _actor(actor)
+    return (
+        Professional.objects.select_related("user")
+        .filter(
+            dni=canonicalize_professional_dni(dni),
+            is_active=True,
+            registration_completed_at__isnull=False,
+        )
+        .first()
+    )
+
+
+def professional_index_queryset(
+    *, actor: ActorContext | None, status: str
+) -> QuerySet[Professional]:
+    _actor(actor)
+    profiles = Professional.objects.select_related(
+        "user", "specialty", "hospital_service"
+    )
+    if status == "incomplete":
+        profiles = profiles.filter(registration_completed_at__isnull=True)
+    else:
+        profiles = profiles.filter(
+            registration_completed_at__isnull=False,
+            is_active=status != "inactive",
+        )
+    return profiles.order_by("last_name", "first_name", "id")
+
+
 @transaction.atomic
 def register_professional(
     *,
@@ -117,13 +159,22 @@ def register_professional(
     specialty, service = _references(specialty_code, hospital_service_code)
     profile = Professional.objects.select_for_update().filter(user=subject).first()
     if profile is not None and profile.is_registration_complete:
-        raise ProfessionalConflictError("This account already has a completed profile.")
-    if (
+        raise ProfessionalConflictError(
+            "This account already has a completed profile.",
+            field="username",
+            existing_professional_id=profile.pk,
+        )
+    duplicate = (
         Professional.objects.filter(dni=canonical_dni, is_active=True)
         .exclude(user=subject)
-        .exists()
-    ):
-        raise ProfessionalConflictError("An active professional already has this DNI.")
+        .first()
+    )
+    if duplicate is not None:
+        raise ProfessionalConflictError(
+            "An active professional already has this DNI.",
+            field="dni",
+            existing_professional_id=duplicate.pk,
+        )
     profile = profile or Professional(user=subject, is_active=True)
     profile.dni, profile.first_name, profile.last_name = (
         canonical_dni,
@@ -143,11 +194,19 @@ def register_professional(
     )
     try:
         profile.full_clean(validate_unique=False, validate_constraints=False)
-        profile.save()
+        with transaction.atomic():
+            profile.save()
     except IntegrityError as error:
-        raise ProfessionalConflictError(
-            "Professional identity conflicts with an active record."
-        ) from error
+        if _is_active_dni_constraint(error):
+            duplicate = Professional.objects.filter(
+                dni=canonical_dni, is_active=True
+            ).first()
+            raise ProfessionalConflictError(
+                "An active professional already has this DNI.",
+                field="dni",
+                existing_professional_id=duplicate.pk if duplicate else None,
+            ) from error
+        raise
     subject.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
     return profile
 

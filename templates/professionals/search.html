@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Search professionals · HelixHealth{% endblock %}
+{% block content %}
+<a class="quiet-link d-inline-block mb-4" href="{% url 'professionals:index' %}">Back to professionals</a>
+<header class="page-heading"><div><p class="eyebrow">Professional directory</p><h1>Search professionals</h1><p>Find an active, registered professional by exact DNI.</p></div></header>
+<section class="form-panel">
+<form method="get" action="{% url 'professionals:search' %}" hx-get="{% url 'professionals:search-results' %}" hx-target="#professional-search-results" novalidate>
+  <label class="form-label" for="{{ form.dni.id_for_label }}">DNI</label>{{ form.dni }}
+  <button class="btn btn-primary" type="submit">Search</button>
+</form>
+<div id="professional-search-results" class="mt-4">{% include "professionals/_search_results.html" %}</div>
+</section>
+{% endblock %}

@@ -8,7 +8,7 @@ from django.contrib.auth.models import Group
 from django.db import close_old_connections, connection
 
 from access_control.actors import ActorContext, ActorRole
-from access_control.roles import ADMINISTRATIVE_GROUP
+from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from professionals.models import HospitalService, Professional, Specialty
 from professionals.services import (
     ProfessionalConflictError,
@@ -19,6 +19,7 @@ from professionals.services import (
 
 @pytest.mark.django_db(transaction=True)
 def test_competing_registration_for_same_dni_creates_one_active_identity():
+    Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)
     admin = get_user_model().objects.create_user(username="admin", password="x")
     admin.groups.add(Group.objects.get_or_create(name=ADMINISTRATIVE_GROUP)[0])
     for username in ("one", "two"):

@@ -18,6 +18,7 @@
         <div class="workspace-nav">
           {% if is_administrative_actor %}
             <a {% if request.resolver_match.app_name == 'patients' %}aria-current="page"{% endif %} href="{% url 'patients:search' %}">Patient search</a>
+            <a {% if request.resolver_match.app_name == 'professionals' %}aria-current="page"{% endif %} href="{% url 'professionals:index' %}">Professionals</a>
           {% endif %}
           {% if is_medical_professional_actor %}
             <a {% if request.resolver_match.app_name == 'clinical_records' %}aria-current="page"{% endif %} href="{% url 'clinical_records:dashboard' %}">Clinical workspace</a>

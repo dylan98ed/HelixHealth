@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -13,6 +14,8 @@ from access_control.acceptance_personas import (
     ADMINISTRATOR_USERNAME,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
+    COMPLETED_ACTIVE_PROFESSIONAL_DNI,
+    COMPLETED_INACTIVE_PROFESSIONAL_DNI,
     DJANGO_ADMIN_USERNAME,
     INACTIVE_PATIENT_DNI,
     MEDICAL_ACTIVE_USERNAME,
@@ -20,11 +23,14 @@ from access_control.acceptance_personas import (
     MEDICAL_LEGACY_STAFF_USERNAME,
     MEDICAL_UNPROVISIONED_USERNAME,
     REGISTERED_PATIENT_DNI,
+    REGISTERED_PROFESSIONAL_DNI,
 )
+from access_control.actors import actor_context_from_user
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from clinical_records.models import Admission
 from patients.models import Patient
 from professionals.models import Professional
+from professionals.services import register_professional
 
 ACCEPTANCE_PASSWORD = "Acceptance-test-password-2026!"
 
@@ -119,5 +125,24 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
     managed_patient.phone = ADMINISTRATIVE_UPDATED_PHONE
     managed_patient.is_active = False
     managed_patient.save(update_fields=["phone", "is_active"])
+
+    actor = actor_context_from_user(
+        user_model.objects.get(username=ADMINISTRATOR_USERNAME)
+    )
+    for username, dni in (
+        (BROWSER_CREATED_USERNAME, REGISTERED_PROFESSIONAL_DNI),
+        (MEDICAL_ACTIVE_USERNAME, COMPLETED_ACTIVE_PROFESSIONAL_DNI),
+        (MEDICAL_INACTIVE_USERNAME, COMPLETED_INACTIVE_PROFESSIONAL_DNI),
+    ):
+        register_professional(
+            actor=actor,
+            username=username,
+            dni=dni,
+            first_name="Test",
+            last_name="Professional",
+            date_of_birth=date(1990, 1, 1),
+            specialty_code="general-medicine",
+            hospital_service_code="inpatient-ward",
+        )
 
     call_command("verify_acceptance")

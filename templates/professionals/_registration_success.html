@@ -1,0 +1,5 @@
+<div role="status" class="alert alert-success">
+  {% if professional.is_active %}Professional registered.{% else %}Registration complete; profile remains inactive.{% endif %}
+  Registration number: <strong>{{ professional.registration_number }}</strong>
+</div>
+<a class="btn btn-primary" href="{% url 'professionals:detail' professional.pk %}">Open professional record</a>
