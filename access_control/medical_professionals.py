@@ -25,11 +25,9 @@ def has_active_medical_professional_context(
     try:
         professional = Professional.objects.get(user_id=user.pk)
     except Professional.DoesNotExist:
-        if not provision_missing:
-            return False
-        professional, _ = Professional.objects.get_or_create(user_id=user.pk)
+        return False
 
-    return professional.is_active
+    return professional.is_active and professional.is_registration_complete
 
 
 class IsActiveMedicalProfessionalActor(BasePermission):
