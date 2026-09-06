@@ -85,6 +85,23 @@ def test_register_completes_legacy_in_place_and_preserves_inactive(
 
 
 @pytest.mark.django_db
+def test_inactive_legacy_profile_can_reuse_an_active_professionals_dni(
+    admin_actor, references
+):
+    get_user_model().objects.create_user(username="subject", password="x")
+    get_user_model().objects.create_user(username="active-subject", password="x")
+    active = register(admin_actor, username="active-subject")
+    legacy = Professional.objects.create(
+        user=get_user_model().objects.get(username="subject"), is_active=False
+    )
+
+    completed = register(admin_actor)
+
+    assert completed.pk == legacy.pk and not completed.is_active
+    assert completed.dni == active.dni
+
+
+@pytest.mark.django_db
 def test_conflicts_and_lifecycle(admin_actor, references):
     get_user_model().objects.create_user(username="subject", password="x")
     professional = register(admin_actor)
@@ -115,6 +132,21 @@ def test_update_allows_only_mutable_completed_fields(admin_actor, references):
         update_professional(
             actor=admin_actor, professional=professional, changes={"dni": "12345678"}
         )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("field", ["first_name", "last_name"])
+def test_update_rejects_non_string_names(admin_actor, references, field):
+    get_user_model().objects.create_user(username="subject", password="x")
+    professional = register(admin_actor)
+
+    with pytest.raises(ValidationError):
+        update_professional(
+            actor=admin_actor, professional=professional, changes={field: None}
+        )
+
+    professional.refresh_from_db()
+    assert getattr(professional, field) != "None"
 
 
 @pytest.mark.django_db

@@ -8,6 +8,6 @@
   <label class="form-label" for="{{ form.dni.id_for_label }}">DNI</label>{{ form.dni }}
   <button class="btn btn-primary" type="submit">Search</button>
 </form>
-<div id="professional-search-results" class="mt-4">{% include "professionals/_search_results.html" %}</div>
+<div id="professional-search-results" class="mt-4" aria-live="polite" aria-atomic="true">{% include "professionals/_search_results.html" %}</div>
 </section>
 {% endblock %}

@@ -168,6 +168,16 @@ def test_index_tabs_search_prefill_and_stable_pagination(
 
 
 @pytest.mark.django_db
+def test_professional_search_results_are_announced_to_screen_readers(
+    client, registration_setup
+):
+    response = client.get(reverse("professionals:search"))
+
+    assert b'aria-live="polite"' in response.content
+    assert b'aria-atomic="true"' in response.content
+
+
+@pytest.mark.django_db
 def test_status_confirmation_and_inactive_edit(client, registration_setup):
     subject, payload = registration_setup
     client.post(reverse("professionals:register"), payload)

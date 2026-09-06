@@ -156,7 +156,6 @@ def register_professional(
     )
     if subject is None:
         raise ValidationError({"username": "Select an existing active account."})
-    specialty, service = _references(specialty_code, hospital_service_code)
     profile = Professional.objects.select_for_update().filter(user=subject).first()
     if profile is not None and profile.is_registration_complete:
         raise ProfessionalConflictError(
@@ -164,18 +163,20 @@ def register_professional(
             field="username",
             existing_professional_id=profile.pk,
         )
-    duplicate = (
-        Professional.objects.filter(dni=canonical_dni, is_active=True)
-        .exclude(user=subject)
-        .first()
-    )
-    if duplicate is not None:
-        raise ProfessionalConflictError(
-            "An active professional already has this DNI.",
-            field="dni",
-            existing_professional_id=duplicate.pk,
-        )
     profile = profile or Professional(user=subject, is_active=True)
+    if profile.is_active:
+        duplicate = (
+            Professional.objects.filter(dni=canonical_dni, is_active=True)
+            .exclude(user=subject)
+            .first()
+        )
+        if duplicate is not None:
+            raise ProfessionalConflictError(
+                "An active professional already has this DNI.",
+                field="dni",
+                existing_professional_id=duplicate.pk,
+            )
+    specialty, service = _references(specialty_code, hospital_service_code)
     profile.dni, profile.first_name, profile.last_name = (
         canonical_dni,
         first_name,
@@ -233,9 +234,9 @@ def update_professional(
     if unknown:
         raise ValidationError({key: "This field is immutable." for key in unknown})
     if "first_name" in changes:
-        profile.first_name = normalize_required_name(str(changes["first_name"]))
+        profile.first_name = normalize_required_name(cast(str, changes["first_name"]))
     if "last_name" in changes:
-        profile.last_name = normalize_required_name(str(changes["last_name"]))
+        profile.last_name = normalize_required_name(cast(str, changes["last_name"]))
     if "date_of_birth" in changes:
         validate_professional_date_of_birth(changes["date_of_birth"])  # type: ignore[arg-type]
         profile.date_of_birth = changes["date_of_birth"]  # type: ignore[assignment]
