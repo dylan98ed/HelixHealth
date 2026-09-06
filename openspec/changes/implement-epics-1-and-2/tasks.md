@@ -66,7 +66,7 @@ Sections 5-8 form one releasable HU-04/HU-05 slice. Section 8.7's stricter eligi
 
 ## 6. HU-04 - Professional administration boundary
 
-- [ ] 6.1 Make Professional view-only in professionals/admin.py and mark generated registration numbers and completion timestamps editable=False. Verify professionals/test_admin.py denies Professional add/change/delete even for a superuser; account provisioning remains available to its authorized operator and professional lifecycle changes use product services.
+- [x] 6.1 Make Professional view-only in professionals/admin.py and mark generated registration numbers and completion timestamps editable=False. Verify professionals/test_admin.py denies Professional add/change/delete even for a superuser; account provisioning remains available to its authorized operator and professional lifecycle changes use product services.
 
 ## 7. HU-04 - Professional services and concurrency
 
