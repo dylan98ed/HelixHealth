@@ -23,13 +23,13 @@ Professional already has an immutable id, protected one-to-one user, and is_acti
 
 **Goals:** decide missing contracts before implementation, preserve clinical history, make workflows discoverable, and enforce authorization/auditing for both HTML and API consumers.
 
-**Non-Goals:** stack changes, account self-registration, external registry integration, a full clinical chart, and admission amendments. The only new clinical authoring surface is a plain-text intervention note with a preserved correction.
+**Non-Goals:** stack changes, account self-registration, a full clinical chart, and admission amendments. The only new clinical authoring surface is a plain-text intervention note with a preserved correction.
 
 ## Decisions
 
 ### D1. Preserve the architecture and completed invariants
 
-Keep Python 3.13, Django 5.2 LTS, DRF, PostgreSQL 18, HTMX/Bootstrap, and uv.lock. No new runtime package is required for the remaining domain work. professionals owns professional/registry/verification data; clinical_records owns care relationships and interventions; access_control owns shared policies; audit owns immutable events. Put rules in services used by both forms and API serializers. A second implementation in views is prohibited.
+Keep Python 3.13, Django 5.2 LTS, DRF, PostgreSQL 18, HTMX/Bootstrap, and uv.lock. No new runtime package is required for the remaining domain work. professionals owns professional identity data; clinical_records owns care relationships and interventions; access_control owns shared policies; audit owns immutable events. Put rules in services used by both forms and API serializers. A second implementation in views is prohibited.
 
 Preserve conditional active-patient DNI uniqueness, immutable patient identifiers, row-locked patient updates/deactivation/admission, conflict handling outside rolled-back savepoints, immutable admissions, and bounded lists/history. Do not restore full-table rendering to satisfy the phrase "all active patients." Do not make database uniqueness prechecks the sole protection against duplicates.
 
@@ -44,60 +44,47 @@ Add nullable fields for legacy profiles. Use NULL, not empty strings, for missin
 | registration_number | Nullable unique CharField(32), PostgreSQL sequence format PR-00000001. Minimum width 8 digits; gaps allowed. Immutable once assigned. |
 | first_name, last_name | Nullable CharField(150); completion/update requires trimmed nonblank text. Store on Professional; do not overwrite account names. |
 | date_of_birth | Nullable DateField, required at completion, not in future; reuse patient validator. |
-| license_number | Nullable globally unique CharField(32), D3 canonicalization; reserved even when inactive. Immutable after completion. |
 | specialty, hospital_service | Nullable protected FKs to existing reference models. Only active values can be newly assigned. |
-| license_status | unverified initially; successful verification stores active. No client may set it. |
-| license_verified_at, license_valid_until | Nullable server datetime and DateField, set on successful registration/reactivation. |
 | registration_completed_at | Nullable immutable server datetime; non-null indicates successful complete registration. |
-| is_active | Preserve existing flag during migration AND completion; a newly created verified profile starts active. Reactivation is explicit. |
+| is_active | Preserve existing flag during migration AND completion; a newly created completed profile starts active. Reactivation is explicit. |
 
-Database checks enforce canonical non-null DNI/license, nonempty generated number, and complete required fields/verification metadata when registration_completed_at is non-null. A complete inactive row retains its data. Application validation additionally checks nonblank values, dates, and active references.
+Database checks enforce canonical non-null DNI, nonempty generated number, and complete required fields when registration_completed_at is non-null. A complete inactive row retains its data. Application validation additionally checks nonblank values, dates, and active references.
 
-Use sequence allocation at save/completion, never count()+1 or max()+1. Do not backfill fabricated DNI/licenses/names/numbers. An inactive DNI may be reused by another professional with a different license; reactivating the original must fail if its DNI is now held by another active row.
+Use sequence allocation at save/completion, never count()+1 or max()+1. Do not backfill fabricated DNI/names/numbers. An inactive DNI may be reused by another professional; reactivating the original must fail if its DNI is now held by another active row.
 
-### D3. Educational license provider and verification history
+### D3. Professional input validation
 
-Create professionals/license_validation.py with normalize_license(value) and a provider protocol verify(*, license_number, dni) -> LicenseResult.
+Implement professionals/validators.py using the existing patient DNI/date validators. Forms and API inputs trim surrounding DNI whitespace, then require 7 or 8 ASCII digits; preserve leading zeroes and reject internal whitespace, punctuation, and Unicode digits. Names are trimmed nonblank text up to 150 characters; birth date must not be in the future.
 
-Normalization: strip surrounding whitespace, uppercase, then require ASCII regex ^[A-Z0-9][A-Z0-9-]{2,31}$. Preserve hyphens and leading zeroes. Examples: " mn-001234 " becomes "MN-001234"; "MN001234" remains a different identifier; internal spaces, dots, slashes, Unicode lookalikes, and fewer than 3 characters are invalid. This is a controlled MVP identifier format, not a rule for every real licensure jurisdiction.
+Resolve specialty_code and hospital_service_code against the existing reference tables. Creation/completion requires active references. Updates validate newly assigned references; D4 defines retention of unchanged inactive references. Username resolves an existing active account exactly; there is no account directory or credential creation in this workflow.
 
-LicenseResult contains status, checked_at (server timestamp), valid_until (nullable date on failure), and source="local-mvp". Status: active, expired, suspended, not_found, identity_mismatch, or unavailable.
-
-LicenseRegistryEntry stores unique canonical license_number, canonical dni, status (active/expired/suspended), and required valid_until. The local provider returns not_found for no entry; identity_mismatch for wrong DNI; otherwise expired if valid_until precedes the current application date; otherwise the stored status. The expiry date is inclusive. Operational provider errors map to unavailable. Unknown entries never default to active. Test unavailable with an injected fake provider; no external calls, retries, periodic refresh, or new infrastructure.
-
-Only an authorized Django Admin operator with the registry model permissions manages registry entries. Ordinary application administrators cannot edit the registry. Acceptance fixtures may seed synthetic registry entries as background prerequisites; the professional registration itself must use the supported workflow.
-
-LicenseVerification records every provider invocation: immutable id, actor User/PROTECT, subject User/PROTECT, canonical attempted DNI/license, status, checked_at, valid_until, source. Save this independently before the professional mutation transaction so negative outcomes survive. It is a verification record, not a pending/created Professional. Incomplete-profile or registration screens show the subject account's verification history to administrators only, 20 entries per page, after exact username lookup. For a username with no profile, render history on the registration page; for an existing profile, show it on detail/completion. Protect model/admin from normal update/delete and expose no write API.
-
-Validate fields, account existence, and obvious duplicates before invoking the provider. A result can be used only by that service call for that exact account/DNI/license, while no more than 60 seconds old and not expired. Never accept a client-supplied result. A successful profile stores the verification snapshot: future registry edits do not silently change it. Stored date expiry and explicit deactivation still revoke eligibility on the next request. Clearly label this educational limitation in UI/docs. No raw exceptions or DNI/license values in routine logs.
+Reject unknown or server-owned write fields with field-specific errors. Input validation and database constraints enforce registration directly. A failed operation leaves the profile and role membership unchanged; no pending identity or separate validation-history record is created.
 
 ### D4. Professional lifecycle and the legacy-access transition
 
 A Django administrator creates an active login account through Django Admin. The application administrator knows its username and registers its professional data through the product UI. Do not create passwords, second accounts, or staff privileges. Bind by exact username only. Successful registration adds the Medical Professionals group; membership is not a prerequisite. Registration for an already completed account returns conflict.
 
-Make Professional Admin view-only, with add/change/delete disabled even for a superuser. All professional lifecycle writes use the product services below; account provisioning and registry administration remain separate supported operator workflows. Mark generated numbers, verification snapshots, and completion timestamps editable=False so generated forms cannot make them client-owned.
+Make Professional Admin view-only, with add/change/delete disabled even for a superuser. All professional lifecycle writes use the product services below; account provisioning remains a separate supported operator workflow. Mark generated numbers and completion timestamps editable=False so generated forms cannot make them client-owned.
 
 Use keyword-only services in professionals/services.py:
 
 | Service | Inputs / result |
 |---|---|
-| register_professional | actor, username, dni, first_name, last_name, date_of_birth, license_number, specialty_code, hospital_service_code; returns new or completed Professional |
+| register_professional | actor, username, dni, first_name, last_name, date_of_birth, specialty_code, hospital_service_code; returns new or completed Professional |
 | update_professional | actor, professional, changes; allow only names, birth date, specialty_code, hospital_service_code on completed profiles, active or inactive; preserve is_active |
 | deactivate_professional | actor, professional, confirmed; explicit true, idempotent; end its active care relationships once D6 exists; return refreshed state |
-| reactivate_professional | actor, professional, confirmed; completed inactive profile, fresh verification, active references, no active DNI conflict; return refreshed state |
+| reactivate_professional | actor, professional, confirmed; completed inactive profile, active subject account, active references, no active DNI conflict; return refreshed state |
 | lookup_professional_by_dni | actor, canonical dni; return active completed match or None |
 
-Completion updates an existing incomplete row without changing its id/user or active flag. An inactive completed row displays "Registration complete; profile remains inactive" and requires a separate Reactivate action. Invalid registration never creates a profile or changes group membership; existing profiles stay unchanged. Performed license checks remain in verification history.
-
-An expired but active profile is visibly ineligible. Its renewal path is confirmed deactivation followed by confirmed reactivation with fresh verification. Explain both steps on detail; no hidden license refresh or alternate edit path is permitted.
+Completion updates an existing incomplete row without changing its id/user or active flag. An inactive completed row displays "Registration complete; profile remains inactive" and requires a separate Reactivate action. Invalid registration never creates a profile or changes group membership; existing profiles stay unchanged.
 
 An inactive completed profile may be edited without activating it, so an administrator can replace an inactive specialty/service before reactivation. Validate that newly selected references are active; retaining an unchanged inactive reference is allowed during an unrelated edit, but reactivation requires both references active.
 
-Write algorithm: authorize against current active User/group state; validate inputs; invoke/persist D3 verification where needed; enter transaction.atomic; lock subject User then existing Professional and selected reference rows; recheck state and result freshness; allocate number if absent; write profile and group; commit. Catch identified DNI/license/account uniqueness conflicts outside an inner savepoint and map to 409. Unrelated validation stays 400; unexpected errors are not mislabeled as duplicates. Do not hold locks while calling the provider.
+Write algorithm: authorize against current active User/group state; validate D3 inputs; enter transaction.atomic; lock subject User then existing Professional and selected reference rows; recheck current account/profile/reference state; allocate number if absent; write profile and group; commit. Catch identified DNI/account uniqueness conflicts outside an inner savepoint and map to 409. Unrelated validation stays 400; unexpected errors are not mislabeled as duplicates.
 
-Central eligibility in access_control/medical_professionals.py requires active User, medical group, active Professional, completed registration, stored active license, and license_valid_until on/after today. Read fresh state each request. Apply it to login/home redirects, navigation context, legacy middleware, HU-03 HTML/API/services, and HU-06. A superuser without the medical group has no implicit clinical role.
+Central eligibility in access_control/medical_professionals.py requires active User, medical group, active Professional, and completed registration. Read fresh state each request. Apply it to login/home redirects, navigation context, legacy middleware, HU-03 HTML/API/services, and HU-06. A superuser without the medical group has no implicit clinical role.
 
-Incomplete/inactive/expired profiles can authenticate but reach / with "Professional registration or reactivation is required. Contact an administrator." No clinical navigation; direct clinical requests return 403. A disabled User cannot authenticate. A dual-role user with ineligible professional profile retains administrative access and its administrative landing page.
+Incomplete/inactive profiles can authenticate but reach / with "Professional registration or reactivation is required. Contact an administrator." No clinical navigation; direct clinical requests return 403. A disabled User cannot authenticate. A dual-role user with ineligible professional profile retains administrative access and its administrative landing page.
 
 At HU-04 rollout, missing-profile login must no longer create an active identity. This deliberately supersedes the earlier HU-03 auto-provisioning scenario. Build completion/discovery before deploying this gate. Preserve historical identities/admissions and update the exact missing-profile regression to expect denied access without using fixtures to pretend registration already happened.
 
@@ -109,23 +96,23 @@ Add professionals/urls.py, include at /professionals/, namespace professionals. 
 |---|---|---|
 | GET /professionals/ | index | 20-row active completed list; visible status=inactive and status=incomplete tabs; search/register links. Inactive tab contains completed inactive rows; incomplete tab contains all incomplete rows. |
 | GET /professionals/search/ | search | Exact-DNI search; unmatched result offers prefilled registration. |
-| GET /professionals/search/results/ | search-results | HTMX result fragment: full name, license, one detail link. |
-| GET/POST /professionals/register/ | register | Username plus required profile data; supports new or incomplete identity. GET username permits exact account lookup for verification history; invalid username gets field feedback without exposing an account directory. |
-| GET /professionals/<pk>/ | detail | Profile, eligibility/expiry, verification history, appropriate maintenance links. |
+| GET /professionals/search/results/ | search-results | HTMX result fragment: full name, registration number, one detail link. |
+| GET/POST /professionals/register/ | register | Username plus required profile data; supports new or incomplete identity. Invalid username gets field feedback without exposing an account directory. |
+| GET /professionals/<pk>/ | detail | Profile, eligibility, appropriate maintenance links. |
 | GET/POST /professionals/<pk>/complete/ | complete | Incomplete only, fixed username, same registration service. |
 | GET/POST /professionals/<pk>/edit/ | update | Mutable fields only. |
 | GET/POST /professionals/<pk>/deactivate/ | deactivate | Confirmation. |
-| GET/POST /professionals/<pk>/reactivate/ | reactivate | Confirmation, fresh verification. |
+| GET/POST /professionals/<pk>/reactivate/ | reactivate | Confirmation and current account/reference/DNI checks. |
 | POST /professionals/api/ | api-create | Registration/completion by username. |
-| GET /professionals/api/search/?dni=... | api-search | {"results":[]} or one {id,full_name,license_number}. |
+| GET /professionals/api/search/?dni=... | api-search | {"results":[]} or one {id,full_name,registration_number}. |
 | GET/PATCH /professionals/api/<pk>/ | api-detail | Retrieve or edit; PATCH cannot complete a profile or change identity/status. |
-| POST /professionals/api/<pk>/deactivate/ or reactivate/ | api-deactivate, api-reactivate | {"confirm":true}; client license status is never accepted. |
+| POST /professionals/api/<pk>/deactivate/ or reactivate/ | api-deactivate, api-reactivate | {"confirm":true}; client status changes through PATCH are never accepted. |
 
-Create payload: username,dni,first_name,last_name,date_of_birth,license_number,specialty_code,hospital_service_code. Dates: YYYY-MM-DD. Detail: id,username,dni,registration_number,first_name,last_name,date_of_birth,license_number,specialty_code,hospital_service_code,license_status,license_verified_at,license_valid_until,registration_completed_at,is_active,is_clinically_eligible. Timestamps: ISO 8601 UTC; incomplete values: null. No embedded unbounded verification history.
+Create payload: username,dni,first_name,last_name,date_of_birth,specialty_code,hospital_service_code. Dates: YYYY-MM-DD. Detail: id,username,dni,registration_number,first_name,last_name,date_of_birth,specialty_code,hospital_service_code,registration_completed_at,is_active,is_clinically_eligible. Timestamps: ISO 8601 UTC; incomplete values: null.
 
-API statuses: new profile 201; completion/update/status change 200; fields/immutable/unknown write keys 400 with {"field":["message"]}; anonymous/wrong role 403; missing professional 404 after role authorization; identified identity conflicts 409 with conflicting field errors plus existing_professional_id; negative license result 400 on license_number; unavailable/stale result 503 with code=license_verification_unavailable and generic detail. PUT/DELETE unsupported (405).
+API statuses: new profile 201; completion/update/status change 200; fields/immutable/unknown write keys 400 with {"field":["message"]}; anonymous/wrong role 403; missing professional 404 after role authorization; identified identity conflicts 409 with conflicting field errors plus existing_professional_id. PUT/DELETE unsupported (405).
 
-HTML anonymous GET redirects through application login with safe next; wrong role is 403. Successful ordinary POST redirects to detail. HTMX success contains status and detail link; bound field/duplicate errors return a 422 fragment preserving input; provider failure returns visible 503 retry feedback with explicit HTMX swapping. Keep patient API contracts unchanged.
+HTML anonymous GET redirects through application login with safe next; wrong role is 403. Successful ordinary POST redirects to detail. HTMX success contains status and detail link; bound field/duplicate errors return a 422 fragment preserving input. Keep patient API contracts unchanged.
 
 ### D6. Care relationships have a visible administrative workflow
 
@@ -171,37 +158,36 @@ Product journeys start signed out at /, use visible Sign in/navigation, and know
 
 | Key | Initial state -> visible actions -> outcome |
 |---|---|
-| B1 new professional | Active account, no medical role/profile -> application admin registers by username with valid registry data -> one profile/number and medical group; fresh clinical login succeeds. |
+| B1 new professional | Active account, no medical role/profile -> application admin registers by username with valid profile data -> one profile/number and medical group; fresh clinical login succeeds. |
 | B2 legacy upgrade | Incomplete profile with existing admission -> admin Incomplete tab -> complete -> same profile/admission FK. Inactive variant remains inactive until Reactivate. |
-| B3 failures | Missing fields, canonical duplicate, unknown/mismatched/expired/suspended/unavailable license -> specific feedback, no activation/group change; performed verification persists. |
-| B4 lifecycle | Complete active profile -> edit/search/deactivate/reactivate with fresh verification -> immutable identity preserved; expiry/DNI conflict rejects reactivation. |
+| B3 failures | Missing fields, unknown/disabled account, duplicate active DNI/account, inactive references -> specific feedback and no partial profile/group change. |
+| B4 lifecycle | Complete active profile -> edit/search/deactivate/reactivate with explicit confirmation -> immutable identity preserved; disabled account/inactive references/DNI conflict reject reactivation. |
 | B5 care | Active patient and eligible professional, NO relationship -> admin Patient search -> detail -> Care team -> assign by DNI -> one active pair; duplicate submit unchanged. |
 | B6 intervention | Professional from B5 signs in fresh -> My patients -> View interventions -> empty state -> create -> correct -> original and linked correction plus matching audit events persist. |
 | B7 revoked/denied | Admin revokes via Care team -> fresh professional login -> patient absent from My patients; bookmarked target denied/audited. Cover inactive user/profile/patient and unrelated actor separately. |
 | B8 pages | Existing 21+ records -> visible Next/Previous in professional lists, care teams, My patients, intervention history, and retained patient/admission pages -> correct bounded ordered results. |
 | B9 audit faults | HTTP integration: anonymous/unknown targets, conflicts, injected audit-write failure -> generic response, accurate nullable/requested IDs, no partial clinical mutation. |
 
-B1/B2/B5/B6 must establish their target state through UI, never ORM fixtures. Synthetic registry/reference records and unrelated histories for B8 may be seeded. Provision unrelated completed personas through the registration service. Old-state fixtures are valid when migration/denial of that exact state is under test. Update isolated browser tests AND disposable Compose acceptance plus persistence verification. Browser-only factories cannot stand in for a missing assignment/registration workflow.
+B1/B2/B5/B6 must establish their target state through UI, never ORM fixtures. Synthetic reference records and unrelated histories for B8 may be seeded. Provision unrelated completed personas through the registration service. Old-state fixtures are valid when migration/denial of that exact state is under test. Update isolated browser tests AND disposable Compose acceptance plus persistence verification. Browser-only factories cannot stand in for a missing assignment/registration workflow.
 
 ### D10. Operations and performance
 
-Keep current production hosts/secret requirements, Gunicorn, WhiteNoise compressed static serving, development runserver, and proxy trust opt-in. Do not restore manifest storage without providing the vendor source maps it requires. Use the bundled validate_live_app.py: disposable production-mode Compose, isolated Chromium, real HTTP journeys, static/host checks, secure deployment checks, persisted verification, owned-resource cleanup.
+Keep current production hosts/secret requirements, Gunicorn, WhiteNoise compressed static serving, development runserver, and proxy trust opt-in. Do not restore manifest storage without providing the vendor source maps it requires. Use the bundled validate_live_app.py: disposable production-mode Compose, isolated Chromium, real HTTP journeys, static/host checks, secure deployment checks, persistence checks, owned-resource cleanup.
 
-Use deterministic synthetic local registry entries; no wildcard valid licenses. Acceptance seeding remains forbidden against production/shared data. A disposable validator may invoke its development seed command before serving the production-mode container.
+Acceptance seeding remains forbidden against production/shared data. A disposable validator may invoke its development seed command before serving the production-mode container.
 
-For HU-05 search, use 10,000 completed synthetic profiles, 40 authenticated HTTP-boundary requests, nearest-rank p95 <2.0s, and record timing/environment. Reuse patients/test_search.py. Verify representative PostgreSQL query plans without forcing sequential scans off. Read-only search does not call the registry. Log no DNI, note, contact, license, or verification payloads in routine request/application logs; avoid raw query strings in production access-log formats for lookup endpoints.
+For HU-05 search, use 10,000 completed synthetic profiles, 40 authenticated HTTP-boundary requests, nearest-rank p95 <2.0s, and record timing/environment. Reuse patients/test_search.py. Verify representative PostgreSQL query plans without forcing sequential scans off. Log no DNI, note, contact, or profile payloads in routine request/application logs; avoid raw query strings in production access-log formats for lookup endpoints.
 
 ## Risks / Trade-offs
 
-- **[Legacy access]** HU-04 intentionally blocks unverified placeholders. Provide in-place completion and clear explanation; ship the completion UI and gate together.
-- **[Registry fidelity]** Educational verification is a snapshot, not authoritative continuous licensure monitoring. Label that boundary.
+- **[Legacy access]** HU-04 intentionally blocks incomplete placeholders. Provide in-place completion and clear explanation; ship the completion UI and gate together.
 - **[Audit availability]** Intervention access depends on audit writes. Fail closed with 503, preserve confidentiality, and test rollback.
 - **[Concurrency]** Activation, deactivation, assignment, and correction overlap. Follow lock order, constraints, and real PostgreSQL interleaving tests.
 - **[Scope growth]** Keep clinical authoring to note/correction; no prescriptions, diagnoses, appointments, or admission amendments.
 
 ## Migration Plan
 
-1. Add nullable professional fields, sequence, registry/verification tables, and constraints after existing migrations. Preserve IDs, user links, active flags, and admissions. Test upgrade with both active/inactive minimal profiles and existing admissions.
+1. Add nullable professional fields, sequence, and constraints after existing migrations. Preserve IDs, user links, active flags, and admissions. Test upgrade with both active/inactive minimal profiles and existing admissions.
 2. Build completion, administrative discovery, and D4 eligibility as one HU-04 release slice. No fabricated data backfill and no gate-only deployment.
 3. Update acceptance personas through supported registration; preserve exact incomplete/inactive/no-role/legacy regressions instead of replacing them with perfect fixtures.
 4. Add care relationships, then intervention/audit schema and triggers, then audited routes. Never expose intervention operations before both authorization and auditing exist.

@@ -1,6 +1,6 @@
 ## Purpose
 
-Define the observable patient-registration, lookup, maintenance, and admission behavior for HU-01 through HU-03, including preservation of existing clinical records and integration with verified professional identity.
+Define the observable patient-registration, lookup, maintenance, and admission behavior for HU-01 through HU-03, including preservation of existing clinical records and integration with completed professional identity.
 
 ## ADDED Requirements
 
@@ -119,18 +119,18 @@ The system SHALL set author and creation timestamp from authenticated identity a
 - **THEN** older entries appear with original values, author, and timestamp, without modifying any event
 
 ### Requirement: Clinical eligibility follows completed professional registration
-After the HU-04 rollout, all medical workflows SHALL require an active account with the medical role, an active completed professional registration, and a stored active nonexpired license verification. Group membership alone SHALL NOT authorize clinical access. Existing profile/admission IDs SHALL survive completion.
+After the HU-04 rollout, all medical workflows SHALL require an active account with the medical role, an active completed professional registration. Group membership alone SHALL NOT authorize clinical access. Existing profile/admission IDs SHALL survive completion.
 
 #### Scenario: Eligible professional login
-- **WHEN** an active, completely registered and license-eligible professional signs in from /
+- **WHEN** an active, completely registered professional signs in from /
 - **THEN** the clinical workspace opens and permitted clinical navigation is visible
 
 #### Scenario: Missing or incomplete profile
 - **WHEN** a medical-role user with a missing or incomplete profile signs in or revisits /
-- **THEN** the system grants no clinical access and explains that administrative registration/reactivation is required; it does not automatically create an active verified profile
+- **THEN** the system grants no clinical access and explains that administrative registration/reactivation is required; it does not automatically create an active completed profile
 
-#### Scenario: Inactive or expired profile
-- **WHEN** an authenticated medical user has an inactive profile or expired verification
+#### Scenario: Inactive profile
+- **WHEN** an authenticated medical user has an inactive profile
 - **THEN** clinical navigation is hidden and direct clinical operations are denied without reactivation or mutation
 
 #### Scenario: Legacy staff entry
