@@ -4,6 +4,7 @@ from typing import Any
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
@@ -15,6 +16,8 @@ from rest_framework.response import Response
 
 from access_control.actors import actor_context_from_user
 from access_control.policies import ADMINISTRATIVE_POLICY, IsAdministrativeActor
+from clinical_records.models import Admission
+from patients.directory import patient_directory_context
 from patients.forms import PatientRegistrationForm, PatientSearchForm, PatientUpdateForm
 from patients.models import Patient
 from patients.serializers import (
@@ -34,6 +37,8 @@ from patients.services import (
     lookup_active_patient_by_dni,
     update_patient,
 )
+
+ADMISSIONS_PER_PAGE = 20
 
 
 def administrative_required(
@@ -59,7 +64,7 @@ def patient_search_context(
     *,
     bind_empty_query: bool = False,
 ) -> dict[str, object]:
-    query = request.GET if request.GET or bind_empty_query else None
+    query = request.GET if "dni" in request.GET or bind_empty_query else None
     form = PatientSearchForm(query)
     patient = None
     if form.is_bound and form.is_valid():
@@ -113,7 +118,18 @@ def patient_registration(request: HttpRequest) -> HttpResponse:
 @administrative_required
 @require_http_methods(["GET"])
 def patient_search(request: HttpRequest) -> HttpResponse:
-    return render(request, "patients/search.html", patient_search_context(request))
+    context = {
+        **patient_search_context(request),
+        **patient_directory_context(request),
+    }
+    template = (
+        "patients/_directory.html"
+        if is_htmx(request) and request.headers.get("HX-Target") == "patient-directory"
+        else "patients/search.html"
+    )
+    response = render(request, template, context)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @administrative_required
@@ -134,7 +150,19 @@ def patient_search_results(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def patient_detail(request: HttpRequest, pk: int) -> HttpResponse:
     patient = get_object_or_404(Patient.all_objects, pk=pk)
-    return render(request, "patients/detail.html", {"patient": patient})
+    admissions = Paginator(
+        Admission.objects.filter(patient=patient).select_related("professional__user"),
+        ADMISSIONS_PER_PAGE,
+    ).get_page(request.GET.get("history_page"))
+    return render(
+        request,
+        "patients/detail.html",
+        {
+            "patient": patient,
+            "admissions": admissions,
+            "admissions_page": admissions,
+        },
+    )
 
 
 @administrative_required
@@ -279,7 +307,7 @@ class PatientDeactivateAPIView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            deactivate_patient(
+            patient = deactivate_patient(
                 actor=actor_context_from_user(request.user),
                 patient=patient,
                 confirmed=serializer.validated_data["confirm"],

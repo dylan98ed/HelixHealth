@@ -6,9 +6,11 @@ from django.urls import reverse
 
 from access_control.actors import ActorContext, ActorRole
 from access_control.roles import ADMINISTRATIVE_GROUP
+from clinical_records.models import Admission
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
 from patients.services import create_patient
+from professionals.models import Professional
 
 
 def valid_patient_data(**overrides):
@@ -154,6 +156,39 @@ def test_server_rendered_detail_displays_complete_patient(client, user_factory):
         patient.health_insurer,
     ):
         assert value.encode() in response.content
+
+
+@pytest.mark.django_db
+def test_administrative_patient_detail_paginates_admission_history(
+    client, user_factory
+):
+    login_administrative_user(client, user_factory)
+    patient = create_patient(actor=administrative_actor(), **valid_patient_data())
+    professional = Professional.objects.create(
+        user=user_factory(username="history-pro")
+    )
+    for offset in range(21):
+        Admission.objects.create(
+            patient=patient,
+            professional=professional,
+            consultation_reason=f"Administrative history {offset}",
+            systolic_blood_pressure=120,
+            diastolic_blood_pressure=80,
+            heart_rate=72,
+            temperature="36.7",
+        )
+
+    first_page = client.get(reverse("patients:detail", args=[patient.pk]))
+    second_page = client.get(
+        reverse("patients:detail", args=[patient.pk]),
+        {"history_page": 2},
+    )
+
+    assert b"Administrative history 20" in first_page.content
+    assert b"Administrative history 0" not in first_page.content
+    assert b"Admissions pagination" in first_page.content
+    assert b"Administrative history 0" in second_page.content
+    assert b"Administrative history 20" not in second_page.content
 
 
 @pytest.mark.django_db

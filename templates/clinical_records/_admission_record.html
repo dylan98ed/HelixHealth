@@ -1,0 +1,19 @@
+<article class="card mb-3" data-admission-id="{{ admission.pk }}">
+  <div class="card-body">
+    <h3 class="h5">{{ admission.consultation_reason }}</h3>
+    <dl class="row mb-0">
+      <dt class="col-sm-5">Blood pressure</dt>
+      <dd class="col-sm-7">
+        {{ admission.systolic_blood_pressure }}/{{ admission.diastolic_blood_pressure }} mmHg
+      </dd>
+      <dt class="col-sm-5">Heart rate</dt>
+      <dd class="col-sm-7">{{ admission.heart_rate }} bpm</dd>
+      <dt class="col-sm-5">Temperature</dt>
+      <dd class="col-sm-7">{{ admission.temperature }} degrees Celsius</dd>
+      <dt class="col-sm-5">Professional</dt>
+      <dd class="col-sm-7">{{ admission.professional.user.get_username }}</dd>
+      <dt class="col-sm-5">Recorded at</dt>
+      <dd class="col-sm-7">{{ admission.created_at|date:"c" }}</dd>
+    </dl>
+  </div>
+</article>

@@ -11,6 +11,7 @@
   {% if form.non_field_errors %}
     <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
   {% endif %}
+  <div class="form-grid">
   {% for field in form.visible_fields %}
     <div class="mb-3">
       <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -20,6 +21,7 @@
       {% endfor %}
     </div>
   {% endfor %}
+  </div>
   {% if existing_patient %}
     <a href="{% url 'patients:detail' existing_patient.pk %}">Open the existing patient record</a>
   {% endif %}

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Clinical workspace · HelixHealth{% endblock %}
+{% block content %}
+  <header class="page-heading">
+    <div><p class="eyebrow">Your clinical workspace</p><h1>Clinical workspace</h1><p>Find a patient, review their history, and record an admission.</p></div>
+    <span class="workspace-badge"><span class="status-dot" aria-hidden="true"></span> Patient admissions</span>
+  </header>
+  <section class="search-panel" aria-label="Find patients">
+    {% include "patients/_name_search.html" %}
+    <form method="get" action="{% url 'clinical_records:admission-search' %}" hx-get="{% url 'clinical_records:admission-search-results' %}" hx-target="#patient-directory" hx-sync="#patient-search-panel:replace" hx-swap="innerHTML" class="dni-search" novalidate>
+      <div><label class="form-label" for="{{ form.dni.id_for_label }}">DNI</label>{{ form.dni }}</div>
+      <button class="btn btn-outline-secondary" type="submit">Find patient</button>
+      <span class="search-hint">Have an exact DNI? Use all 7 or 8 digits.</span>
+    </form>
+  </section>
+  <section id="patient-directory" class="directory" aria-label="Patient results" aria-live="polite" aria-atomic="true">
+    {% if form.is_bound %}{% include "clinical_records/_admission_search_results.html" %}{% else %}{% include "patients/_directory.html" %}{% endif %}
+  </section>
+{% endblock %}

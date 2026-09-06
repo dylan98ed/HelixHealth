@@ -16,6 +16,7 @@ Including another URLconf
 """
 
 from django.contrib import admin
+from django.contrib.auth.views import LogoutView
 from django.urls import include, path
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -25,6 +26,7 @@ from drf_spectacular.views import (
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 
+from access_control.views import ApplicationLoginView
 from helixhealth.views import HomeView
 
 protected_api_view = {
@@ -34,8 +36,11 @@ protected_api_view = {
 
 urlpatterns = [
     path("", HomeView.as_view(), name="home"),
+    path("login/", ApplicationLoginView.as_view(), name="login"),
+    path("logout/", LogoutView.as_view(), name="logout"),
     path("admin/", admin.site.urls),
     path("patients/", include("patients.urls")),
+    path("clinical-records/", include("clinical_records.urls")),
     path(
         "api/schema/",
         SpectacularAPIView.as_view(**protected_api_view),

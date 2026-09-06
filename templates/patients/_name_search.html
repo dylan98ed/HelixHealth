@@ -1,0 +1,7 @@
+<form id="patient-search-panel" method="get" action="{{ directory_url }}" hx-get="{{ directory_url }}" hx-trigger="input changed delay:300ms from:#id_q, submit" hx-target="#patient-directory" hx-sync="#patient-search-panel:replace" hx-indicator="#search-loading" hx-swap="innerHTML" class="name-search" novalidate>
+  <div class="name-search-field"><label class="form-label" for="{{ name_form.q.id_for_label }}">{{ name_form.q.label }}</label>{{ name_form.q }}<p id="name-search-help" class="search-hint mb-0">Results update as you type. You can enter a full name in either order.</p></div>
+  <button class="btn btn-primary" type="submit">Search names</button>
+  <a class="quiet-link" href="{{ directory_url }}">Clear search</a>
+  <span id="search-loading" class="htmx-indicator search-hint">Updating…</span>
+</form>
+<div id="search-feedback" class="alert alert-warning mt-3 mb-0" role="alert" hidden>We couldn’t update the results. Check your connection and try searching again. The previous results are still shown.</div>

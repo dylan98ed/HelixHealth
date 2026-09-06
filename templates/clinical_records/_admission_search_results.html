@@ -1,0 +1,24 @@
+{% if form.errors %}
+  {% for field in form %}
+    {% for error in field.errors %}
+      <div class="alert alert-danger" data-field-error="{{ field.name }}" role="alert">
+        {{ error }}
+      </div>
+    {% endfor %}
+  {% endfor %}
+{% elif patient %}
+  <article class="card" data-patient-search-result>
+    <div class="card-body">
+      <h2 class="h4">{{ patient.first_name }} {{ patient.last_name }}</h2>
+      <p>Clinical record number: {{ patient.clinical_record_number }}</p>
+      <a
+        class="btn btn-primary"
+        href="{% url 'clinical_records:patient-admissions' patient.pk %}"
+      >Record admission for {{ patient.first_name }} {{ patient.last_name }}</a>
+    </div>
+  </article>
+{% elif form.is_bound %}
+  <div class="alert alert-info" role="status">
+    No active patient matches DNI {{ form.cleaned_data.dni }}.
+  </div>
+{% endif %}

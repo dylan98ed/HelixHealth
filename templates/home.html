@@ -1,18 +1,36 @@
 {% extends "base.html" %}
-
-{% block title %}Home | HelixHealth{% endblock %}
-
+{% block title %}HelixHealth · A clearer path to patient care{% endblock %}
 {% block content %}
-  <section class="card border-0 shadow-sm" aria-labelledby="welcome-heading">
-    <div class="card-body p-4 p-md-5">
-      <span class="badge text-bg-primary mb-3">Foundation smoke page</span>
-      <h1 class="display-6 fw-semibold" id="welcome-heading">HelixHealth</h1>
-      <p class="lead mb-4">
-        The patient and professional workflows will be built on this shared shell.
-      </p>
-      <div class="alert alert-success mb-0" role="status">
-        Bootstrap and HTMX are available from local static assets.
+  <section class="landing-hero" aria-labelledby="welcome-heading">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> A workspace for your care team</p>
+      <h1 id="welcome-heading">HelixHealth<span>A clearer path to<br>patient care.</span></h1>
+      <p class="hero-description">Less searching. More time for people. Keep patient information and admissions together in one calm, connected workspace.</p>
+      <div class="hero-actions">
+        {% if is_administrative_actor %}
+          <a class="btn btn-primary btn-lg" href="{% url 'patients:search' %}">Find a patient <span aria-hidden="true">↗</span></a>
+          <a class="btn btn-outline-secondary btn-lg" href="{% url 'patients:register' %}">New patient</a>
+        {% elif user.is_authenticated %}
+          <div class="access-note"><strong>Welcome, {{ user.get_username }}.</strong><p class="mb-0">Your account does not have an active workspace. Contact your administrator for access.</p></div>
+          {% if user.is_staff %}<a class="btn btn-outline-secondary" href="{% url 'admin:index' %}">Account administration</a>{% endif %}
+        {% else %}
+          <a class="btn btn-primary btn-lg" href="{% url 'login' %}">Open your workspace <span aria-hidden="true">↗</span></a>
+          <a class="quiet-link" href="#how-it-works">Explore the workflow <span aria-hidden="true">↓</span></a>
+        {% endif %}
       </div>
+      <p class="hero-footnote">Built around the everyday work of hospital teams.</p>
     </div>
+    <div class="workflow-visual" aria-label="Workflow overview">
+      <div class="visual-topline"><span class="eyebrow">Every step, connected</span><span class="mini-cross" aria-hidden="true">+</span></div>
+      <div class="workflow-step"><span class="step-number">01</span><div><h2>Find the right patient</h2><p>A name. A surname. A clear starting point.</p></div><span class="step-check" aria-hidden="true">✓</span></div>
+      <div class="workflow-step"><span class="step-number">02</span><div><h2>See the complete picture</h2><p>Details and admission history, together.</p></div><span class="step-check" aria-hidden="true">✓</span></div>
+      <div class="workflow-step"><span class="step-number">03</span><div><h2>Keep care moving</h2><p>Record the next admission with confidence.</p></div><span class="step-check" aria-hidden="true">✓</span></div>
+      <div class="visual-bottom"><span class="status-dot" aria-hidden="true"></span> One workspace. A shared focus on care.</div>
+    </div>
+  </section>
+  <section id="how-it-works" class="landing-features" aria-label="Built for everyday care">
+    <article><span class="feature-index">01 / PATIENTS</span><h2>People come first.</h2><p>Find patients as you type, confirm their details, and open the right record.</p></article>
+    <article><span class="feature-index">02 / ADMISSIONS</span><h2>Make each visit count.</h2><p>Capture the reason for consultation and vital signs in one guided form.</p></article>
+    <article><span class="feature-index">03 / CONTINUITY</span><h2>Pick up where care left off.</h2><p>Review previous admissions with the date and professional who recorded them.</p></article>
   </section>
 {% endblock %}
