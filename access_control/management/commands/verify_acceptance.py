@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
@@ -8,6 +10,14 @@ from access_control.acceptance_personas import (
     BROWSER_CREATED_USERNAME,
     COMPLETED_ACTIVE_PROFESSIONAL_DNI,
     COMPLETED_INACTIVE_PROFESSIONAL_DNI,
+    LEGACY_COMPLETE_ACTIVE_DNI,
+    LEGACY_COMPLETE_ACTIVE_LICENSE,
+    LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER,
+    LEGACY_COMPLETE_ACTIVE_USERNAME,
+    LEGACY_COMPLETE_INACTIVE_DNI,
+    LEGACY_COMPLETE_INACTIVE_LICENSE,
+    LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER,
+    LEGACY_COMPLETE_INACTIVE_USERNAME,
     MEDICAL_ACTIVE_USERNAME,
     MEDICAL_INACTIVE_USERNAME,
     MEDICAL_LEGACY_STAFF_USERNAME,
@@ -82,12 +92,69 @@ class Command(BaseCommand):
                     f"professional registration/completion was not persisted for {username}"
                 )
 
+        completed_at = datetime(2020, 1, 2, 3, 4, 5, tzinfo=UTC)
+        for username, dni, registration_number, active, initial_license in (
+            (
+                LEGACY_COMPLETE_ACTIVE_USERNAME,
+                LEGACY_COMPLETE_ACTIVE_DNI,
+                LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER,
+                True,
+                LEGACY_COMPLETE_ACTIVE_LICENSE,
+            ),
+            (
+                LEGACY_COMPLETE_INACTIVE_USERNAME,
+                LEGACY_COMPLETE_INACTIVE_DNI,
+                LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER,
+                False,
+                LEGACY_COMPLETE_INACTIVE_LICENSE,
+            ),
+        ):
+            profile = (
+                Professional.objects.select_related("user")
+                .filter(user__username=username)
+                .first()
+            )
+            if profile is None:
+                failures.append(f"completed legacy profile is missing for {username}")
+                continue
+            if (
+                profile.dni != dni
+                or profile.registration_number != registration_number
+                or profile.registration_completed_at != completed_at
+                or profile.is_active != active
+                or profile.license_number != f"{initial_license} corrected"
+                or profile.first_name != "Updated legacy"
+                or profile.last_name != "Completed"
+                or profile.specialty is None
+                or profile.specialty.code != "general-medicine"
+                or profile.hospital_service is None
+                or profile.hospital_service.code != "inpatient-ward"
+                or not profile.user.is_active
+                or profile.user.is_staff
+                or profile.user.is_superuser
+                or set(profile.user.groups.values_list("name", flat=True))
+                != {MEDICAL_PROFESSIONAL_GROUP}
+            ):
+                failures.append(
+                    f"completed legacy identity/state was not preserved for {username}"
+                )
+            if (
+                Admission.objects.filter(
+                    professional=profile,
+                    consultation_reason=f"Legacy completed history {username}",
+                ).count()
+                != 1
+            ):
+                failures.append(
+                    f"completed legacy history was not preserved for {username}"
+                )
+
         if failures:
             raise CommandError("; ".join(failures))
 
         self.stdout.write(
             self.style.SUCCESS(
                 "Acceptance persistence verified: provisioned identities, inactive "
-                "state, admission, patient management, and Django user."
+                "state, completed legacy identities/history, patient management, and Django user."
             )
         )

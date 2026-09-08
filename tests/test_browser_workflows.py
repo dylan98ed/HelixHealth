@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import connections
 from django.urls import reverse
+from django.utils import timezone
 from playwright.sync_api import Page, expect
 
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
@@ -42,6 +43,17 @@ def read_professional_state(username):
                 "number": profile.registration_number if profile else None,
                 "license_number": profile.license_number if profile else None,
                 "dni": profile.dni if profile else None,
+                "first_name": profile.first_name if profile else None,
+                "last_name": profile.last_name if profile else None,
+                "registered_at": (
+                    profile.registration_completed_at.isoformat()
+                    if profile and profile.registration_completed_at
+                    else None
+                ),
+                "user_id": profile.user_id if profile else None,
+                "date_of_birth": str(profile.date_of_birth) if profile else None,
+                "specialty_id": profile.specialty_id if profile else None,
+                "hospital_service_id": profile.hospital_service_id if profile else None,
                 "staff": user.is_staff,
                 "groups": list(user.groups.values_list("name", flat=True)),
                 "admissions": list(
@@ -68,6 +80,66 @@ def browser_legacy_registration(db, initially_active):
         is_active=initially_active
     )
     return username, read_professional_state(username)
+
+
+@pytest.fixture
+def browser_completed_legacy_profile(
+    browser_patient_administrator,
+    browser_professional_references,
+    user_factory,
+    initially_active,
+):
+    """A completed pre-license profile is the explicit legacy state under test."""
+    medical_group = Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP)
+    user = user_factory(
+        username=f"completed-legacy-{'active' if initially_active else 'inactive'}",
+        password=TEST_PASSWORD,
+        is_staff=False,
+    )
+    user.groups.add(medical_group)
+    profile = Professional.objects.create(
+        user=user,
+        is_active=initially_active,
+        dni="04567890" if initially_active else "05678901",
+        registration_number=(
+            "PR-BROWSER-LEGACY-ACTIVE"
+            if initially_active
+            else "PR-BROWSER-LEGACY-INACTIVE"
+        ),
+        license_number=None,
+        first_name="Legacy",
+        last_name="Active" if initially_active else "Inactive",
+        date_of_birth=date(1990, 1, 1),
+        specialty=Specialty.objects.get(code="general-medicine"),
+        hospital_service=HospitalService.objects.get(code="inpatient-ward"),
+        registration_completed_at=timezone.now(),
+    )
+    patient = Patient.objects.create(
+        dni="46667777" if initially_active else "47778888",
+        clinical_record_number=(
+            "HC-BROWSER-LEGACY-ACTIVE"
+            if initially_active
+            else "HC-BROWSER-LEGACY-INACTIVE"
+        ),
+        first_name="Legacy",
+        last_name="History",
+        date_of_birth=date(1990, 1, 1),
+        sex="unspecified",
+        phone="+54 11 5555-0167",
+        email=f"{user.username}@example.test",
+        address="Legacy Test Street 123",
+        health_insurer="Browser Health",
+    )
+    Admission.objects.create(
+        patient=patient,
+        professional=profile,
+        consultation_reason="Completed legacy history",
+        systolic_blood_pressure=120,
+        diastolic_blood_pressure=80,
+        heart_rate=72,
+        temperature="36.7",
+    )
+    return user.username, read_professional_state(user.username)
 
 
 @pytest.fixture
@@ -901,3 +973,123 @@ def test_admin_completes_legacy_profile_from_visible_incomplete_tab(
         ).click()
         expect(browser_page.get_by_text("Active", exact=True)).to_be_visible()
         assert read_professional_state(username)["active"]
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("initially_active", [True, False])
+def test_admin_edits_completed_legacy_profile_without_license_then_adds_and_corrects_it(
+    browser_patient_administrator,
+    browser_completed_legacy_profile,
+    live_server,
+    browser_page,
+    initially_active,
+):
+    username, original = browser_completed_legacy_profile
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_patient_administrator.username,
+        password=TEST_PASSWORD,
+    )
+    browser_page.get_by_role("link", name="Professionals", exact=True).click()
+    status_tab = "Active" if initially_active else "Inactive"
+    browser_page.get_by_role("navigation", name="Professional status").get_by_role(
+        "link", name=status_tab, exact=True
+    ).click()
+    card = browser_page.locator("article").filter(has_text=username)
+    expect(
+        card.get_by_text("License number: Not recorded", exact=False)
+    ).to_be_visible()
+    expect(
+        card.get_by_text(f"Registration number: {original['number']}", exact=False)
+    ).to_be_visible()
+    browser_page.get_by_role("link", name=original["last_name"] + ", Legacy").click()
+    expect(browser_page.get_by_text("Not recorded", exact=True)).to_be_visible()
+    browser_page.get_by_role("link", name="Edit professional", exact=True).click()
+    expect(browser_page.get_by_label("License number", exact=True)).to_have_value("")
+    browser_page.get_by_label("First name", exact=True).fill("Updated legacy")
+    browser_page.get_by_role("button", name="Save changes", exact=True).click()
+    expect(browser_page.get_by_text("Not recorded", exact=True)).to_be_visible()
+    after_unrelated = read_professional_state(username)
+    assert after_unrelated["license_number"] is None
+    assert after_unrelated["first_name"] == "Updated legacy"
+    assert {
+        key: after_unrelated[key]
+        for key in (
+            "pk",
+            "user_id",
+            "dni",
+            "number",
+            "registered_at",
+            "date_of_birth",
+            "specialty_id",
+            "hospital_service_id",
+            "active",
+            "staff",
+            "groups",
+            "admissions",
+        )
+    } == {
+        key: original[key]
+        for key in (
+            "pk",
+            "user_id",
+            "dni",
+            "number",
+            "registered_at",
+            "date_of_birth",
+            "specialty_id",
+            "hospital_service_id",
+            "active",
+            "staff",
+            "groups",
+            "admissions",
+        )
+    }
+    browser_page.get_by_role("link", name="Edit professional", exact=True).click()
+    browser_page.get_by_label("License number", exact=True).fill("MN 990001")
+    browser_page.get_by_role("button", name="Save changes", exact=True).click()
+    expect(browser_page.get_by_text("MN 990001", exact=True)).to_be_visible()
+    browser_page.get_by_role("link", name="Edit professional", exact=True).click()
+    browser_page.get_by_label("License number", exact=True).fill("MP 990002")
+    browser_page.get_by_role("button", name="Save changes", exact=True).click()
+    expect(browser_page.get_by_text("MP 990002", exact=True)).to_be_visible()
+    saved = read_professional_state(username)
+    assert saved["license_number"] == "MP 990002"
+    expect(browser_page).to_have_url(
+        f"{live_server.url}/professionals/{original['pk']}/"
+    )
+    assert {
+        key: saved[key]
+        for key in (
+            "pk",
+            "user_id",
+            "dni",
+            "number",
+            "registered_at",
+            "date_of_birth",
+            "specialty_id",
+            "hospital_service_id",
+            "active",
+            "staff",
+            "groups",
+            "admissions",
+        )
+    } == {
+        key: original[key]
+        for key in (
+            "pk",
+            "user_id",
+            "dni",
+            "number",
+            "registered_at",
+            "date_of_birth",
+            "specialty_id",
+            "hospital_service_id",
+            "active",
+            "staff",
+            "groups",
+            "admissions",
+        )
+    }

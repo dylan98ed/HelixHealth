@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import UTC, date, datetime
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -12,14 +12,21 @@ from access_control.acceptance_personas import (
     ADMINISTRATOR_USERNAME,
     DJANGO_ADMIN_USERNAME,
     INACTIVE_PATIENT_DNI,
+    LEGACY_COMPLETE_ACTIVE_DNI,
+    LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER,
+    LEGACY_COMPLETE_ACTIVE_USERNAME,
+    LEGACY_COMPLETE_INACTIVE_DNI,
+    LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER,
+    LEGACY_COMPLETE_INACTIVE_USERNAME,
     MEDICAL_ACTIVE_USERNAME,
     MEDICAL_INACTIVE_USERNAME,
     MEDICAL_LEGACY_STAFF_USERNAME,
     MEDICAL_UNPROVISIONED_USERNAME,
 )
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
+from clinical_records.models import Admission
 from patients.models import Patient
-from professionals.models import Professional
+from professionals.models import HospitalService, Professional, Specialty
 
 
 class Command(BaseCommand):
@@ -94,6 +101,48 @@ class Command(BaseCommand):
             defaults={"is_active": False},
         )
 
+        specialty = Specialty.objects.get(code="general-medicine")
+        hospital_service = HospitalService.objects.get(code="inpatient-ward")
+        completed_at = datetime(2020, 1, 2, 3, 4, 5, tzinfo=UTC)
+        legacy_profiles = []
+        for username, dni, registration_number, is_active in (
+            (
+                LEGACY_COMPLETE_ACTIVE_USERNAME,
+                LEGACY_COMPLETE_ACTIVE_DNI,
+                LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER,
+                True,
+            ),
+            (
+                LEGACY_COMPLETE_INACTIVE_USERNAME,
+                LEGACY_COMPLETE_INACTIVE_DNI,
+                LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER,
+                False,
+            ),
+        ):
+            user, _ = user_model.objects.update_or_create(
+                username=username,
+                defaults={"is_active": True, "is_staff": False, "is_superuser": False},
+            )
+            user.set_password(password)
+            user.save(update_fields=["password"])
+            user.groups.set([medical_group])
+            profile, _ = Professional.objects.update_or_create(
+                user=user,
+                defaults={
+                    "is_active": is_active,
+                    "dni": dni,
+                    "registration_number": registration_number,
+                    "license_number": None,
+                    "first_name": "Legacy",
+                    "last_name": "Completed",
+                    "date_of_birth": date(1990, 1, 1),
+                    "specialty": specialty,
+                    "hospital_service": hospital_service,
+                    "registration_completed_at": completed_at,
+                },
+            )
+            legacy_profiles.append(profile)
+
         for username in (
             MEDICAL_UNPROVISIONED_USERNAME,
             MEDICAL_LEGACY_STAFF_USERNAME,
@@ -125,6 +174,20 @@ class Command(BaseCommand):
                 first_name=f"Patient {offset:02d}",
                 last_name="Zpagination",
                 is_active=True,
+            )
+
+        for profile in legacy_profiles:
+            patient = Patient.objects.get(dni=ACTIVE_PATIENT_DNI)
+            Admission.objects.get_or_create(
+                patient=patient,
+                professional=profile,
+                consultation_reason=f"Legacy completed history {profile.user.username}",
+                defaults={
+                    "systolic_blood_pressure": 120,
+                    "diastolic_blood_pressure": 80,
+                    "heart_rate": 72,
+                    "temperature": "36.7",
+                },
             )
 
         self.stdout.write(self.style.SUCCESS("Acceptance personas seeded."))

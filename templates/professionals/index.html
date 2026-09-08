@@ -18,7 +18,7 @@
   <article class="form-panel mb-3">
     <div class="d-flex flex-wrap justify-content-between gap-3">
       <div><h2 class="h5"><a href="{% url 'professionals:detail' professional.pk %}">{{ professional.display_name }}</a></h2>
-      <p class="mb-0">Username: {{ professional.user.username }} · {{ professional.registration_number|default:"Registration incomplete" }}</p></div>
+      <p class="mb-0">Username: {{ professional.user.username }} · License number: {{ professional.license_number|default:"Not recorded" }} · Registration number: {{ professional.registration_number|default:"Not assigned" }}</p></div>
       <span>{{ professional.registration_status|capfirst }}{% if not professional.is_registration_complete and not professional.is_active %} · Inactive{% endif %}</span>
     </div>
   </article>
