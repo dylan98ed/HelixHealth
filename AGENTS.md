@@ -1,5 +1,25 @@
 # Repository Agent Instructions
 
+## Development database policy
+
+During the current development phase, this project's local development and test
+databases are disposable. Resetting, dropping, and recreating them, including
+their project-owned Compose database volumes, is authorized when needed for
+development or validation without asking for confirmation again. Verify the
+target belongs to this project's local development or test environment first.
+
+Legacy data preservation, backward compatibility with old schemas or account
+states, and upgrade paths for existing development data are not requirements
+unless the user explicitly requests them. Prefer a clean database when existing
+data or schema incompatibilities obstruct a change. Do not add compatibility
+code or legacy acceptance scenarios solely to preserve historical development
+state.
+
+This policy supersedes conflicting legacy-preservation or database-reset
+guidance in existing project plans, acceptance documents, and local skills.
+Validation must still exercise the supported current workflows and verify their
+persisted results.
+
 ## User-facing definition of done
 
 For changes that alter a user-visible workflow, working endpoints and direct
@@ -9,8 +29,8 @@ route access are not sufficient evidence of completion.
 - Start from the normal discoverable entry point, usually `/`, and use only
   visible links, forms, and identifiers that the user would reasonably know.
 - Use a realistic least-privileged account for each affected role. Include
-  relevant account and domain states such as missing roles, inactive profiles,
-  or legacy staff flags when they can change the outcome.
+  relevant account and domain states supported by current workflows, such as
+  missing roles or inactive profiles, when they can change the outcome.
 - Verify authentication, redirects, navigation, authorization, validation
   errors, and the final persisted result—not merely page rendering.
 - Do not use Django Admin as a substitute for a user-facing interface unless
@@ -35,9 +55,10 @@ nearest real HTTP or integration boundary.
   operator or user. An ORM or database shortcut is acceptable only for
   unrelated background data or when the test explicitly targets behavior after
   that state already exists.
-- Include realistic partial and legacy states when they are possible in an
-  existing database. A fully populated factory object is not evidence that an
-  upgrade or previously created account can complete the workflow.
+- Include realistic partial states that current supported workflows can
+  produce. A fully populated factory object is not evidence that those
+  workflows can establish the required state. Historical upgrade and legacy
+  compatibility scenarios are required only when explicitly requested.
 
 ## Completion evidence for user-facing changes
 

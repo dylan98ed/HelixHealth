@@ -7,7 +7,7 @@ Scheduling note: intervention/audit implementation and epic-wide completion/evid
 ## ADDED Requirements
 
 ### Requirement: HU-04 - Register a professional against a known account
-An active administrative-role user SHALL be able to register a professional using an existing active login username, DNI, first name, last name, date of birth, specialty, and hospital service. Staff privileges SHALL NOT be required for this product workflow. The system SHALL generate a unique immutable professional registration number and grant the medical role only after successful registration. It SHALL NOT invent credentials, replace the account, or grant staff privileges.
+An active administrative-role user SHALL be able to register a professional using an existing active login username, DNI, license number, first name, last name, date of birth, specialty, and hospital service. Staff privileges SHALL NOT be required for this product workflow. License number is required operator-entered text (1..50 characters after trimming) and remains distinct from the generated immutable professional registration number. The system SHALL generate that registration number and grant the medical role only after successful registration. It SHALL NOT invent credentials, replace the account, or grant staff privileges.
 
 Required names SHALL be trimmed/nonblank, birth date SHALL NOT be future, and assigned specialty/service SHALL be active reference values. DNI SHALL be canonical 7/8 ASCII digits after trimming surrounding form/API whitespace, rejecting internal whitespace/punctuation/Unicode digits.
 
@@ -58,7 +58,7 @@ The system SHALL permit at most one active professional per canonical DNI. Compl
 - **THEN** a distinct active professional can be created; reactivation of the older record is rejected while that active DNI conflict exists
 
 ### Requirement: Professional maintenance preserves identity and requires explicit activation
-Administrators SHALL be able to retrieve profiles and update only names, birth date, specialty, and hospital service on completed profiles, whether active or inactive. Edits SHALL preserve activation state. New reference assignments SHALL be active; unrelated edits MAY retain an unchanged inactive reference. Deactivation SHALL require confirmation, preserve stored identifiers/history, revoke clinical eligibility and active care relationships, and be idempotent. Reactivation SHALL require explicit confirmation, complete data, an active subject account, active references, and no active-DNI conflict.
+Administrators SHALL be able to retrieve profiles and update license number, names, birth date, specialty, and hospital service on completed profiles, whether active or inactive. Edits SHALL preserve activation state. New reference assignments SHALL be active; unrelated edits MAY retain an unchanged inactive reference. A missing legacy license is displayed as Not recorded and may be omitted from an update; an explicit blank cannot clear a known license. Deactivation SHALL require confirmation, preserve stored identifiers/history, revoke clinical eligibility and active care relationships, and be idempotent. Reactivation SHALL require explicit confirmation, complete data, an active subject account, active references, and no active-DNI conflict.
 
 #### Scenario: Update mutable data
 - **WHEN** an administrator changes valid mutable data
@@ -104,7 +104,7 @@ The administrative navigation SHALL expose Professionals independently of staff 
 - **THEN** nearest-rank p95 is below two seconds, including authorization and serialization
 
 ### Requirement: Professional interfaces have consistent outcomes
-Professional HTML and API operations SHALL use the same validation, authorization, and persistence rules. A new API registration SHALL return 201; completion/update/status change 200; field errors 400; identity conflict 409; anonymous/wrong-role API access 403; missing professional 404 after authorization. API search SHALL return a results array with zero or one {id,full_name,registration_number}. HTML successes SHALL expose the saved record and failures SHALL preserve submitted values with actionable feedback.
+Professional HTML and API operations SHALL use the same validation, authorization, and persistence rules. Pending professional API registration/completion input SHALL require `license_number`; update SHALL accept it as mutable, and detail/search representations SHALL expose it as text or null while retaining all existing response keys. A new API registration SHALL return 201; completion/update/status change 200; field errors 400; identity conflict 409; anonymous/wrong-role API access 403; missing professional 404 after authorization. API search SHALL return a results array with zero or one {id,full_name,registration_number,license_number}. HTML successes SHALL expose the saved record and failures SHALL preserve submitted values with actionable feedback.
 
 #### Scenario: Product entry journey
 - **WHEN** a non-staff administrator starts signed out at /, signs in, and follows Professionals -> Register or a status-list detail action

@@ -6,6 +6,7 @@ from django.db.models import Q
 from professionals.models import HospitalService, Professional, Specialty
 from professionals.validators import (
     canonicalize_professional_dni,
+    normalize_license_number,
     validate_professional_date_of_birth,
     validate_professional_name,
 )
@@ -17,6 +18,7 @@ class ProfessionalRegistrationForm(forms.Form):
         help_text="Use the existing login username supplied by your account administrator.",
     )
     dni = forms.CharField(label="DNI")
+    license_number = forms.CharField(label="License number", max_length=50)
     first_name = forms.CharField(
         max_length=150, validators=[validate_professional_name]
     )
@@ -46,6 +48,7 @@ class ProfessionalRegistrationForm(forms.Form):
             self.initial.update(
                 username=professional.user.get_username(),
                 dni=professional.dni,
+                license_number=professional.license_number,
                 first_name=professional.first_name,
                 last_name=professional.last_name,
                 date_of_birth=professional.date_of_birth,
@@ -64,6 +67,7 @@ class ProfessionalRegistrationForm(forms.Form):
             service_filter |= Q(pk=professional.hospital_service_id)
             del self.fields["username"]
             del self.fields["dni"]
+            self.fields["license_number"].required = False
         specialty.queryset = Specialty.objects.filter(specialty_filter)
         service.queryset = HospitalService.objects.filter(service_filter)
         if professional is not None:
@@ -78,6 +82,12 @@ class ProfessionalRegistrationForm(forms.Form):
 
     def clean_dni(self) -> str:
         return canonicalize_professional_dni(self.cleaned_data["dni"])
+
+    def clean_license_number(self) -> str | None:
+        value = self.cleaned_data.get("license_number")
+        if value in (None, "") and self.initial.get("license_number") is None:
+            return None
+        return normalize_license_number(value)
 
     def clean_specialty_code(self) -> str:
         return str(self.cleaned_data["specialty_code"].code)

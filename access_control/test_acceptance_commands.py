@@ -18,6 +18,14 @@ from access_control.acceptance_personas import (
     COMPLETED_INACTIVE_PROFESSIONAL_DNI,
     DJANGO_ADMIN_USERNAME,
     INACTIVE_PATIENT_DNI,
+    LEGACY_COMPLETE_ACTIVE_DNI,
+    LEGACY_COMPLETE_ACTIVE_LICENSE,
+    LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER,
+    LEGACY_COMPLETE_ACTIVE_USERNAME,
+    LEGACY_COMPLETE_INACTIVE_DNI,
+    LEGACY_COMPLETE_INACTIVE_LICENSE,
+    LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER,
+    LEGACY_COMPLETE_INACTIVE_USERNAME,
     MEDICAL_ACTIVE_USERNAME,
     MEDICAL_INACTIVE_USERNAME,
     MEDICAL_LEGACY_STAFF_USERNAME,
@@ -30,7 +38,7 @@ from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROU
 from clinical_records.models import Admission
 from patients.models import Patient
 from professionals.models import Professional
-from professionals.services import register_professional
+from professionals.services import register_professional, update_professional
 
 ACCEPTANCE_PASSWORD = "Acceptance-test-password-2026!"
 
@@ -75,6 +83,29 @@ def test_seed_acceptance_creates_deterministic_personas(monkeypatch):
     assert not Professional.objects.get(
         user__username=MEDICAL_INACTIVE_USERNAME
     ).is_active
+    for username, dni, registration_number, active in (
+        (
+            LEGACY_COMPLETE_ACTIVE_USERNAME,
+            LEGACY_COMPLETE_ACTIVE_DNI,
+            LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER,
+            True,
+        ),
+        (
+            LEGACY_COMPLETE_INACTIVE_USERNAME,
+            LEGACY_COMPLETE_INACTIVE_DNI,
+            LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER,
+            False,
+        ),
+    ):
+        profile = Professional.objects.get(user__username=username)
+        assert profile.is_registration_complete
+        assert profile.license_number is None
+        assert (profile.dni, profile.registration_number, profile.is_active) == (
+            dni,
+            registration_number,
+            active,
+        )
+        assert profile.admissions.count() == 1
     assert Patient.objects.get(dni=ACTIVE_PATIENT_DNI).is_active
     assert not Patient.all_objects.get(dni=INACTIVE_PATIENT_DNI).is_active
 
@@ -138,11 +169,30 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
             actor=actor,
             username=username,
             dni=dni,
+            license_number="MN 123456",
             first_name="Test",
             last_name="Professional",
             date_of_birth=date(1990, 1, 1),
             specialty_code="general-medicine",
             hospital_service_code="inpatient-ward",
+        )
+
+    for username, initial_license in (
+        (LEGACY_COMPLETE_ACTIVE_USERNAME, LEGACY_COMPLETE_ACTIVE_LICENSE),
+        (LEGACY_COMPLETE_INACTIVE_USERNAME, LEGACY_COMPLETE_INACTIVE_LICENSE),
+    ):
+        profile = Professional.objects.get(user__username=username)
+        update_professional(
+            actor=actor,
+            professional=profile,
+            changes={"first_name": "Updated legacy"},
+        )
+        profile.refresh_from_db()
+        assert profile.license_number is None
+        update_professional(
+            actor=actor,
+            professional=profile,
+            changes={"license_number": f"{initial_license} corrected"},
         )
 
     call_command("verify_acceptance")

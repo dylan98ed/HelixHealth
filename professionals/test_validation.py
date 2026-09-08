@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from professionals.models import HospitalService, Specialty
 from professionals.validators import (
     canonicalize_professional_dni,
+    normalize_license_number,
     normalize_required_name,
     validate_active_reference,
     validate_professional_date_of_birth,
@@ -32,6 +33,13 @@ def test_professional_names_are_trimmed_nonblank_and_bounded():
         normalize_required_name(" \t ")
     with pytest.raises(ValidationError):
         normalize_required_name("a" * 151)
+
+
+def test_license_numbers_trim_only_outer_whitespace_and_preserve_text():
+    assert normalize_license_number("  MN 001234  ") == "MN 001234"
+    for value in (None, " \t ", "x" * 51):
+        with pytest.raises(ValidationError):
+            normalize_license_number(value)
 
 
 def test_professional_birth_date_cannot_be_future():

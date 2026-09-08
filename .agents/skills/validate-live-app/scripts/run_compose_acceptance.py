@@ -28,6 +28,16 @@ MEDICAL_ACTIVE_USERNAME = personas.MEDICAL_ACTIVE_USERNAME
 MEDICAL_INACTIVE_USERNAME = personas.MEDICAL_INACTIVE_USERNAME
 MEDICAL_LEGACY_STAFF_USERNAME = personas.MEDICAL_LEGACY_STAFF_USERNAME
 MEDICAL_UNPROVISIONED_USERNAME = personas.MEDICAL_UNPROVISIONED_USERNAME
+LEGACY_COMPLETE_ACTIVE_LICENSE = personas.LEGACY_COMPLETE_ACTIVE_LICENSE
+LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER = (
+    personas.LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER
+)
+LEGACY_COMPLETE_ACTIVE_USERNAME = personas.LEGACY_COMPLETE_ACTIVE_USERNAME
+LEGACY_COMPLETE_INACTIVE_LICENSE = personas.LEGACY_COMPLETE_INACTIVE_LICENSE
+LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER = (
+    personas.LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER
+)
+LEGACY_COMPLETE_INACTIVE_USERNAME = personas.LEGACY_COMPLETE_INACTIVE_USERNAME
 PAGINATION_SECOND_PAGE_DNI = personas.PAGINATION_SECOND_PAGE_DNI
 REGISTERED_PATIENT_DNI = personas.REGISTERED_PATIENT_DNI
 
@@ -317,6 +327,42 @@ def main() -> int:
                 page.get_by_role("link", name="Reactivate professional", exact=True)
             ).to_be_visible()
 
+    def edit_completed_legacy_professional(
+        page: Page,
+        username: str,
+        registration_number: str,
+        active: bool,
+        license_number: str,
+    ) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        page.get_by_role("navigation", name="Professional status").get_by_role(
+            "link", name="Active" if active else "Inactive", exact=True
+        ).click()
+        card = page.locator("article").filter(has_text=username)
+        expect(
+            card.get_by_text("License number: Not recorded", exact=False)
+        ).to_be_visible()
+        expect(
+            card.get_by_text(f"Registration number: {registration_number}", exact=False)
+        ).to_be_visible()
+        card.get_by_role("link", name="Completed, Legacy", exact=True).click()
+        expect(page.get_by_text("Not recorded", exact=True)).to_be_visible()
+        page.get_by_role("link", name="Edit professional", exact=True).click()
+        expect(page.get_by_label("License number", exact=True)).to_have_value("")
+        page.get_by_label("First name", exact=True).fill("Updated legacy")
+        page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(page.get_by_text("Not recorded", exact=True)).to_be_visible()
+        page.get_by_role("link", name="Edit professional", exact=True).click()
+        page.get_by_label("License number", exact=True).fill(license_number)
+        page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(page.get_by_text(license_number, exact=True)).to_be_visible()
+        page.get_by_role("link", name="Edit professional", exact=True).click()
+        corrected_license = f"{license_number} corrected"
+        page.get_by_label("License number", exact=True).fill(corrected_license)
+        page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(page.get_by_text(corrected_license, exact=True)).to_be_visible()
+
     journeys.extend(
         [
             ("administrative-professional-registration", register_professional),
@@ -337,6 +383,26 @@ def main() -> int:
                     MEDICAL_INACTIVE_USERNAME,
                     personas.COMPLETED_INACTIVE_PROFESSIONAL_DNI,
                     False,
+                ),
+            ),
+            (
+                "administrative-active-completed-legacy-license-edit",
+                lambda page: edit_completed_legacy_professional(
+                    page,
+                    LEGACY_COMPLETE_ACTIVE_USERNAME,
+                    LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER,
+                    True,
+                    LEGACY_COMPLETE_ACTIVE_LICENSE,
+                ),
+            ),
+            (
+                "administrative-inactive-completed-legacy-license-edit",
+                lambda page: edit_completed_legacy_professional(
+                    page,
+                    LEGACY_COMPLETE_INACTIVE_USERNAME,
+                    LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER,
+                    False,
+                    LEGACY_COMPLETE_INACTIVE_LICENSE,
                 ),
             ),
         ]

@@ -38,6 +38,7 @@ def test_competing_registration_for_same_dni_creates_one_active_identity():
                     actor=actor,
                     username=username,
                     dni="01234567",
+                    license_number="MN 001234",
                     first_name="Ada",
                     last_name="Lovelace",
                     date_of_birth=date(1990, 1, 1),

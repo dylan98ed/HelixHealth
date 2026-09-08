@@ -86,6 +86,20 @@ def test_database_rejects_completed_profile_missing_required_values():
 
 
 @pytest.mark.django_db
+def test_license_number_allows_unknown_or_entered_text_but_rejects_blank():
+    unknown = Professional.objects.create(user=create_user("unknown-license"))
+    entered = Professional.objects.create(
+        user=create_user("entered-license"), license_number="MN 001234"
+    )
+    assert unknown.license_number is None
+    assert entered.license_number == "MN 001234"
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Professional.objects.create(
+            user=create_user("blank-license"), license_number=" \t "
+        )
+
+
+@pytest.mark.django_db
 def test_active_only_dni_uniqueness_allows_reuse_after_deactivation():
     Professional.objects.create(
         user=create_user("inactive"), dni="12345678", is_active=False
