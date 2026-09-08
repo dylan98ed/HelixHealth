@@ -3,6 +3,76 @@
 OpenHIS-UNLaM educational hospital information system built with Python 3.13,
 Django 5.2 LTS, Django REST Framework, HTMX, Bootstrap 5, and PostgreSQL 18.
 
+## Domain data model
+
+The application currently has five domain tables. Django's authentication,
+administration, session, and migration tables are omitted from this diagram.
+`professionals_professional.user_id` references Django's `auth_user` table.
+
+```mermaid
+erDiagram
+    patients_patient ||--o{ clinical_records_admission : has
+    professionals_professional ||--o{ clinical_records_admission : records
+    professionals_specialty o|--o{ professionals_professional : classifies
+    professionals_hospitalservice o|--o{ professionals_professional : assigns
+
+    patients_patient {
+        bigint id PK
+        varchar dni
+        varchar clinical_record_number UK
+        varchar first_name
+        varchar last_name
+        date date_of_birth
+        varchar sex
+        varchar phone
+        varchar email
+        text address
+        varchar health_insurer
+        boolean is_active
+    }
+
+    professionals_professional {
+        bigint id PK
+        bigint user_id FK,UK
+        bigint specialty_id FK
+        bigint hospital_service_id FK
+        varchar dni
+        varchar registration_number UK
+        varchar license_number
+        varchar first_name
+        varchar last_name
+        date date_of_birth
+        datetime registration_completed_at
+        boolean is_active
+    }
+
+    professionals_specialty {
+        bigint id PK
+        varchar code UK
+        varchar name UK
+        boolean is_active
+    }
+
+    professionals_hospitalservice {
+        bigint id PK
+        varchar code UK
+        varchar name UK
+        boolean is_active
+    }
+
+    clinical_records_admission {
+        bigint id PK
+        bigint patient_id FK
+        bigint professional_id FK
+        text consultation_reason
+        smallint systolic_blood_pressure
+        smallint diastolic_blood_pressure
+        smallint heart_rate
+        decimal temperature
+        datetime created_at
+    }
+```
+
 ## Prerequisites
 
 - Python 3.13
