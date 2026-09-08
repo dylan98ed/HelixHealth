@@ -3,6 +3,7 @@ from django.db import models
 from django.db.models import Q
 
 from professionals.validators import (
+    validate_license_number,
     validate_professional_date_of_birth,
     validate_professional_dni,
     validate_professional_name,
@@ -54,6 +55,12 @@ class Professional(models.Model):
         unique=True,
         editable=False,
     )
+    license_number = models.CharField(  # noqa: DJ001 - legacy profiles require NULL.
+        max_length=50,
+        null=True,
+        blank=True,
+        validators=[validate_license_number],
+    )
     first_name = models.CharField(  # noqa: DJ001 - legacy identities require NULL.
         max_length=150,
         null=True,
@@ -102,6 +109,11 @@ class Professional(models.Model):
                 condition=Q(registration_number__isnull=True)
                 | ~Q(registration_number=""),
                 name="professional_registration_number_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=Q(license_number__isnull=True)
+                | Q(license_number__regex=r".*\S.*"),
+                name="professional_license_number_null_or_nonblank",
             ),
             models.CheckConstraint(
                 condition=Q(registration_completed_at__isnull=True)

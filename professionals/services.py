@@ -17,6 +17,7 @@ from professionals.identifiers import generate_registration_number
 from professionals.models import HospitalService, Professional, Specialty
 from professionals.validators import (
     canonicalize_professional_dni,
+    normalize_license_number,
     normalize_required_name,
     validate_active_reference,
     validate_professional_date_of_birth,
@@ -137,6 +138,7 @@ def register_professional(
     actor: ActorContext | None,
     username: str,
     dni: str,
+    license_number: object,
     first_name: str,
     last_name: str,
     date_of_birth: date,
@@ -145,6 +147,7 @@ def register_professional(
 ) -> Professional:
     _actor(actor)
     canonical_dni = canonicalize_professional_dni(dni)
+    license_number = normalize_license_number(license_number)
     first_name = normalize_required_name(first_name)
     last_name = normalize_required_name(last_name)
     validate_professional_date_of_birth(date_of_birth)
@@ -177,8 +180,9 @@ def register_professional(
                 existing_professional_id=duplicate.pk,
             )
     specialty, service = _references(specialty_code, hospital_service_code)
-    profile.dni, profile.first_name, profile.last_name = (
+    profile.dni, profile.license_number, profile.first_name, profile.last_name = (
         canonical_dni,
+        license_number,
         first_name,
         last_name,
     )
@@ -229,6 +233,7 @@ def update_professional(
         "date_of_birth",
         "specialty_code",
         "hospital_service_code",
+        "license_number",
     }
     unknown = set(changes) - allowed
     if unknown:
@@ -248,6 +253,8 @@ def update_professional(
         profile.hospital_service = _replacement_hospital_service(
             str(changes["hospital_service_code"]), profile.hospital_service_id
         )
+    if "license_number" in changes:
+        profile.license_number = normalize_license_number(changes["license_number"])
     profile.full_clean()
     profile.save()
     return profile

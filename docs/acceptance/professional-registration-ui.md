@@ -2,12 +2,18 @@
 
 Sign in from `/` with an active account in the **Administrative** group. Staff
 privileges are not required. Choose **Professionals** in the main navigation,
-then **Register professional**.
+then **Register professional**. Entering no License number produces field feedback
+and creates neither the profile nor the medical role.
 
 Use an existing active login username supplied by the account administrator.
 If the person has no account, an authorized operator must first create it through
 Django Admin's Users interface. The professional form does not create passwords
-or staff access. Enter DNI, names, birth date, specialty, and hospital service.
+or staff access. Enter DNI, **License number**, names, birth date, specialty, and
+hospital service. License number is the operator-entered credential (for example
+`MN 123456`); Registration number is the separate generated internal `PR-`
+identifier. New registrations and legacy completion require a nonblank license.
+Historical profiles without one show **Not recorded**; Edit professional can add
+it, while an untouched blank legacy control preserves the unknown value.
 Choose **Register professional**, then **Open professional record**. A successful
 registration displays its generated number and grants the account the medical
 role. Without JavaScript, submission redirects directly to the saved record.

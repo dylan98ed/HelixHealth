@@ -76,6 +76,7 @@ class Command(BaseCommand):
                 is_active=active,
                 registration_completed_at__isnull=False,
                 registration_number__isnull=False,
+                license_number="MN 123456",
             ).exists():
                 failures.append(
                     f"professional registration/completion was not persisted for {username}"

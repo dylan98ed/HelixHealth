@@ -138,6 +138,7 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
             actor=actor,
             username=username,
             dni=dni,
+            license_number="MN 123456",
             first_name="Test",
             last_name="Professional",
             date_of_birth=date(1990, 1, 1),

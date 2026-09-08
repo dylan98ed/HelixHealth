@@ -19,6 +19,7 @@ def registration_setup(client, user_factory):
     return subject, {
         "username": subject.username,
         "dni": "01234567",
+        "license_number": "MN 001234",
         "first_name": " Ada ",
         "last_name": " Lovelace ",
         "date_of_birth": "1990-01-01",

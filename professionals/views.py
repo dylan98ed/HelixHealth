@@ -164,10 +164,13 @@ def professional_update(request: HttpRequest, pk: int) -> HttpResponse:
     )
     if request.method == "POST" and form.is_valid():
         try:
+            changes = dict(form.cleaned_data)
+            if changes.get("license_number") is None:
+                changes.pop("license_number")
             update_professional(
                 actor=actor_context_from_user(request.user),
                 professional=professional,
-                changes=form.cleaned_data,
+                changes=changes,
             )
         except ValidationError as error:
             _form_errors(form, error)

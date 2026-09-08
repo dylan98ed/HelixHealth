@@ -40,6 +40,7 @@ def read_professional_state(username):
                 "complete": profile.is_registration_complete if profile else False,
                 "active": profile.is_active if profile else False,
                 "number": profile.registration_number if profile else None,
+                "license_number": profile.license_number if profile else None,
                 "dni": profile.dni if profile else None,
                 "staff": user.is_staff,
                 "groups": list(user.groups.values_list("name", flat=True)),
@@ -821,6 +822,7 @@ def test_admin_discovers_registration_for_account_without_profile_or_role(
         expect(page).to_have_url(f"{live_server.url}/professionals/{profile['pk']}/")
         expect(page.get_by_text(profile["number"], exact=True)).to_be_visible()
         assert profile["complete"] and profile["dni"] == "01234567"
+        assert profile["license_number"] == "MN 123456"
         assert profile["groups"] == [MEDICAL_PROFESSIONAL_GROUP]
         assert not profile["staff"]
     with browser.new_context() as medical_context:

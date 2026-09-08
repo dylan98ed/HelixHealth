@@ -46,6 +46,26 @@ def validate_professional_name(value: str) -> None:
     normalize_required_name(value)
 
 
+def normalize_license_number(value: object) -> str:
+    """Return a trimmed license identifier without changing its meaningful text."""
+    if not isinstance(value, str):
+        raise ValidationError(
+            _("License number must be provided as text."), code="invalid_license"
+        )
+    normalized_value = value.strip()
+    if not normalized_value:
+        raise ValidationError(_("This field cannot be blank."), code="blank")
+    if len(normalized_value) > 50:
+        raise ValidationError(
+            _("Ensure this value has at most 50 characters."), code="max_length"
+        )
+    return normalized_value
+
+
+def validate_license_number(value: object) -> None:
+    normalize_license_number(value)
+
+
 def validate_professional_date_of_birth(value: date) -> None:
     """Reuse the patient date rule for professional registrations."""
     validate_date_of_birth(value)

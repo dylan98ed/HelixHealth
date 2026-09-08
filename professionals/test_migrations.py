@@ -6,7 +6,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 
 OLD_PROFESSIONAL = ("professionals", "0003_professional_admission_identity")
-NEW_PROFESSIONAL = ("professionals", "0005_professional_registration_number_sequence")
+NEW_PROFESSIONAL = ("professionals", "0006_professional_license_number")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -71,6 +71,7 @@ def test_professional_upgrade_preserves_legacy_profiles_and_admissions():
         for profile in (active_after, inactive_after):
             assert profile.dni is None
             assert profile.registration_number is None
+            assert profile.license_number is None
             assert profile.first_name is None
             assert profile.last_name is None
             assert profile.date_of_birth is None

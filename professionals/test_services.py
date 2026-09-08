@@ -39,6 +39,7 @@ def register(actor, username="subject", dni="01234567"):
         actor=actor,
         username=username,
         dni=dni,
+        license_number="MN 001234",
         first_name=" Ada ",
         last_name=" Lovelace ",
         date_of_birth=date(1990, 1, 1),
@@ -131,6 +132,30 @@ def test_update_allows_only_mutable_completed_fields(admin_actor, references):
     with pytest.raises(ValidationError):
         update_professional(
             actor=admin_actor, professional=professional, changes={"dni": "12345678"}
+        )
+
+
+@pytest.mark.django_db
+def test_license_update_is_normalized_and_omission_preserves_it(
+    admin_actor, references
+):
+    get_user_model().objects.create_user(username="subject", password="x")
+    professional = register(admin_actor)
+    original_registration_number = professional.registration_number
+    unchanged = update_professional(
+        actor=admin_actor, professional=professional, changes={"last_name": "Byron"}
+    )
+    assert unchanged.license_number == "MN 001234"
+    changed = update_professional(
+        actor=admin_actor,
+        professional=unchanged,
+        changes={"license_number": "  MP 0007  "},
+    )
+    assert changed.license_number == "MP 0007"
+    assert changed.registration_number == original_registration_number
+    with pytest.raises(ValidationError):
+        update_professional(
+            actor=admin_actor, professional=changed, changes={"license_number": " "}
         )
 
 
