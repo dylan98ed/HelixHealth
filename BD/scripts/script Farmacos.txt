@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS Farmacos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT UNIQUE NOT NULL,
+    nombre TEXT NOT NULL,
+    principio_activo TEXT,
+    presentacion TEXT,
+    concentracion TEXT,
+    via_administracion TEXT,
+    activo INTEGER DEFAULT 1,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO Farmacos (codigo, nombre, principio_activo, presentacion, concentracion, via_administracion) VALUES
+    ('ATC-001', 'Enalapril', 'Enalapril', 'Comprimidos', '10 mg', 'Oral'),
+    ('ATC-002', 'Losartán', 'Losartán', 'Comprimidos', '50 mg', 'Oral'),
+    ('ATC-003', 'Amoxicilina', 'Amoxicilina', 'Cápsulas', '500 mg', 'Oral'),
+    ('ATC-004', 'Paracetamol', 'Paracetamol', 'Comprimidos', '500 mg', 'Oral'),
+    ('ATC-005', 'Ibuprofeno', 'Ibuprofeno', 'Comprimidos', '400 mg', 'Oral'),
+    ('ATC-006', 'Atorvastatina', 'Atorvastatina', 'Comprimidos', '20 mg', 'Oral'),
+    ('ATC-007', 'Omeprazol', 'Omeprazol', 'Cápsulas', '20 mg', 'Oral'),
+    ('ATC-008', 'Insulina Glargina', 'Insulina Glargina', 'Solución inyectable', '100 UI/mL', 'Subcutánea');

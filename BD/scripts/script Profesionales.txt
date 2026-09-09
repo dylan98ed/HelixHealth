@@ -1,0 +1,22 @@
+CREATE TABLE Profesionales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dni TEXT UNIQUE NOT NULL,
+    nombre TEXT NOT NULL,
+    apellido TEXT NOT NULL,
+    fecha_nacimiento TEXT NOT NULL,
+    sexo TEXT NOT NULL CHECK (sexo IN ('M', 'F')),
+    matricula TEXT UNIQUE NOT NULL,
+    especialidad_id INTEGER,
+    telefono TEXT,
+    email TEXT,
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (especialidad_id) REFERENCES Especialidades(id)
+);
+
+INSERT INTO Profesionales 
+    (dni, nombre, apellido, fecha_nacimiento, sexo, matricula, especialidad_id, telefono, email)
+SELECT 
+    '12345678', 'María', 'González', '1980-05-15', 'F', 'MN 12345', 
+    (SELECT id FROM Especialidades WHERE codigo = 'CLI'), 
+    '555-1111', 'mgonzalez@hospital.com'
+WHERE NOT EXISTS (SELECT 1 FROM Profesionales WHERE dni = '12345678');

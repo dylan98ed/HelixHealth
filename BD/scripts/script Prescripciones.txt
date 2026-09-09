@@ -1,0 +1,26 @@
+CREATE TABLE IF NOT EXISTS Prescripciones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paciente_id INTEGER NOT NULL,
+    profesional_id INTEGER NOT NULL,
+    farmaco_id INTEGER NOT NULL,
+    snomed_id INTEGER,
+    dosis TEXT NOT NULL,
+    via_administracion TEXT NOT NULL,
+    frecuencia TEXT NOT NULL,
+    duracion TEXT,
+    cantidad INTEGER,
+    indicaciones TEXT,
+    fecha_prescripcion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_inicio TEXT,
+    fecha_fin TEXT,
+    activo INTEGER DEFAULT 1,
+    FOREIGN KEY (paciente_id) REFERENCES Pacientes(id),
+    FOREIGN KEY (profesional_id) REFERENCES Profesionales(id),
+    FOREIGN KEY (farmaco_id) REFERENCES Farmacos(id),
+    FOREIGN KEY (snomed_id) REFERENCES SnomedCT(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_prescripciones_paciente ON Prescripciones(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_profesional ON Prescripciones(profesional_id);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_farmaco ON Prescripciones(farmaco_id);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_fecha ON Prescripciones(fecha_prescripcion);
