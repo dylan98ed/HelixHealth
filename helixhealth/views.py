@@ -19,9 +19,6 @@ class HomeView(TemplateView):
         *args: Any,
         **kwargs: Any,
     ) -> HttpResponseBase:
-        if has_active_medical_professional_context(
-            request.user,
-            provision_missing=True,
-        ):
+        if has_active_medical_professional_context(request.user):
             return redirect("clinical_records:dashboard")
         return super().dispatch(request, *args, **kwargs)

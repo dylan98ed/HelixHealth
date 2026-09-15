@@ -296,12 +296,17 @@ def reactivate_professional(
         )
     validate_active_reference(profile.specialty, field_name="specialty")
     validate_active_reference(profile.hospital_service, field_name="hospital service")
-    if (
+    duplicate = (
         Professional.objects.filter(dni=profile.dni, is_active=True)
         .exclude(pk=profile.pk)
-        .exists()
-    ):
-        raise ProfessionalConflictError("An active professional already has this DNI.")
+        .first()
+    )
+    if duplicate is not None:
+        raise ProfessionalConflictError(
+            "An active professional already has this DNI.",
+            field="dni",
+            existing_professional_id=duplicate.pk,
+        )
     profile.is_active = True
     try:
         # The inner savepoint keeps the outer lifecycle transaction usable when
@@ -310,8 +315,15 @@ def reactivate_professional(
             profile.save(update_fields=["is_active"])
     except IntegrityError as error:
         if _is_active_dni_constraint(error):
+            duplicate = (
+                Professional.objects.filter(dni=profile.dni, is_active=True)
+                .exclude(pk=profile.pk)
+                .first()
+            )
             raise ProfessionalConflictError(
-                "An active professional already has this DNI."
+                "An active professional already has this DNI.",
+                field="dni",
+                existing_professional_id=duplicate.pk if duplicate else None,
             ) from error
         raise
     return profile

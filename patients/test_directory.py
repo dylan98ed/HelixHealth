@@ -1,11 +1,33 @@
 import pytest
 from django.contrib.auth.models import Group
 from django.urls import reverse
+from django.utils import timezone
 
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from patients.models import Patient
 from patients.test_search import create_patient
-from professionals.models import Professional
+from professionals.models import HospitalService, Professional, Specialty
+
+
+def create_completed_professional(user) -> Professional:
+    specialty, _ = Specialty.objects.get_or_create(
+        code="directory-general", defaults={"name": "Directory General"}
+    )
+    service, _ = HospitalService.objects.get_or_create(
+        code="directory-ward", defaults={"name": "Directory Ward"}
+    )
+    return Professional.objects.create(
+        user=user,
+        dni=str(80_000_000 + user.pk),
+        license_number=f"MN {user.pk:06d}",
+        registration_number=f"PR-DIRECTORY-{user.pk:08d}",
+        first_name="Directory",
+        last_name="Professional",
+        date_of_birth="1990-01-01",
+        specialty=specialty,
+        hospital_service=service,
+        registration_completed_at=timezone.now(),
+    )
 
 
 @pytest.fixture
@@ -32,7 +54,7 @@ def test_name_directory_filters_at_authorized_http_boundary(
     user = user_factory()
     user.groups.add(Group.objects.get(name=group))
     if group == MEDICAL_PROFESSIONAL_GROUP:
-        Professional.objects.create(user=user)
+        create_completed_professional(user)
     client.force_login(user)
     for query in ("maría", "GARCÍA", "  López   María ", "Elena García"):
         response = client.get(

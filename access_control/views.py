@@ -14,11 +14,14 @@ class ApplicationLoginView(LoginView):
 
     def get_success_url(self) -> str:
         has_active_professional_context = has_active_medical_professional_context(
-            self.request.user,
-            provision_missing=True,
+            self.request.user
         )
         requested_url = self.get_redirect_url()
-        if requested_url:
+        clinical_prefix = reverse("clinical_records:dashboard")
+        if requested_url and (
+            not requested_url.startswith(clinical_prefix)
+            or has_active_professional_context
+        ):
             return requested_url
 
         actor = actor_context_from_user(self.request.user)

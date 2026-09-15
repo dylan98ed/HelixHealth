@@ -22,11 +22,20 @@ from access_control.acceptance_personas import (
     MEDICAL_INACTIVE_USERNAME,
     MEDICAL_LEGACY_STAFF_USERNAME,
     MEDICAL_UNPROVISIONED_USERNAME,
+    PAGED_ACTIVE_DNI_PREFIX,
+    PAGED_ACTIVE_USERNAME_PREFIX,
+    PAGED_INACTIVE_DNI_PREFIX,
+    PAGED_INACTIVE_USERNAME_PREFIX,
+    PAGED_INCOMPLETE_USERNAME_PREFIX,
+    REACTIVATION_CONFLICT_USERNAME,
+    RETIRED_SPECIALTY_CODE,
 )
+from access_control.actors import actor_context_from_user
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from clinical_records.models import Admission
 from patients.models import Patient
 from professionals.models import HospitalService, Professional, Specialty
+from professionals.services import register_professional
 
 
 class Command(BaseCommand):
@@ -72,6 +81,14 @@ class Command(BaseCommand):
         administrator.save(update_fields=["password"])
         administrator.groups.set([administrative_group])
 
+        reactivation_conflict, _ = user_model.objects.update_or_create(
+            username=REACTIVATION_CONFLICT_USERNAME,
+            defaults={"is_active": True, "is_staff": False, "is_superuser": False},
+        )
+        reactivation_conflict.set_password(password)
+        reactivation_conflict.save(update_fields=["password"])
+        reactivation_conflict.groups.clear()
+
         medical_users = {}
         for username, is_staff in (
             (MEDICAL_UNPROVISIONED_USERNAME, False),
@@ -103,6 +120,10 @@ class Command(BaseCommand):
 
         specialty = Specialty.objects.get(code="general-medicine")
         hospital_service = HospitalService.objects.get(code="inpatient-ward")
+        retired_specialty, _ = Specialty.objects.update_or_create(
+            code=RETIRED_SPECIALTY_CODE,
+            defaults={"name": "Retired acceptance specialty", "is_active": False},
+        )
         completed_at = datetime(2020, 1, 2, 3, 4, 5, tzinfo=UTC)
         legacy_profiles = []
         for username, dni, registration_number, is_active in (
@@ -136,12 +157,74 @@ class Command(BaseCommand):
                     "first_name": "Legacy",
                     "last_name": "Completed",
                     "date_of_birth": date(1990, 1, 1),
-                    "specialty": specialty,
+                    "specialty": (
+                        retired_specialty
+                        if username == LEGACY_COMPLETE_INACTIVE_USERNAME
+                        else specialty
+                    ),
                     "hospital_service": hospital_service,
                     "registration_completed_at": completed_at,
                 },
             )
             legacy_profiles.append(profile)
+
+        actor = actor_context_from_user(administrator)
+        for status, username_prefix, dni_prefix, is_active in (
+            ("active", PAGED_ACTIVE_USERNAME_PREFIX, PAGED_ACTIVE_DNI_PREFIX, True),
+            (
+                "inactive",
+                PAGED_INACTIVE_USERNAME_PREFIX,
+                PAGED_INACTIVE_DNI_PREFIX,
+                False,
+            ),
+        ):
+            for offset in range(21):
+                username = f"{username_prefix}-{offset:02d}"
+                user, _ = user_model.objects.update_or_create(
+                    username=username,
+                    defaults={
+                        "is_active": True,
+                        "is_staff": False,
+                        "is_superuser": False,
+                    },
+                )
+                user.set_password(password)
+                user.save(update_fields=["password"])
+                paged_profile = Professional.objects.filter(user=user).first()
+                if paged_profile is None and not is_active:
+                    paged_profile = Professional.objects.create(
+                        user=user, is_active=False
+                    )
+                if paged_profile is None or not paged_profile.is_registration_complete:
+                    register_professional(
+                        actor=actor,
+                        username=username,
+                        dni=f"{dni_prefix}{offset:06d}",
+                        license_number=f"SYN-{status.upper()}-{offset:02d}",
+                        first_name=f"Paged {offset:02d}",
+                        last_name=f"Zpagination {status}",
+                        date_of_birth=date(1990, 1, 1),
+                        specialty_code=specialty.code,
+                        hospital_service_code=hospital_service.code,
+                    )
+
+        for offset in range(21):
+            username = f"{PAGED_INCOMPLETE_USERNAME_PREFIX}-{offset:02d}"
+            user, _ = user_model.objects.update_or_create(
+                username=username,
+                defaults={
+                    "is_active": True,
+                    "is_staff": False,
+                    "is_superuser": False,
+                },
+            )
+            user.set_password(password)
+            user.save(update_fields=["password"])
+            user.groups.set([medical_group])
+            Professional.objects.update_or_create(
+                user=user,
+                defaults={"is_active": True},
+            )
 
         for username in (
             MEDICAL_UNPROVISIONED_USERNAME,

@@ -24,10 +24,7 @@ class MedicalProfessionalAdminRedirectMiddleware:
             if (
                 not user.is_superuser
                 and not user.get_all_permissions()
-                and has_active_medical_professional_context(
-                    user,
-                    provision_missing=True,
-                )
+                and has_active_medical_professional_context(user)
             ):
                 return redirect("clinical_records:dashboard")
 

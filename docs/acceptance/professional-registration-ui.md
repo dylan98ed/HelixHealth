@@ -41,9 +41,10 @@ The **Active**, **Inactive**, and **Incomplete** tabs have bounded, 20-record
 pages. **Search by DNI** finds active registered professionals and offers a
 prefilled registration form when no record matches.
 
-This change adds the product UI. The separate API and stricter clinical-access
-rollout tasks remain pending in `implement-epics-1-and-2`; existing clinical login
-compatibility is retained until that rollout is complete.
+The API and strict clinical-access rollout are now implemented. Medical-role
+accounts with a missing, incomplete, or inactive profile do not receive clinical
+access and are never provisioned by login. The current end-to-end operator guide
+is `docs/acceptance/sprint-3-hu-04-hu-05.md`.
 
 Acceptance runs through `tests/test_browser_workflows.py` (signed-out product
 navigation, account provisioning through Django Admin, registration with and
@@ -54,8 +55,8 @@ completed active/inactive license edits, and database persistence checks).
 
 ## Validation evidence
 
-Validated on 2026-09-08 with the bundled validator: 18 isolated PostgreSQL
-Chromium browser tests and 15 disposable Compose Chromium journeys passed, with
+Validated on 2026-09-15 with the bundled validator: 20 isolated PostgreSQL
+Chromium browser tests and 22 disposable Compose Chromium journeys passed, with
 zero skipped scenarios. Django checks, migrations, production deployment checks,
 and Compose persistence verification also passed.
 
@@ -65,8 +66,8 @@ Inactive completed legacy profiles whose License number was NULL while their
 account, Registration number, completion timestamp, activation state, medical
 group, and admission history already existed. Each journey confirmed **Not
 recorded**, saved an unrelated edit without a license, then added and corrected
-the License number through **Edit professional**, ending at `/professionals/3/`
-and `/professionals/4/` in Compose. Isolated checks compared the
+the License number through **Edit professional**, ending at each saved
+`/professionals/<generated-id>/` detail in Compose. Isolated checks compared the
 retained profile identity, timestamp, status, permissions, references, and
 admissions; Compose persistence verification checked the stored state/history.
 
@@ -74,14 +75,14 @@ The registration journey began signed out at `/` with an active, non-staff
 Administrative user. The subject account was created through the supported
 Django Admin workflow and initially had no professional profile or medical role.
 Visible Professionals → Register professional navigation exercised missing-field
-and unknown-account errors, then saved the completed record at `/professionals/7/`
-in Compose. PostgreSQL verification confirmed the generated registration number,
+and unknown-account errors, then saved the completed record at its generated
+`/professionals/<generated-id>/` detail. PostgreSQL verification confirmed the generated registration number,
 medical group, and unchanged non-staff account. A fresh subject login reached
 `/clinical-records/`. Isolated tests also exercised the flow without JavaScript
 and at a 390-pixel mobile viewport.
 
-The visible Incomplete tab led to active and inactive legacy profiles at
-`/professionals/1/` and `/professionals/2/` in Compose. Completion preserved their
+The visible Incomplete tab led to the active and inactive legacy profiles' saved
+detail pages. Completion preserved their
 IDs and the prior admission relationship; the inactive profile remained inactive.
 Isolated browser tests also verified inactive editing and explicit reactivation.
 These results belong to isolated test servers and the disposable Compose app;

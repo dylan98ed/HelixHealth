@@ -28,8 +28,17 @@ from access_control.acceptance_personas import (
     LEGACY_COMPLETE_INACTIVE_USERNAME,
     MEDICAL_ACTIVE_USERNAME,
     MEDICAL_INACTIVE_USERNAME,
+    MEDICAL_LEGACY_STAFF_DNI,
+    MEDICAL_LEGACY_STAFF_LICENSE,
     MEDICAL_LEGACY_STAFF_USERNAME,
+    MEDICAL_UNPROVISIONED_DNI,
+    MEDICAL_UNPROVISIONED_LICENSE,
     MEDICAL_UNPROVISIONED_USERNAME,
+    PAGED_ACTIVE_USERNAME_PREFIX,
+    PAGED_INACTIVE_USERNAME_PREFIX,
+    PAGED_INCOMPLETE_USERNAME_PREFIX,
+    REACTIVATION_CONFLICT_LICENSE,
+    REACTIVATION_CONFLICT_USERNAME,
     REGISTERED_PATIENT_DNI,
     REGISTERED_PROFESSIONAL_DNI,
 )
@@ -108,6 +117,31 @@ def test_seed_acceptance_creates_deterministic_personas(monkeypatch):
         assert profile.admissions.count() == 1
     assert Patient.objects.get(dni=ACTIVE_PATIENT_DNI).is_active
     assert not Patient.all_objects.get(dni=INACTIVE_PATIENT_DNI).is_active
+    assert (
+        Professional.objects.filter(
+            user__username__startswith=PAGED_ACTIVE_USERNAME_PREFIX,
+            registration_completed_at__isnull=False,
+            license_number__startswith="SYN-ACTIVE-",
+            is_active=True,
+        ).count()
+        == 21
+    )
+    assert (
+        Professional.objects.filter(
+            user__username__startswith=PAGED_INACTIVE_USERNAME_PREFIX,
+            registration_completed_at__isnull=False,
+            license_number__startswith="SYN-INACTIVE-",
+            is_active=False,
+        ).count()
+        == 21
+    )
+    assert (
+        Professional.objects.filter(
+            user__username__startswith=PAGED_INCOMPLETE_USERNAME_PREFIX,
+            registration_completed_at__isnull=True,
+        ).count()
+        == 21
+    )
 
 
 @override_settings(ENVIRONMENT="production")
@@ -123,12 +157,6 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
     monkeypatch.setenv(ACCEPTANCE_PASSWORD_ENV, ACCEPTANCE_PASSWORD)
     call_command("seed_acceptance")
     user_model = get_user_model()
-
-    for username in (
-        MEDICAL_UNPROVISIONED_USERNAME,
-        MEDICAL_LEGACY_STAFF_USERNAME,
-    ):
-        Professional.objects.create(user=user_model.objects.get(username=username))
 
     registered_patient = Patient.objects.create(
         dni=REGISTERED_PATIENT_DNI,
@@ -160,16 +188,30 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
     actor = actor_context_from_user(
         user_model.objects.get(username=ADMINISTRATOR_USERNAME)
     )
-    for username, dni in (
-        (BROWSER_CREATED_USERNAME, REGISTERED_PROFESSIONAL_DNI),
-        (MEDICAL_ACTIVE_USERNAME, COMPLETED_ACTIVE_PROFESSIONAL_DNI),
-        (MEDICAL_INACTIVE_USERNAME, COMPLETED_INACTIVE_PROFESSIONAL_DNI),
+    for username, dni, license_number in (
+        (BROWSER_CREATED_USERNAME, REGISTERED_PROFESSIONAL_DNI, "MN 123456"),
+        (MEDICAL_ACTIVE_USERNAME, COMPLETED_ACTIVE_PROFESSIONAL_DNI, "MN 123456"),
+        (
+            MEDICAL_INACTIVE_USERNAME,
+            COMPLETED_INACTIVE_PROFESSIONAL_DNI,
+            "MN 123456",
+        ),
+        (
+            MEDICAL_UNPROVISIONED_USERNAME,
+            MEDICAL_UNPROVISIONED_DNI,
+            MEDICAL_UNPROVISIONED_LICENSE,
+        ),
+        (
+            MEDICAL_LEGACY_STAFF_USERNAME,
+            MEDICAL_LEGACY_STAFF_DNI,
+            MEDICAL_LEGACY_STAFF_LICENSE,
+        ),
     ):
         register_professional(
             actor=actor,
             username=username,
             dni=dni,
-            license_number="MN 123456",
+            license_number=license_number,
             first_name="Test",
             last_name="Professional",
             date_of_birth=date(1990, 1, 1),
@@ -192,7 +234,26 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
         update_professional(
             actor=actor,
             professional=profile,
-            changes={"license_number": f"{initial_license} corrected"},
+            changes={
+                "license_number": f"{initial_license} corrected",
+                **(
+                    {"specialty_code": "general-medicine"}
+                    if username == LEGACY_COMPLETE_INACTIVE_USERNAME
+                    else {}
+                ),
+            },
         )
+
+    register_professional(
+        actor=actor,
+        username=REACTIVATION_CONFLICT_USERNAME,
+        dni=LEGACY_COMPLETE_INACTIVE_DNI,
+        license_number=REACTIVATION_CONFLICT_LICENSE,
+        first_name="Conflict",
+        last_name="Replacement",
+        date_of_birth=date(1990, 1, 1),
+        specialty_code="general-medicine",
+        hospital_service_code="inpatient-ward",
+    )
 
     call_command("verify_acceptance")

@@ -40,23 +40,22 @@ def test_eligibility_requires_active_user_group_complete_and_active_profile():
 
 
 @pytest.mark.django_db
-def test_active_legacy_profile_keeps_existing_clinical_eligibility():
+def test_active_incomplete_legacy_profile_is_not_clinically_eligible():
     user = get_user_model().objects.create_user(username="legacy", password="x")
     user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
     Professional.objects.create(user=user)
 
-    assert has_active_medical_professional_context(user)
+    assert not has_active_medical_professional_context(user)
     assert not has_completed_active_medical_professional_context(user)
 
 
 @pytest.mark.django_db
-def test_missing_profile_is_provisioned_only_when_requested():
+def test_missing_profile_is_never_provisioned_by_eligibility_checks():
     user = get_user_model().objects.create_user(username="provisioned", password="x")
     user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
 
     assert not has_active_medical_professional_context(user)
-    assert has_active_medical_professional_context(user, provision_missing=True)
-    assert Professional.objects.filter(user=user, is_active=True).exists()
+    assert not Professional.objects.filter(user=user).exists()
 
 
 @pytest.mark.django_db

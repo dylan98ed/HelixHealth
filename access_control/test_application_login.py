@@ -1,16 +1,38 @@
 import pytest
 from django.contrib.auth.models import Group, Permission
 from django.urls import reverse
+from django.utils import timezone
 
 from access_control.roles import (
     ADMINISTRATIVE_GROUP,
     MEDICAL_PROFESSIONAL_GROUP,
 )
-from professionals.models import Professional
+from professionals.models import HospitalService, Professional, Specialty
+
+
+def create_completed_profile(user) -> Professional:
+    specialty, _ = Specialty.objects.get_or_create(
+        code="login-general", defaults={"name": "Login General"}
+    )
+    service, _ = HospitalService.objects.get_or_create(
+        code="login-ward", defaults={"name": "Login Ward"}
+    )
+    return Professional.objects.create(
+        user=user,
+        dni=str(60_000_000 + user.pk),
+        license_number=f"MN {user.pk:06d}",
+        registration_number=f"PR-LOGIN-{user.pk:08d}",
+        first_name="Login",
+        last_name="Professional",
+        date_of_birth="1990-01-01",
+        specialty=specialty,
+        hospital_service=service,
+        registration_completed_at=timezone.now(),
+    )
 
 
 @pytest.mark.django_db
-def test_non_staff_medical_role_login_provisions_profile_and_opens_workspace(
+def test_non_staff_completed_medical_role_login_opens_workspace(
     client,
     user_factory,
 ):
@@ -22,7 +44,7 @@ def test_non_staff_medical_role_login_provisions_profile_and_opens_workspace(
     )
     user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
 
-    assert not Professional.objects.filter(user=user).exists()
+    professional = create_completed_profile(user)
 
     response = client.post(
         reverse("login"),
@@ -31,7 +53,7 @@ def test_non_staff_medical_role_login_provisions_profile_and_opens_workspace(
 
     assert response.status_code == 302
     assert response.url == reverse("clinical_records:dashboard")
-    assert Professional.objects.filter(user=user, is_active=True).exists()
+    assert Professional.objects.get(user=user) == professional
     assert client.get(response.url).status_code == 200
 
 
@@ -93,7 +115,7 @@ def test_application_login_does_not_reactivate_inactive_professional(
 
 
 @pytest.mark.django_db
-def test_medical_role_login_with_workspace_next_provisions_profile(
+def test_medical_role_login_with_workspace_next_is_denied_without_registration(
     client,
     user_factory,
 ):
@@ -113,12 +135,13 @@ def test_medical_role_login_with_workspace_next_provisions_profile(
     )
 
     assert response.status_code == 200
-    assert response.request["PATH_INFO"] == dashboard_url
-    assert Professional.objects.filter(user=user, is_active=True).exists()
+    assert response.request["PATH_INFO"] == reverse("home")
+    assert b"Professional registration or reactivation is required" in response.content
+    assert not Professional.objects.filter(user=user).exists()
 
 
 @pytest.mark.django_db
-def test_authenticated_medical_role_on_home_is_redirected_and_provisioned(
+def test_authenticated_medical_role_on_home_is_explained_without_registration(
     client,
     user_factory,
 ):
@@ -128,9 +151,9 @@ def test_authenticated_medical_role_on_home_is_redirected_and_provisioned(
 
     response = client.get(reverse("home"))
 
-    assert response.status_code == 302
-    assert response.url == reverse("clinical_records:dashboard")
-    assert Professional.objects.filter(user=user, is_active=True).exists()
+    assert response.status_code == 200
+    assert b"Professional registration or reactivation is required" in response.content
+    assert not Professional.objects.filter(user=user).exists()
 
 
 def test_anonymous_workspace_request_redirects_to_application_login(client):
@@ -154,8 +177,7 @@ def test_staff_medical_professional_admin_login_redirects_to_clinical_workspace(
         is_staff=True,
     )
     user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
-
-    assert not Professional.objects.filter(user=user).exists()
+    profile = create_completed_profile(user)
 
     admin_index = reverse("admin:index")
     response = client.post(
@@ -175,7 +197,7 @@ def test_staff_medical_professional_admin_login_redirects_to_clinical_workspace(
     ]
     assert response.request["PATH_INFO"] == reverse("clinical_records:dashboard")
     assert b"Clinical workspace" in response.content
-    assert Professional.objects.filter(user=user, is_active=True).exists()
+    assert Professional.objects.get(user=user) == profile
 
 
 @pytest.mark.django_db

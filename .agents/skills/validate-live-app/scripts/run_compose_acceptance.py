@@ -26,19 +26,30 @@ DJANGO_ADMIN_USERNAME = personas.DJANGO_ADMIN_USERNAME
 INACTIVE_PATIENT_DNI = personas.INACTIVE_PATIENT_DNI
 MEDICAL_ACTIVE_USERNAME = personas.MEDICAL_ACTIVE_USERNAME
 MEDICAL_INACTIVE_USERNAME = personas.MEDICAL_INACTIVE_USERNAME
+MEDICAL_LEGACY_STAFF_DNI = personas.MEDICAL_LEGACY_STAFF_DNI
+MEDICAL_LEGACY_STAFF_LICENSE = personas.MEDICAL_LEGACY_STAFF_LICENSE
 MEDICAL_LEGACY_STAFF_USERNAME = personas.MEDICAL_LEGACY_STAFF_USERNAME
+MEDICAL_UNPROVISIONED_DNI = personas.MEDICAL_UNPROVISIONED_DNI
+MEDICAL_UNPROVISIONED_LICENSE = personas.MEDICAL_UNPROVISIONED_LICENSE
 MEDICAL_UNPROVISIONED_USERNAME = personas.MEDICAL_UNPROVISIONED_USERNAME
 LEGACY_COMPLETE_ACTIVE_LICENSE = personas.LEGACY_COMPLETE_ACTIVE_LICENSE
+LEGACY_COMPLETE_ACTIVE_DNI = personas.LEGACY_COMPLETE_ACTIVE_DNI
 LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER = (
     personas.LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER
 )
 LEGACY_COMPLETE_ACTIVE_USERNAME = personas.LEGACY_COMPLETE_ACTIVE_USERNAME
 LEGACY_COMPLETE_INACTIVE_LICENSE = personas.LEGACY_COMPLETE_INACTIVE_LICENSE
+LEGACY_COMPLETE_INACTIVE_DNI = personas.LEGACY_COMPLETE_INACTIVE_DNI
 LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER = (
     personas.LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER
 )
 LEGACY_COMPLETE_INACTIVE_USERNAME = personas.LEGACY_COMPLETE_INACTIVE_USERNAME
 PAGINATION_SECOND_PAGE_DNI = personas.PAGINATION_SECOND_PAGE_DNI
+PAGED_ACTIVE_USERNAME_PREFIX = personas.PAGED_ACTIVE_USERNAME_PREFIX
+PAGED_INACTIVE_USERNAME_PREFIX = personas.PAGED_INACTIVE_USERNAME_PREFIX
+PAGED_INCOMPLETE_USERNAME_PREFIX = personas.PAGED_INCOMPLETE_USERNAME_PREFIX
+REACTIVATION_CONFLICT_LICENSE = personas.REACTIVATION_CONFLICT_LICENSE
+REACTIVATION_CONFLICT_USERNAME = personas.REACTIVATION_CONFLICT_USERNAME
 REGISTERED_PATIENT_DNI = personas.REGISTERED_PATIENT_DNI
 
 Journey = Callable[[Page], None]
@@ -89,25 +100,30 @@ def main() -> int:
     if not password:
         raise RuntimeError(f"{ACCEPTANCE_PASSWORD_ENV} is required.")
 
-    def unprovisioned_medical(page: Page) -> None:
+    def missing_profile_medical_is_denied(page: Page) -> None:
         application_login(
             page,
             base_url,
             MEDICAL_UNPROVISIONED_USERNAME,
             password,
         )
-        expect(page).to_have_url(f"{base_url}/clinical-records/")
-        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
-        expect(page.get_by_text(ACTIVE_PATIENT_DNI, exact=True)).to_be_visible()
-        expect(page.get_by_text(INACTIVE_PATIENT_DNI, exact=True)).to_have_count(0)
+        expect(page).to_have_url(f"{base_url}/")
+        expect(
+            page.get_by_text("Professional registration or reactivation is required")
+        ).to_be_visible()
+        expect(page.get_by_role("link", name="Clinical workspace")).to_have_count(0)
 
-    def legacy_staff_medical(page: Page) -> None:
+    def missing_profile_legacy_staff_is_denied(page: Page) -> None:
         page.goto(f"{base_url}/admin/login/", wait_until="networkidle")
         page.get_by_label("Username").fill(MEDICAL_LEGACY_STAFF_USERNAME)
         page.get_by_label("Password").fill(password)
         page.get_by_role("button", name="Log in").click()
-        expect(page).to_have_url(f"{base_url}/clinical-records/")
-        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
+        expect(page).to_have_url(f"{base_url}/admin/")
+        page.goto(f"{base_url}/", wait_until="networkidle")
+        expect(
+            page.get_by_text("Professional registration or reactivation is required")
+        ).to_be_visible()
+        expect(page.get_by_role("link", name="Clinical workspace")).to_have_count(0)
 
     def inactive_medical(page: Page) -> None:
         application_login(page, base_url, MEDICAL_INACTIVE_USERNAME, password)
@@ -258,13 +274,13 @@ def main() -> int:
         expect(page.get_by_role("link", name="Delete", exact=True)).to_have_count(0)
 
     journeys: list[tuple[str, Journey]] = [
-        ("medical-unprovisioned-login", unprovisioned_medical),
-        ("medical-legacy-admin-login", legacy_staff_medical),
+        ("medical-missing-profile-denied", missing_profile_medical_is_denied),
+        (
+            "medical-legacy-staff-missing-profile-denied",
+            missing_profile_legacy_staff_is_denied,
+        ),
         ("medical-inactive-denied", inactive_medical),
-        ("medical-admission", record_admission),
         ("administrative-patient-registration", register_patient),
-        ("administrative-patient-management", manage_patient),
-        ("medical-workspace", paginated_workspace),
         ("administrative-live-name-search-mobile", live_patient_search),
         ("django-admin-user-creation", django_admin_user_creation),
     ]
@@ -273,10 +289,15 @@ def main() -> int:
         application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
         page.get_by_role("link", name="Professionals", exact=True).click()
         page.get_by_role("link", name="Register professional", exact=True).click()
-        page.get_by_label("Username", exact=True).fill("unknown-account")
+        page.get_by_label("Username", exact=True).fill(BROWSER_CREATED_USERNAME)
         professional_journeys.fill_professional_registration(
             page, dni=personas.REGISTERED_PROFESSIONAL_DNI
         )
+        page.get_by_label("License number", exact=True).fill("")
+        page.get_by_role("button", name="Register professional", exact=True).click()
+        expect(page.locator('[data-field-error="license_number"]')).to_be_visible()
+        page.get_by_label("License number", exact=True).fill("MN 123456")
+        page.get_by_label("Username", exact=True).fill("unknown-account")
         page.get_by_role("button", name="Register professional", exact=True).click()
         expect(page.locator('[data-field-error="username"]')).to_contain_text(
             "existing active account"
@@ -299,6 +320,48 @@ def main() -> int:
         expect(
             page.get_by_role("link", name="Professionals", exact=True)
         ).to_have_count(0)
+
+    def register_missing_profile(
+        page: Page,
+        *,
+        username: str,
+        dni: str,
+        license_number: str,
+        first_name: str,
+        last_name: str,
+    ) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        page.get_by_role("link", name="Register professional", exact=True).click()
+        page.get_by_label("Username", exact=True).fill(username)
+        professional_journeys.fill_professional_registration(
+            page,
+            dni=dni,
+            license_number=license_number,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        page.get_by_role("button", name="Register professional", exact=True).click()
+        expect(page.get_by_role("status")).to_contain_text("Professional registered")
+        page.get_by_role("link", name="Open professional record", exact=True).click()
+        expect(page.get_by_text(license_number, exact=True)).to_be_visible()
+        registration_value = page.locator("dt", has_text="Registration number").locator(
+            "xpath=following-sibling::dd[1]"
+        )
+        expect(registration_value).to_have_text(re.compile(r"PR-\d{8,}"))
+
+    def completed_medical_login(page: Page, username: str) -> None:
+        application_login(page, base_url, username, password)
+        expect(page).to_have_url(f"{base_url}/clinical-records/")
+        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
+
+    def completed_legacy_staff_admin_login(page: Page) -> None:
+        page.goto(f"{base_url}/admin/login/", wait_until="networkidle")
+        page.get_by_label("Username").fill(MEDICAL_LEGACY_STAFF_USERNAME)
+        page.get_by_label("Password").fill(password)
+        page.get_by_role("button", name="Log in").click()
+        expect(page).to_have_url(f"{base_url}/clinical-records/")
+        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
 
     def complete_professional(
         page: Page, username: str, dni: str, active: bool
@@ -363,10 +426,155 @@ def main() -> int:
         page.get_by_role("button", name="Save changes", exact=True).click()
         expect(page.get_by_text(corrected_license, exact=True)).to_be_visible()
 
+    def maintain_active_legacy_professional(page: Page) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        page.get_by_role("link", name="Search by DNI", exact=True).click()
+        page.get_by_label("DNI", exact=True).fill(LEGACY_COMPLETE_ACTIVE_DNI)
+        page.get_by_role("button", name="Search", exact=True).click()
+        expect(
+            page.get_by_text(f"{LEGACY_COMPLETE_ACTIVE_LICENSE} corrected", exact=False)
+        ).to_be_visible()
+        expect(
+            page.get_by_text(LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER, exact=False)
+        ).to_be_visible()
+        page.get_by_role("link", name="Open professional record", exact=True).click()
+        page.get_by_role("link", name="Edit professional", exact=True).click()
+        page.get_by_label("License number", exact=True).fill("")
+        page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(page.locator('[data-field-error="license_number"]')).to_be_visible()
+        page.get_by_label("License number", exact=True).fill(
+            f"{LEGACY_COMPLETE_ACTIVE_LICENSE} corrected"
+        )
+        page.get_by_role("button", name="Save changes", exact=True).click()
+        page.get_by_role("link", name="Deactivate professional", exact=True).click()
+        page.get_by_role("button", name="Deactivate professional", exact=True).click()
+        expect(page.locator('[data-field-error="confirm"]')).to_be_visible()
+        page.get_by_label("I confirm this change to the professional's status.").check()
+        page.get_by_role("button", name="Deactivate professional", exact=True).click()
+        expect(page.get_by_text("Inactive", exact=True)).to_be_visible()
+        page.get_by_role("link", name="Reactivate professional", exact=True).click()
+        page.get_by_role("button", name="Reactivate professional", exact=True).click()
+        expect(page.locator('[data-field-error="confirm"]')).to_be_visible()
+        page.get_by_label("I confirm this change to the professional's status.").check()
+        page.get_by_role("button", name="Reactivate professional", exact=True).click()
+        expect(page.get_by_text("Active", exact=True)).to_be_visible()
+        expect(
+            page.get_by_text(LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER, exact=True)
+        ).to_be_visible()
+
+    def reject_inactive_reference_and_dni_reactivation(page: Page) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        page.get_by_role("navigation", name="Professional status").get_by_role(
+            "link", name="Inactive", exact=True
+        ).click()
+        page.locator("article").filter(
+            has_text=LEGACY_COMPLETE_INACTIVE_USERNAME
+        ).get_by_role("link").click()
+        page.get_by_role("link", name="Reactivate professional", exact=True).click()
+        page.get_by_label("I confirm this change to the professional's status.").check()
+        page.get_by_role("button", name="Reactivate professional", exact=True).click()
+        expect(
+            page.get_by_text(re.compile("Select an active specialty"))
+        ).to_be_visible()
+        page.get_by_role("link", name="Back to professional", exact=True).click()
+        page.get_by_role("link", name="Edit professional", exact=True).click()
+        page.get_by_label("Specialty", exact=True).select_option("general-medicine")
+        page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(page.get_by_text("Inactive", exact=True)).to_be_visible()
+
+        page.get_by_role("link", name="Back to professionals", exact=True).click()
+        page.get_by_role("link", name="Register professional", exact=True).click()
+        page.get_by_label("Username", exact=True).fill(REACTIVATION_CONFLICT_USERNAME)
+        professional_journeys.fill_professional_registration(
+            page,
+            dni=LEGACY_COMPLETE_INACTIVE_DNI,
+            license_number=REACTIVATION_CONFLICT_LICENSE,
+            first_name="Conflict",
+            last_name="Replacement",
+        )
+        page.get_by_role("button", name="Register professional", exact=True).click()
+        expect(page.get_by_role("status")).to_contain_text("Professional registered")
+        page.get_by_role("link", name="Open professional record", exact=True).click()
+        page.get_by_role("link", name="Back to professionals", exact=True).click()
+        page.get_by_role("navigation", name="Professional status").get_by_role(
+            "link", name="Inactive", exact=True
+        ).click()
+        page.locator("article").filter(
+            has_text=LEGACY_COMPLETE_INACTIVE_USERNAME
+        ).get_by_role("link").click()
+        page.get_by_role("link", name="Reactivate professional", exact=True).click()
+        page.get_by_label("I confirm this change to the professional's status.").check()
+        page.get_by_role("button", name="Reactivate professional", exact=True).click()
+        expect(
+            page.get_by_text("An active professional already has this DNI")
+        ).to_be_visible()
+
+    def paginate_professional_statuses(page: Page) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        for status_name, username_prefix in (
+            ("Active", PAGED_ACTIVE_USERNAME_PREFIX),
+            ("Inactive", PAGED_INACTIVE_USERNAME_PREFIX),
+            ("Incomplete", PAGED_INCOMPLETE_USERNAME_PREFIX),
+        ):
+            page.get_by_role("navigation", name="Professional status").get_by_role(
+                "link", name=status_name, exact=True
+            ).click()
+            pagination = page.get_by_role("navigation", name="Professionals pagination")
+            expect(
+                pagination.get_by_role("link", name="Next", exact=True)
+            ).to_be_visible()
+            pagination.get_by_role("link", name="Next", exact=True).click()
+            expect(
+                page.locator("article").filter(has_text=f"{username_prefix}-20")
+            ).to_be_visible()
+            expect(
+                page.get_by_role(
+                    "navigation", name="Professionals pagination"
+                ).get_by_role("link", name="Previous", exact=True)
+            ).to_be_visible()
+            page.get_by_role("navigation", name="Professionals pagination").get_by_role(
+                "link", name="Previous", exact=True
+            ).click()
+
     journeys.extend(
         [
             ("administrative-professional-registration", register_professional),
             ("registered-professional-login", registered_professional_login),
+            (
+                "administrative-registers-missing-profile-medical",
+                lambda page: register_missing_profile(
+                    page,
+                    username=MEDICAL_UNPROVISIONED_USERNAME,
+                    dni=MEDICAL_UNPROVISIONED_DNI,
+                    license_number=MEDICAL_UNPROVISIONED_LICENSE,
+                    first_name="Missing",
+                    last_name="Profile",
+                ),
+            ),
+            (
+                "completed-missing-profile-medical-login",
+                lambda page: completed_medical_login(
+                    page, MEDICAL_UNPROVISIONED_USERNAME
+                ),
+            ),
+            (
+                "administrative-registers-legacy-staff-medical",
+                lambda page: register_missing_profile(
+                    page,
+                    username=MEDICAL_LEGACY_STAFF_USERNAME,
+                    dni=MEDICAL_LEGACY_STAFF_DNI,
+                    license_number=MEDICAL_LEGACY_STAFF_LICENSE,
+                    first_name="Legacy",
+                    last_name="Staff",
+                ),
+            ),
+            (
+                "completed-legacy-staff-admin-login",
+                completed_legacy_staff_admin_login,
+            ),
             (
                 "administrative-active-legacy-completion",
                 lambda page: complete_professional(
@@ -385,6 +593,9 @@ def main() -> int:
                     False,
                 ),
             ),
+            ("medical-admission", record_admission),
+            ("administrative-patient-management", manage_patient),
+            ("medical-workspace", paginated_workspace),
             (
                 "administrative-active-completed-legacy-license-edit",
                 lambda page: edit_completed_legacy_professional(
@@ -405,6 +616,15 @@ def main() -> int:
                     LEGACY_COMPLETE_INACTIVE_LICENSE,
                 ),
             ),
+            (
+                "administrative-active-professional-lifecycle",
+                maintain_active_legacy_professional,
+            ),
+            (
+                "administrative-inactive-reference-and-dni-reactivation-denied",
+                reject_inactive_reference_and_dni_reactivation,
+            ),
+            ("administrative-professional-pagination", paginate_professional_statuses),
         ]
     )
 

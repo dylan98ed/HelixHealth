@@ -21,10 +21,11 @@ def active_professional_for_actor(actor: ActorContext | None) -> Professional:
             user_id=actor.user_id,
             user__is_active=True,
             is_active=True,
+            registration_completed_at__isnull=False,
         )
     except Professional.DoesNotExist as error:
         raise PermissionDenied(
-            "An active medical-professional profile is required."
+            "An active completed professional registration is required."
         ) from error
 
 

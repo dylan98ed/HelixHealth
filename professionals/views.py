@@ -3,9 +3,15 @@ from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
+from drf_spectacular.utils import extend_schema
+from rest_framework import status as http_status
+from rest_framework.generics import GenericAPIView
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import has_active_medical_professional_context
+from access_control.policies import IsAdministrativeActor
 from patients.views import administrative_required, is_htmx
 from professionals.forms import (
     ProfessionalConfirmationForm,
@@ -13,7 +19,17 @@ from professionals.forms import (
     ProfessionalSearchForm,
 )
 from professionals.models import Professional
+from professionals.serializers import (
+    ProfessionalConfirmationSerializer,
+    ProfessionalCreateSerializer,
+    ProfessionalDetailSerializer,
+    ProfessionalSearchQuerySerializer,
+    ProfessionalSearchResponseSerializer,
+    ProfessionalSearchResultSerializer,
+    ProfessionalUpdateSerializer,
+)
 from professionals.services import (
+    ConfirmationRequiredError,
     ProfessionalConflictError,
     deactivate_professional,
     lookup_professional_by_dni,
@@ -226,3 +242,132 @@ def professional_status(request: HttpRequest, pk: int) -> HttpResponse:
             "ordinary_post": True,
         },
     )
+
+
+def _conflict_response(error: ProfessionalConflictError) -> Response:
+    field = error.field or "non_field_errors"
+    data: dict[str, object] = {field: [str(error)]}
+    if error.existing_professional_id is not None:
+        data["existing_professional_id"] = error.existing_professional_id
+    return Response(data, status=http_status.HTTP_409_CONFLICT)
+
+
+class ProfessionalCreateAPIView(GenericAPIView):
+    permission_classes = [IsAdministrativeActor]
+    serializer_class = ProfessionalCreateSerializer
+
+    @extend_schema(
+        responses={
+            200: ProfessionalDetailSerializer,
+            201: ProfessionalDetailSerializer,
+        }
+    )
+    def post(self, request: Request) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        completes_existing_profile = Professional.objects.filter(
+            user__username=serializer.validated_data["username"]
+        ).exists()
+        try:
+            professional = serializer.save()
+        except ProfessionalConflictError as error:
+            return _conflict_response(error)
+        return Response(
+            ProfessionalDetailSerializer(professional).data,
+            status=(
+                http_status.HTTP_200_OK
+                if completes_existing_profile
+                else http_status.HTTP_201_CREATED
+            ),
+        )
+
+
+class ProfessionalSearchAPIView(GenericAPIView):
+    permission_classes = [IsAdministrativeActor]
+    serializer_class = ProfessionalSearchQuerySerializer
+
+    @extend_schema(
+        parameters=[ProfessionalSearchQuerySerializer],
+        responses={200: ProfessionalSearchResponseSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        professional = lookup_professional_by_dni(
+            actor=actor_context_from_user(request.user),
+            dni=query.validated_data["dni"],
+        )
+        results = (
+            ProfessionalSearchResultSerializer([professional], many=True).data
+            if professional is not None
+            else []
+        )
+        return Response({"results": results})
+
+
+class ProfessionalDetailUpdateAPIView(GenericAPIView):
+    permission_classes = [IsAdministrativeActor]
+    serializer_class = ProfessionalDetailSerializer
+
+    def get_professional(self, pk: int) -> Professional:
+        return get_object_or_404(
+            Professional.objects.select_related(
+                "user", "specialty", "hospital_service"
+            ),
+            pk=pk,
+        )
+
+    def get(self, request: Request, pk: int) -> Response:
+        return Response(ProfessionalDetailSerializer(self.get_professional(pk)).data)
+
+    @extend_schema(
+        request=ProfessionalUpdateSerializer,
+        responses=ProfessionalDetailSerializer,
+    )
+    def patch(self, request: Request, pk: int) -> Response:
+        professional = self.get_professional(pk)
+        serializer = ProfessionalUpdateSerializer(
+            professional,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        professional = serializer.save()
+        return Response(ProfessionalDetailSerializer(professional).data)
+
+
+class ProfessionalStatusAPIView(GenericAPIView):
+    permission_classes = [IsAdministrativeActor]
+    serializer_class = ProfessionalConfirmationSerializer
+    operation = ""
+
+    @extend_schema(responses=ProfessionalDetailSerializer)
+    def post(self, request: Request, pk: int) -> Response:
+        professional = get_object_or_404(Professional.objects, pk=pk)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        operation = (
+            reactivate_professional
+            if self.operation == "reactivate"
+            else deactivate_professional
+        )
+        try:
+            professional = operation(
+                actor=actor_context_from_user(request.user),
+                professional=professional,
+                confirmed=serializer.validated_data["confirm"],
+            )
+        except ConfirmationRequiredError as error:
+            return Response(
+                {"confirm": [str(error)]},
+                status=http_status.HTTP_400_BAD_REQUEST,
+            )
+        except ProfessionalConflictError as error:
+            return _conflict_response(error)
+        except ValidationError as error:
+            detail = getattr(
+                error, "message_dict", {"non_field_errors": error.messages}
+            )
+            return Response(detail, status=http_status.HTTP_400_BAD_REQUEST)
+        return Response(ProfessionalDetailSerializer(professional).data)
