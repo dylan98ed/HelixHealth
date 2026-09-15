@@ -1,6 +1,7 @@
 from datetime import date
 
 import pytest
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.urls import reverse
 from rest_framework import status
@@ -104,6 +105,72 @@ def test_create_and_detail_api_return_the_exact_professional_contract(
     )
     assert detail.status_code == status.HTTP_200_OK
     assert detail.data == response.data
+
+
+@pytest.mark.django_db
+def test_detail_api_keeps_nullable_relation_keys_for_an_incomplete_profile(
+    api_client,
+    user_factory,
+):
+    incomplete = Professional.objects.create(
+        user=user_factory(username="professional-api-null-relations")
+    )
+
+    response = api_client.get(reverse("professionals:api-detail", args=[incomplete.pk]))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert set(response.data) == {
+        "id",
+        "username",
+        "dni",
+        "license_number",
+        "registration_number",
+        "first_name",
+        "last_name",
+        "date_of_birth",
+        "specialty_code",
+        "hospital_service_code",
+        "registration_completed_at",
+        "is_active",
+        "is_clinically_eligible",
+    }
+    assert response.data["specialty_code"] is None
+    assert response.data["hospital_service_code"] is None
+
+
+@pytest.mark.django_db
+def test_create_api_trims_license_before_applying_the_50_character_limit(
+    api_client,
+    payload,
+):
+    license_number = "L" * 50
+
+    response = api_client.post(
+        reverse("professionals:api-create"),
+        {**payload, "license_number": f"  {license_number}  "},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["license_number"] == license_number
+    assert Professional.objects.get().license_number == license_number
+
+
+@pytest.mark.django_db
+def test_create_api_returns_200_when_completing_an_existing_profile(
+    api_client,
+    payload,
+):
+    subject = get_user_model().objects.get(username=payload["username"])
+    incomplete = Professional.objects.create(user=subject, is_active=True)
+
+    response = api_client.post(
+        reverse("professionals:api-create"), payload, format="json"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["id"] == incomplete.pk
+    assert Professional.objects.get().pk == incomplete.pk
 
 
 @pytest.mark.django_db
@@ -222,9 +289,18 @@ def test_patch_updates_mutable_fields_and_protects_identity(
     assert changed.data["last_name"] == "Byron"
     assert changed.data["registration_number"] == original_number
 
+    maximum_license = "X" * 50
+    padded = api_client.patch(
+        url,
+        {"license_number": f"  {maximum_license}  "},
+        format="json",
+    )
+    assert padded.status_code == status.HTTP_200_OK
+    assert padded.data["license_number"] == maximum_license
+
     omitted = api_client.patch(url, {"first_name": "Grace"}, format="json")
     assert omitted.status_code == status.HTTP_200_OK
-    assert omitted.data["license_number"] == "MP 0007"
+    assert omitted.data["license_number"] == maximum_license
 
     for submitted in ({"license_number": None}, {"license_number": " "}):
         rejected = api_client.patch(url, submitted, format="json")
@@ -313,7 +389,7 @@ def test_reactivation_api_reports_incomplete_and_dni_conflict_states(
         confirmed=True,
     )
     replacement_user = user_factory(username="professional-api-replacement")
-    register_for_test(
+    replacement = register_for_test(
         administrative_user,
         payload,
         username=replacement_user.username,
@@ -326,7 +402,10 @@ def test_reactivation_api_reports_incomplete_and_dni_conflict_states(
         format="json",
     )
     assert conflict.status_code == status.HTTP_409_CONFLICT
-    assert "non_field_errors" in conflict.data
+    assert conflict.data == {
+        "dni": ["An active professional already has this DNI."],
+        "existing_professional_id": replacement.pk,
+    }
     inactive.refresh_from_db()
     assert inactive.is_active is False
 

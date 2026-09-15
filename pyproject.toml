@@ -53,7 +53,7 @@ markers = [
 [tool.ruff]
 target-version = "py313"
 line-length = 88
-extend-exclude = ["pacientes.py"]
+extend-exclude = ["pacientes.py", "prescripciones_app.py"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B", "DJ", "UP"]

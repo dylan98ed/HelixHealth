@@ -95,9 +95,11 @@ class RejectUnknownFieldsMixin:
 
 class ProfessionalDetailSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
-    specialty_code = serializers.CharField(source="specialty.code", read_only=True)
+    specialty_code = serializers.CharField(
+        source="specialty.code", read_only=True, allow_null=True
+    )
     hospital_service_code = serializers.CharField(
-        source="hospital_service.code", read_only=True
+        source="hospital_service.code", read_only=True, allow_null=True
     )
     is_clinically_eligible = serializers.SerializerMethodField()
 
@@ -144,7 +146,7 @@ class ProfessionalCreateSerializer(
     dni = serializers.CharField()
     license_number = StrictTextField(
         max_length=50,
-        trim_whitespace=False,
+        trim_whitespace=True,
     )
     first_name = StrictTextField(max_length=150)
     last_name = StrictTextField(max_length=150)
@@ -184,7 +186,7 @@ class ProfessionalUpdateSerializer(
 ):
     license_number = StrictTextField(
         max_length=50,
-        trim_whitespace=False,
+        trim_whitespace=True,
         required=False,
         allow_null=False,
         allow_blank=False,

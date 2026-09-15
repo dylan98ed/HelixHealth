@@ -256,17 +256,29 @@ class ProfessionalCreateAPIView(GenericAPIView):
     permission_classes = [IsAdministrativeActor]
     serializer_class = ProfessionalCreateSerializer
 
-    @extend_schema(responses={201: ProfessionalDetailSerializer})
+    @extend_schema(
+        responses={
+            200: ProfessionalDetailSerializer,
+            201: ProfessionalDetailSerializer,
+        }
+    )
     def post(self, request: Request) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        completes_existing_profile = Professional.objects.filter(
+            user__username=serializer.validated_data["username"]
+        ).exists()
         try:
             professional = serializer.save()
         except ProfessionalConflictError as error:
             return _conflict_response(error)
         return Response(
             ProfessionalDetailSerializer(professional).data,
-            status=http_status.HTTP_201_CREATED,
+            status=(
+                http_status.HTTP_200_OK
+                if completes_existing_profile
+                else http_status.HTTP_201_CREATED
+            ),
         )
 
 

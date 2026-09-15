@@ -66,8 +66,8 @@ Inactive completed legacy profiles whose License number was NULL while their
 account, Registration number, completion timestamp, activation state, medical
 group, and admission history already existed. Each journey confirmed **Not
 recorded**, saved an unrelated edit without a license, then added and corrected
-the License number through **Edit professional**, ending at `/professionals/3/`
-and `/professionals/4/` in Compose. Isolated checks compared the
+the License number through **Edit professional**, ending at each saved
+`/professionals/<generated-id>/` detail in Compose. Isolated checks compared the
 retained profile identity, timestamp, status, permissions, references, and
 admissions; Compose persistence verification checked the stored state/history.
 
@@ -75,14 +75,14 @@ The registration journey began signed out at `/` with an active, non-staff
 Administrative user. The subject account was created through the supported
 Django Admin workflow and initially had no professional profile or medical role.
 Visible Professionals → Register professional navigation exercised missing-field
-and unknown-account errors, then saved the completed record at `/professionals/7/`
-in Compose. PostgreSQL verification confirmed the generated registration number,
+and unknown-account errors, then saved the completed record at its generated
+`/professionals/<generated-id>/` detail. PostgreSQL verification confirmed the generated registration number,
 medical group, and unchanged non-staff account. A fresh subject login reached
 `/clinical-records/`. Isolated tests also exercised the flow without JavaScript
 and at a 390-pixel mobile viewport.
 
-The visible Incomplete tab led to active and inactive legacy profiles at
-`/professionals/1/` and `/professionals/2/` in Compose. Completion preserved their
+The visible Incomplete tab led to the active and inactive legacy profiles' saved
+detail pages. Completion preserved their
 IDs and the prior admission relationship; the inactive profile remained inactive.
 Isolated browser tests also verified inactive editing and explicit reactivation.
 These results belong to isolated test servers and the disposable Compose app;
