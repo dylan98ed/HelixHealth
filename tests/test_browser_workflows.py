@@ -1,3 +1,4 @@
+import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
@@ -11,6 +12,7 @@ from django.utils import timezone
 from playwright.sync_api import Page, expect
 
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
+from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
@@ -1355,3 +1357,121 @@ def test_admin_paginates_each_professional_status_list_with_visible_controls(
                 "navigation", name="Professionals pagination"
             ).get_by_role("link", name="Previous", exact=True)
         ).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_non_staff_administrator_manages_catalogs_through_visible_no_javascript_forms(
+    browser_patient_administrator,
+    browser,
+    live_server,
+):
+    """B1: each catalog mutation originates in the signed-out product UI."""
+
+    with browser.new_context(java_script_enabled=False) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_patient_administrator.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+
+        page.get_by_role("link", name="Catalogs", exact=True).click()
+        expect(page.get_by_role("heading", name="Catalogs", exact=True)).to_be_visible()
+
+        page.get_by_role("link", name="Open specialties", exact=True).click()
+        page.get_by_role("link", name="Add specialty", exact=True).click()
+        page.get_by_label("Code", exact=True).fill("browser-catalog-specialty")
+        page.get_by_label("Name", exact=True).fill("Browser catalog specialty")
+        page.get_by_role("button", name="Save specialty", exact=True).click()
+        expect(
+            page.get_by_text("Browser catalog specialty", exact=True)
+        ).to_be_visible()
+
+        specialty_card = page.locator("article").filter(
+            has_text="Browser catalog specialty"
+        )
+        specialty_card.get_by_role("link", name="Edit specialty", exact=True).click()
+        page.get_by_label("Name", exact=True).fill("Edited browser specialty")
+        page.get_by_role("button", name="Save specialty", exact=True).click()
+        expect(page.get_by_text("Edited browser specialty", exact=True)).to_be_visible()
+        page.locator("article").filter(has_text="Edited browser specialty").get_by_role(
+            "link", name="Delete specialty", exact=True
+        ).click()
+        page.get_by_label(
+            "I confirm I want to remove this unreferenced specialty."
+        ).check()
+        page.get_by_role("button", name="Delete specialty", exact=True).click()
+        expect(page.get_by_text("Edited browser specialty", exact=True)).to_have_count(
+            0
+        )
+
+        page.get_by_role("link", name="Back to Catalogs", exact=True).click()
+        page.get_by_role("link", name="Open nomenclature", exact=True).click()
+        page.get_by_role("link", name="Add entry", exact=True).click()
+        page.get_by_label("System URI", exact=True).fill("https://snomed.example.test")
+        page.get_by_label("Version", exact=True).fill("2026-09")
+        page.get_by_label("Code", exact=True).fill("BROWSER-TERM")
+        page.get_by_label("Display", exact=True).fill("Browser terminology")
+        page.get_by_label("Source label", exact=True).fill("Browser manual source")
+        page.get_by_role("button", name="Save entry", exact=True).click()
+        expect(page.get_by_text("Browser terminology", exact=True)).to_be_visible()
+
+        page.get_by_role("link", name="Back to Catalogs", exact=True).click()
+        page.get_by_role("link", name="Open medications", exact=True).click()
+        page.get_by_role("link", name="Add entry", exact=True).click()
+        page.get_by_label("System URI", exact=True).fill(
+            "https://medications.example.test"
+        )
+        page.get_by_label("Version", exact=True).fill("2026-09")
+        page.get_by_label("Code", exact=True).fill("BROWSER-MED")
+        page.get_by_label("Name", exact=True).fill("Browser medication")
+        page.get_by_label("Presentation", exact=True).fill("10 mg tablet")
+        page.get_by_label("Related terminology entry", exact=True).select_option(
+            label="BROWSER-TERM — Browser terminology (2026-09)"
+        )
+        page.get_by_label("Source label", exact=True).fill("Browser manual source")
+        page.get_by_role("button", name="Save entry", exact=True).click()
+        expect(page.get_by_text("Browser medication", exact=True)).to_be_visible()
+
+        page.get_by_role("link", name="Import JSON", exact=True).click()
+        page.get_by_label("Normalized JSON file", exact=True).set_input_files(
+            {
+                "name": "medications.json",
+                "mimeType": "application/json",
+                "buffer": json.dumps(
+                    {
+                        "source_label": "Browser imported source",
+                        "entries": [
+                            {
+                                "system": "https://medications.example.test",
+                                "version": "2026-10",
+                                "code": "BROWSER-IMPORTED",
+                                "name": "Imported browser medication",
+                                "presentation": "20 mg tablet",
+                            }
+                        ],
+                    }
+                ).encode(),
+            }
+        )
+        page.get_by_role("button", name="Import JSON", exact=True).click()
+        expect(page.get_by_role("status")).to_contain_text("Imported 1 new entries")
+
+    def persisted_counts() -> tuple[int, int, int]:
+        try:
+            return (
+                Specialty.objects.filter(code="browser-catalog-specialty").count(),
+                TerminologyEntry.objects.filter(code="BROWSER-TERM").count(),
+                MedicationEntry.objects.filter(
+                    code__in={"BROWSER-MED", "BROWSER-IMPORTED"}
+                ).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        specialty_count, terminology_count, medication_count = executor.submit(
+            persisted_counts
+        ).result()
+    assert (specialty_count, terminology_count, medication_count) == (0, 1, 2)

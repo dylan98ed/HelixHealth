@@ -5,6 +5,19 @@ from catalogs import views
 app_name = "catalogs"
 
 urlpatterns = [
+    path("", views.catalog_home, name="home"),
+    path("specialties/", views.specialty_index, name="specialty-index"),
+    path("specialties/new/", views.specialty_create, name="specialty-create"),
+    path("specialties/<int:pk>/edit/", views.specialty_edit, name="specialty-edit"),
+    path(
+        "specialties/<int:pk>/delete/", views.specialty_delete, name="specialty-delete"
+    ),
+    path("terminology/", views.terminology_index, name="terminology-index"),
+    path("terminology/new/", views.terminology_create, name="terminology-create"),
+    path("terminology/import/", views.terminology_import, name="terminology-import"),
+    path("medications/", views.medication_index, name="medication-index"),
+    path("medications/new/", views.medication_create, name="medication-create"),
+    path("medications/import/", views.medication_import, name="medication-import"),
     path(
         "api/specialties/", views.SpecialtyListAPIView.as_view(), name="api-specialties"
     ),
@@ -41,6 +54,6 @@ urlpatterns = [
     path(
         "api/medications/import/",
         views.MedicationImportAPIView.as_view(),
-        name="api-medications-import",
+        name="api-medication-import",
     ),
 ]

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Specialties · HelixHealth{% endblock %}
+{% block content %}
+<a class="quiet-link d-inline-block mb-4" href="{% url 'catalogs:home' %}">Back to Catalogs</a>
+<header class="page-heading"><div><p class="eyebrow">Reference data</p><h1>Specialties</h1><p>Retired specialties remain on existing professional records but cannot be assigned to new registrations.</p></div><a class="btn btn-primary" href="{% url 'catalogs:specialty-create' %}">Add specialty</a></header>
+<form method="get" class="search-panel mb-4" aria-label="Search specialties"><label class="form-label" for="specialty-search">Code or name</label><div class="d-flex gap-2"><input class="form-control" id="specialty-search" name="search" value="{{ query }}"><button class="btn btn-outline-secondary" type="submit">Search</button></div></form>
+<section aria-label="Specialty records">
+{% for specialty in page_obj %}
+  <article class="form-panel mb-3"><div class="d-flex flex-wrap justify-content-between gap-3"><div><h2 class="h5 mb-1">{{ specialty.name }}</h2><p class="mb-0">Code: {{ specialty.code }} · {% if specialty.is_active %}Available for new assignments{% else %}Retired{% endif %}</p></div><div class="d-flex gap-2"><a class="btn btn-sm btn-outline-primary" href="{% url 'catalogs:specialty-edit' specialty.pk %}">Edit specialty</a><a class="btn btn-sm btn-outline-danger" href="{% url 'catalogs:specialty-delete' specialty.pk %}">Delete specialty</a></div></div></article>
+{% empty %}<div class="form-panel"><p class="mb-0">No specialties match this search.</p></div>{% endfor %}
+</section>
+{% if page_obj.has_other_pages %}<nav class="d-flex justify-content-between mt-4" aria-label="Specialties pagination">{% if page_obj.has_previous %}<a href="?search={{ query|urlencode }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="?search={{ query|urlencode }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
+{% endblock %}

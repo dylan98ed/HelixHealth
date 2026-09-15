@@ -1,12 +1,16 @@
 """Session-authenticated catalog HTTP endpoints."""
 
 from collections.abc import Callable
+from functools import wraps
 from typing import Any
 
+from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Q, QuerySet
-from django.http import Http404
+from django.http import Http404, HttpRequest, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.generics import GenericAPIView
@@ -17,6 +21,14 @@ from rest_framework.views import APIView
 
 from access_control.actors import actor_context_from_user
 from access_control.policies import ADMINISTRATIVE_POLICY
+from catalogs.forms import (
+    CatalogImportForm,
+    MedicationEntryForm,
+    SpecialtyCreateForm,
+    SpecialtyDeleteForm,
+    SpecialtyEditForm,
+    TerminologyEntryForm,
+)
 from catalogs.models import MedicationEntry, TerminologyEntry
 from catalogs.serializers import (
     CatalogImportResultSerializer,
@@ -34,10 +46,319 @@ from catalogs.services import (
     delete_specialty,
     import_entries,
     require_administrative_actor,
+    retire_specialty,
     update_specialty,
 )
 from clinical_records.services import active_professional_for_actor
 from professionals.models import Specialty
+
+CATALOGS_PER_PAGE = 20
+
+
+def catalog_administrative_required(
+    view_function: Callable[..., HttpResponse],
+) -> Callable[..., HttpResponse]:
+    """Gate HTML catalog maintenance to active, non-staff admin actors."""
+
+    @wraps(view_function)
+    @login_required
+    def wrapped(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        try:
+            require_administrative_actor(actor_context_from_user(request.user))
+        except (PermissionDenied, PermissionError) as error:
+            raise PermissionDenied(
+                "This operation requires an active administrative actor."
+            ) from error
+        return view_function(request, *args, **kwargs)
+
+    return wrapped
+
+
+def _form_validation_errors(form: Any, error: ValidationError) -> None:
+    for field, messages in error.message_dict.items():
+        target = field if field in form.fields else None
+        for message in messages:
+            form.add_error(target, message)
+
+
+def _catalog_page(
+    request: HttpRequest,
+    *,
+    entries: QuerySet[Any],
+    search_fields: tuple[str, ...],
+    heading: str,
+    description: str,
+    create_url: str,
+    import_url: str,
+    kind: str,
+) -> HttpResponse:
+    query = request.GET.get("search", "").strip()
+    if query:
+        search_query = Q()
+        for field in search_fields:
+            search_query |= Q(**{f"{field}__icontains": query})
+        entries = entries.filter(search_query)
+    page_obj = Paginator(entries, CATALOGS_PER_PAGE).get_page(request.GET.get("page"))
+    return render(
+        request,
+        "catalogs/entry_index.html",
+        {
+            "page_obj": page_obj,
+            "query": query,
+            "heading": heading,
+            "description": description,
+            "create_url": create_url,
+            "import_url": import_url,
+            "kind": kind,
+        },
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET"])
+def catalog_home(request: HttpRequest) -> HttpResponse:
+    return render(request, "catalogs/home.html")
+
+
+@catalog_administrative_required
+@require_http_methods(["GET"])
+def specialty_index(request: HttpRequest) -> HttpResponse:
+    query = request.GET.get("search", "").strip()
+    specialties = Specialty.objects.all()
+    if query:
+        specialties = specialties.filter(
+            Q(code__icontains=query) | Q(name__icontains=query)
+        )
+    page_obj = Paginator(
+        specialties.order_by("name", "id"), CATALOGS_PER_PAGE
+    ).get_page(request.GET.get("page"))
+    return render(
+        request,
+        "catalogs/specialty_index.html",
+        {"page_obj": page_obj, "query": query},
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET", "POST"])
+def specialty_create(request: HttpRequest) -> HttpResponse:
+    form = SpecialtyCreateForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            create_specialty(
+                actor=actor_context_from_user(request.user), **form.cleaned_data
+            )
+        except ValidationError as error:
+            _form_validation_errors(form, error)
+        except CatalogConflictError as error:
+            form.add_error(None, str(error))
+        else:
+            return redirect("catalogs:specialty-index")
+    return render(
+        request,
+        "catalogs/specialty_form.html",
+        {"form": form, "heading": "Add specialty", "specialty": None},
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET", "POST"])
+def specialty_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    specialty = get_object_or_404(Specialty, pk=pk)
+    form = SpecialtyEditForm(
+        request.POST or None,
+        initial={"name": specialty.name, "is_active": specialty.is_active},
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            update_specialty(
+                actor=actor_context_from_user(request.user),
+                specialty=specialty,
+                **form.cleaned_data,
+            )
+        except ValidationError as error:
+            _form_validation_errors(form, error)
+        except CatalogConflictError as error:
+            form.add_error(None, str(error))
+        else:
+            return redirect("catalogs:specialty-index")
+    return render(
+        request,
+        "catalogs/specialty_form.html",
+        {"form": form, "heading": "Edit specialty", "specialty": specialty},
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET", "POST"])
+def specialty_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    specialty = get_object_or_404(Specialty, pk=pk)
+    form = SpecialtyDeleteForm(request.POST or None)
+    error_message = None
+    if request.method == "POST" and form.is_valid():
+        try:
+            if request.POST.get("action") == "retire":
+                retire_specialty(
+                    actor=actor_context_from_user(request.user), specialty=specialty
+                )
+            else:
+                delete_specialty(
+                    actor=actor_context_from_user(request.user), specialty=specialty
+                )
+        except CatalogConflictError as error:
+            error_message = str(error)
+        else:
+            return redirect("catalogs:specialty-index")
+    return render(
+        request,
+        "catalogs/specialty_delete.html",
+        {"specialty": specialty, "form": form, "error_message": error_message},
+        status=409 if error_message else 200,
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET"])
+def terminology_index(request: HttpRequest) -> HttpResponse:
+    return _catalog_page(
+        request,
+        entries=TerminologyEntry.objects.order_by("display", "id"),
+        search_fields=("code", "display"),
+        heading="Nomenclature",
+        description="Append-only terminology entries retain their source and version.",
+        create_url="catalogs:terminology-create",
+        import_url="catalogs:terminology-import",
+        kind="terminology",
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET", "POST"])
+def terminology_create(request: HttpRequest) -> HttpResponse:
+    form = TerminologyEntryForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            create_catalog_entry(
+                actor=actor_context_from_user(request.user),
+                model=TerminologyEntry,
+                values=form.cleaned_data,
+            )
+        except ValidationError as error:
+            _form_validation_errors(form, error)
+        except CatalogConflictError as error:
+            form.add_error(None, str(error))
+        else:
+            return redirect("catalogs:terminology-index")
+    return render(
+        request,
+        "catalogs/entry_form.html",
+        {"form": form, "heading": "Add nomenclature entry", "kind": "terminology"},
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET"])
+def medication_index(request: HttpRequest) -> HttpResponse:
+    return _catalog_page(
+        request,
+        entries=MedicationEntry.objects.select_related("terminology_entry").order_by(
+            "name", "id"
+        ),
+        search_fields=("code", "name"),
+        heading="Medications",
+        description="Append-only medication entries retain their source and version.",
+        create_url="catalogs:medication-create",
+        import_url="catalogs:medication-import",
+        kind="medication",
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET", "POST"])
+def medication_create(request: HttpRequest) -> HttpResponse:
+    form = MedicationEntryForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        values = dict(form.cleaned_data)
+        terminology = values.pop("terminology_entry")
+        if terminology is not None:
+            values["terminology_entry_id"] = terminology.pk
+        try:
+            create_catalog_entry(
+                actor=actor_context_from_user(request.user),
+                model=MedicationEntry,
+                values=values,
+            )
+        except ValidationError as error:
+            _form_validation_errors(form, error)
+        except CatalogConflictError as error:
+            form.add_error(None, str(error))
+        else:
+            return redirect("catalogs:medication-index")
+    return render(
+        request,
+        "catalogs/entry_form.html",
+        {"form": form, "heading": "Add medication entry", "kind": "medication"},
+    )
+
+
+def _import_catalog(
+    request: HttpRequest,
+    *,
+    model: type[TerminologyEntry] | type[MedicationEntry],
+    heading: str,
+    back_url: str,
+) -> HttpResponse:
+    form = CatalogImportForm(request.POST or None, request.FILES or None)
+    result = None
+    row_errors = None
+    if request.method == "POST" and form.is_valid():
+        upload = form.cleaned_data["file"]
+        try:
+            result = import_entries(
+                actor=actor_context_from_user(request.user),
+                model=model,
+                payload=upload.read(),
+            )
+        except CatalogInputError as error:
+            row_errors = error.errors.get("entries")
+            form.add_error("file", "The upload contains invalid rows.")
+        except ValidationError as error:
+            _form_validation_errors(form, error)
+        except CatalogConflictError as error:
+            form.add_error("file", str(error))
+    return render(
+        request,
+        "catalogs/import_form.html",
+        {
+            "form": form,
+            "heading": heading,
+            "back_url": back_url,
+            "result": result,
+            "row_errors": row_errors,
+        },
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET", "POST"])
+def terminology_import(request: HttpRequest) -> HttpResponse:
+    return _import_catalog(
+        request,
+        model=TerminologyEntry,
+        heading="Import nomenclature JSON",
+        back_url="catalogs:terminology-index",
+    )
+
+
+@catalog_administrative_required
+@require_http_methods(["GET", "POST"])
+def medication_import(request: HttpRequest) -> HttpResponse:
+    return _import_catalog(
+        request,
+        model=MedicationEntry,
+        heading="Import medication JSON",
+        back_url="catalogs:medication-index",
+    )
 
 
 class CatalogReadPermission(BasePermission):

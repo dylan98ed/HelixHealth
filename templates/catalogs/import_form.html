@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} · HelixHealth{% endblock %}
+{% block content %}
+<a class="quiet-link d-inline-block mb-4" href="{% url back_url %}">Back to catalog</a>
+<header class="page-heading"><div><p class="eyebrow">Reference data</p><h1>{{ heading }}</h1><p>The full file is validated before anything is saved.</p></div></header>
+{% if result %}<section class="form-panel" role="status"><h2 class="h4">Import complete</h2><p class="mb-0">Imported {{ result.created }} new entries; {{ result.unchanged }} unchanged.</p></section>{% else %}<section class="form-panel"><form method="post" enctype="multipart/form-data" novalidate>{% csrf_token %}<div class="mb-3"><label class="form-label" for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>{{ form.file }}<div class="form-text">{{ form.file.help_text }}</div>{% if form.file.errors %}<div class="text-danger" data-field-error="file">{{ form.file.errors }}</div>{% endif %}</div><button class="btn btn-primary" type="submit">Import JSON</button></form></section>{% endif %}
+{% if row_errors %}<section class="alert alert-danger mt-3" aria-label="Import row errors"><h2 class="h5">Rows needing correction</h2><ul class="mb-0">{% for row, errors in row_errors.items %}<li>Row {{ row }}: {{ errors }}</li>{% endfor %}</ul></section>{% endif %}
+{% endblock %}
