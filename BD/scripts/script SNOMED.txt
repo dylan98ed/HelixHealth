@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS SnomedCT (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT UNIQUE NOT NULL,
+    termino TEXT NOT NULL,
+    descripcion TEXT,
+    categoria TEXT,  -- Ej: Diagnóstico, Procedimiento, Hallazgo, etc.
+    activo INTEGER DEFAULT 1,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO SnomedCT (codigo, termino, descripcion, categoria) VALUES
+    ('44054006', 'Diabetes mellitus type 2', 'Diabetes mellitus no insulinodependiente', 'Diagnóstico'),
+    ('38341003', 'Hypertensive disorder', 'Trastorno de hipertensión arterial', 'Diagnóstico'),
+    ('195967001', 'Asthma', 'Enfermedad respiratoria obstructiva', 'Diagnóstico'),
+    ('13645005', 'Chronic obstructive lung disease', 'EPOC', 'Diagnóstico'),
+    ('73211009', 'Diabetes mellitus type 1', 'Diabetes insulinodependiente', 'Diagnóstico'),
+    ('266706001', 'Vital signs', 'Signos vitales', 'Hallazgo'),
+    ('271649006', 'Systolic blood pressure', 'Presión arterial sistólica', 'Observación'),
+    ('271650006', 'Diastolic blood pressure', 'Presión arterial diastólica', 'Observación'),
+    ('364075005', 'Heart rate', 'Frecuencia cardíaca', 'Observación');
