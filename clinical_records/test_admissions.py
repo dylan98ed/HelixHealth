@@ -21,7 +21,7 @@ from clinical_records.models import Admission
 from clinical_records.services import InactivePatientError, create_admission
 from patients.models import Patient
 from patients.services import deactivate_patient
-from professionals.models import Professional
+from professionals.models import HospitalService, Professional, Specialty
 
 
 def patient_attributes(**overrides):
@@ -63,7 +63,24 @@ def professional_actor(user):
 def create_professional_user(user_factory, **user_overrides):
     user = user_factory(**user_overrides)
     user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
-    professional = Professional.objects.create(user=user)
+    specialty, _ = Specialty.objects.get_or_create(
+        code="admission-general", defaults={"name": "Admission General"}
+    )
+    service, _ = HospitalService.objects.get_or_create(
+        code="admission-ward", defaults={"name": "Admission Ward"}
+    )
+    professional = Professional.objects.create(
+        user=user,
+        dni=str(70_000_000 + user.pk),
+        license_number=f"MN {user.pk:06d}",
+        registration_number=f"PR-ADMISSION-{user.pk:08d}",
+        first_name="Admission",
+        last_name="Professional",
+        date_of_birth=date(1990, 1, 1),
+        specialty=specialty,
+        hospital_service=service,
+        registration_completed_at=timezone.now(),
+    )
     return user, professional
 
 
@@ -411,7 +428,7 @@ def test_api_authorization_rejects_anonymous_admin_and_inactive_professional(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("profile_state", ["missing", "inactive"])
+@pytest.mark.parametrize("profile_state", ["missing", "incomplete", "inactive"])
 def test_api_checks_active_professional_before_patient_lookup_or_validation(
     client,
     user_factory,
@@ -420,8 +437,8 @@ def test_api_checks_active_professional_before_patient_lookup_or_validation(
     patient = Patient.objects.create(**patient_attributes())
     user = user_factory(username=f"api-{profile_state}-profile")
     user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
-    if profile_state == "inactive":
-        Professional.objects.create(user=user, is_active=False)
+    if profile_state in {"incomplete", "inactive"}:
+        Professional.objects.create(user=user, is_active=profile_state != "inactive")
     client.force_login(user)
 
     for patient_pk in (patient.pk, 999_999_999):

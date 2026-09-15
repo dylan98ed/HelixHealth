@@ -31,6 +31,29 @@ def browser_professional_references(db):
     )
 
 
+def create_completed_browser_profile(
+    user,
+    *,
+    dni: str,
+    registration_number: str,
+    license_number: str,
+    is_active: bool = True,
+) -> Professional:
+    return Professional.objects.create(
+        user=user,
+        is_active=is_active,
+        dni=dni,
+        registration_number=registration_number,
+        license_number=license_number,
+        first_name="Browser",
+        last_name="Professional",
+        date_of_birth=date(1990, 1, 1),
+        specialty=Specialty.objects.get(code="general-medicine"),
+        hospital_service=HospitalService.objects.get(code="inpatient-ward"),
+        registration_completed_at=timezone.now(),
+    )
+
+
 def read_professional_state(username):
     def load():
         try:
@@ -69,6 +92,17 @@ def read_professional_state(username):
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         return executor.submit(load).result()
+
+
+def retire_specialty(code: str) -> None:
+    def update() -> None:
+        try:
+            Specialty.objects.filter(code=code).update(is_active=False)
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        executor.submit(update).result()
 
 
 @pytest.fixture
@@ -165,7 +199,7 @@ def browser_patient_administrator(user_factory):
 
 
 @pytest.fixture
-def browser_medical_professional(user_factory):
+def browser_medical_professional(user_factory, browser_professional_references):
     user = user_factory(
         username="browser-medical-professional",
         password=TEST_PASSWORD,
@@ -173,11 +207,19 @@ def browser_medical_professional(user_factory):
     )
     medical_group, _ = Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)
     user.groups.add(medical_group)
+    create_completed_browser_profile(
+        user,
+        dni="06789012",
+        registration_number="PR-BROWSER-MEDICAL",
+        license_number="MN 670012",
+    )
     return user
 
 
 @pytest.fixture
-def browser_legacy_staff_medical_professional(user_factory):
+def browser_legacy_staff_medical_professional(
+    user_factory, browser_professional_references
+):
     user = user_factory(
         username="browser-legacy-staff-medical-professional",
         password=TEST_PASSWORD,
@@ -185,7 +227,65 @@ def browser_legacy_staff_medical_professional(user_factory):
     )
     medical_group, _ = Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)
     user.groups.add(medical_group)
+    create_completed_browser_profile(
+        user,
+        dni="07890123",
+        registration_number="PR-BROWSER-LEGACY-STAFF",
+        license_number="MN 789123",
+    )
     return user
+
+
+@pytest.fixture
+def browser_paginated_professionals(
+    browser_patient_administrator,
+    browser_professional_references,
+    user_factory,
+):
+    profiles: dict[str, list[Professional]] = {
+        "active": [],
+        "inactive": [],
+        "incomplete": [],
+    }
+    for status_name, base in (("active", 81_000_000), ("inactive", 82_000_000)):
+        for offset in range(21):
+            user = user_factory(username=f"paged-{status_name}-{offset:02d}")
+            profiles[status_name].append(
+                create_completed_browser_profile(
+                    user,
+                    dni=str(base + offset),
+                    registration_number=f"PR-PAGED-{status_name.upper()}-{offset:08d}",
+                    license_number=f"MN {base + offset}",
+                    is_active=status_name == "active",
+                )
+            )
+    for offset in range(21):
+        profiles["incomplete"].append(
+            Professional.objects.create(
+                user=user_factory(username=f"paged-incomplete-{offset:02d}"),
+                is_active=offset % 2 == 0,
+            )
+        )
+    return profiles
+
+
+@pytest.fixture
+def browser_reactivation_replacements(
+    browser_professional_references,
+    user_factory,
+):
+    account = user_factory(
+        username="browser-dni-conflict-replacement",
+        password=TEST_PASSWORD,
+        is_staff=False,
+    )
+    specialty = Specialty.objects.create(
+        code="browser-replacement-specialty", name="Browser Replacement Specialty"
+    )
+    service = HospitalService.objects.create(
+        code="browser-replacement-service", name="Browser Replacement Service"
+    )
+    return account, specialty, service
 
 
 @pytest.fixture
@@ -1093,3 +1193,165 @@ def test_admin_edits_completed_legacy_profile_without_license_then_adds_and_corr
             "admissions",
         )
     }
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("initially_active", [True])
+def test_admin_maintains_and_reactivates_professional_through_visible_controls(
+    browser_patient_administrator,
+    browser_completed_legacy_profile,
+    browser_professional_references,
+    browser_reactivation_replacements,
+    live_server,
+    browser_page,
+    initially_active,
+):
+    username, original = browser_completed_legacy_profile
+    replacement_account, replacement_specialty, replacement_service = (
+        browser_reactivation_replacements
+    )
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_patient_administrator.username,
+        password=TEST_PASSWORD,
+    )
+    browser_page.get_by_role("link", name="Professionals", exact=True).click()
+    browser_page.get_by_role("link", name=original["last_name"] + ", Legacy").click()
+    browser_page.get_by_role("link", name="Edit professional", exact=True).click()
+    browser_page.get_by_label("License number", exact=True).fill("MN 445566")
+    browser_page.get_by_role("button", name="Save changes", exact=True).click()
+    expect(browser_page.get_by_text("MN 445566", exact=True)).to_be_visible()
+    expect(browser_page.get_by_text(original["number"], exact=True)).to_be_visible()
+
+    browser_page.get_by_role("link", name="Edit professional", exact=True).click()
+    browser_page.get_by_label("License number", exact=True).fill("")
+    browser_page.get_by_role("button", name="Save changes", exact=True).click()
+    expect(browser_page.locator('[data-field-error="license_number"]')).to_be_visible()
+    assert read_professional_state(username)["license_number"] == "MN 445566"
+    browser_page.get_by_label("License number", exact=True).fill("MP 445577")
+    browser_page.get_by_role("button", name="Save changes", exact=True).click()
+
+    browser_page.get_by_role("link", name="Back to professionals").click()
+    browser_page.get_by_role("link", name="Search by DNI", exact=True).click()
+    browser_page.get_by_label("DNI", exact=True).fill(original["dni"])
+    browser_page.get_by_role("button", name="Search", exact=True).click()
+    expect(browser_page.get_by_text("MP 445577", exact=False)).to_be_visible()
+    expect(browser_page.get_by_text(original["number"], exact=False)).to_be_visible()
+    browser_page.get_by_role("link", name="Open professional record").click()
+
+    browser_page.get_by_role("link", name="Deactivate professional").click()
+    browser_page.get_by_role("button", name="Deactivate professional").click()
+    expect(browser_page.locator('[data-field-error="confirm"]')).to_be_visible()
+    browser_page.get_by_label(
+        "I confirm this change to the professional's status."
+    ).check()
+    browser_page.get_by_role("button", name="Deactivate professional").click()
+    expect(browser_page.get_by_text("Inactive", exact=True)).to_be_visible()
+
+    retire_specialty("general-medicine")
+    browser_page.get_by_role("link", name="Reactivate professional").click()
+    browser_page.get_by_label(
+        "I confirm this change to the professional's status."
+    ).check()
+    browser_page.get_by_role("button", name="Reactivate professional").click()
+    expect(
+        browser_page.get_by_text(re.compile("Select an active specialty"))
+    ).to_be_visible()
+    assert read_professional_state(username)["active"] is False
+
+    browser_page.get_by_role("link", name="Back to professional").click()
+    browser_page.get_by_role("link", name="Edit professional", exact=True).click()
+    browser_page.get_by_label("Specialty", exact=True).select_option(
+        replacement_specialty.code
+    )
+    browser_page.get_by_label("Hospital service", exact=True).select_option(
+        replacement_service.code
+    )
+    browser_page.get_by_role("button", name="Save changes", exact=True).click()
+    expect(browser_page.get_by_text("Inactive", exact=True)).to_be_visible()
+
+    browser_page.get_by_role("link", name="Back to professionals").click()
+    browser_page.get_by_role("link", name="Register professional", exact=True).click()
+    browser_page.get_by_label("Username", exact=True).fill(replacement_account.username)
+    fill_professional_registration(
+        browser_page,
+        dni=original["dni"],
+        license_number="MN 998877",
+        first_name="Conflict",
+        last_name="Replacement",
+        specialty_code=replacement_specialty.code,
+        hospital_service_code=replacement_service.code,
+    )
+    browser_page.get_by_role("button", name="Register professional", exact=True).click()
+    expect(browser_page.get_by_role("status")).to_contain_text(
+        "Professional registered"
+    )
+    browser_page.get_by_role("link", name="Open professional record").click()
+
+    browser_page.get_by_role("link", name="Back to professionals").click()
+    browser_page.get_by_role("navigation", name="Professional status").get_by_role(
+        "link", name="Inactive", exact=True
+    ).click()
+    browser_page.get_by_role("link", name=original["last_name"] + ", Legacy").click()
+    browser_page.get_by_role("link", name="Reactivate professional").click()
+    browser_page.get_by_label(
+        "I confirm this change to the professional's status."
+    ).check()
+    browser_page.get_by_role("button", name="Reactivate professional").click()
+    expect(
+        browser_page.get_by_text("An active professional already has this DNI")
+    ).to_be_visible()
+    saved = read_professional_state(username)
+    assert saved["active"] is False
+    assert saved["pk"] == original["pk"]
+    assert saved["number"] == original["number"]
+    assert saved["admissions"] == original["admissions"]
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_admin_paginates_each_professional_status_list_with_visible_controls(
+    browser_patient_administrator,
+    browser_paginated_professionals,
+    live_server,
+    browser_page,
+):
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_patient_administrator.username,
+        password=TEST_PASSWORD,
+    )
+    browser_page.get_by_role("link", name="Professionals", exact=True).click()
+
+    for status_name in ("active", "inactive", "incomplete"):
+        browser_page.get_by_role("navigation", name="Professional status").get_by_role(
+            "link", name=status_name.capitalize(), exact=True
+        ).click()
+        pagination = browser_page.get_by_role(
+            "navigation", name="Professionals pagination"
+        )
+        expect(pagination.get_by_role("link", name="Next", exact=True)).to_be_visible()
+        expect(
+            browser_page.locator("article").filter(
+                has_text=re.compile(rf"Username: paged-{status_name}-00\b")
+            )
+        ).to_be_visible()
+        pagination.get_by_role("link", name="Next", exact=True).click()
+        expect(
+            browser_page.locator("article").filter(
+                has_text=re.compile(rf"Username: paged-{status_name}-20\b")
+            )
+        ).to_be_visible()
+        expect(
+            browser_page.locator("article").filter(
+                has_text=re.compile(rf"Username: paged-{status_name}-00\b")
+            )
+        ).to_have_count(0)
+        expect(
+            browser_page.get_by_role(
+                "navigation", name="Professionals pagination"
+            ).get_by_role("link", name="Previous", exact=True)
+        ).to_be_visible()

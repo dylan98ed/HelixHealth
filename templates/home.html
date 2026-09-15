@@ -11,7 +11,7 @@
           <a class="btn btn-primary btn-lg" href="{% url 'patients:search' %}">Find a patient <span aria-hidden="true">↗</span></a>
           <a class="btn btn-outline-secondary btn-lg" href="{% url 'patients:register' %}">New patient</a>
         {% elif user.is_authenticated %}
-          <div class="access-note"><strong>Welcome, {{ user.get_username }}.</strong><p class="mb-0">Your account does not have an active workspace. Contact your administrator for access.</p></div>
+          <div class="access-note"><strong>Welcome, {{ user.get_username }}.</strong><p class="mb-0">Professional registration or reactivation is required. Contact an administrator.</p></div>
           {% if user.is_staff %}<a class="btn btn-outline-secondary" href="{% url 'admin:index' %}">Account administration</a>{% endif %}
         {% else %}
           <a class="btn btn-primary btn-lg" href="{% url 'login' %}">Open your workspace <span aria-hidden="true">↗</span></a>

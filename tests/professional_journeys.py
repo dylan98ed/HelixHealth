@@ -10,11 +10,15 @@ def fill_professional_registration(
     license_number: str = "MN 123456",
     first_name: str = "Ada",
     last_name: str = "Lovelace",
+    specialty_code: str = "general-medicine",
+    hospital_service_code: str = "inpatient-ward",
 ) -> None:
     page.get_by_label("DNI", exact=True).fill(dni)
     page.get_by_label("License number", exact=True).fill(license_number)
     page.get_by_label("First name", exact=True).fill(first_name)
     page.get_by_label("Last name", exact=True).fill(last_name)
     page.get_by_label("Date of birth", exact=True).fill("1990-01-01")
-    page.get_by_label("Specialty", exact=True).select_option("general-medicine")
-    page.get_by_label("Hospital service", exact=True).select_option("inpatient-ward")
+    page.get_by_label("Specialty", exact=True).select_option(specialty_code)
+    page.get_by_label("Hospital service", exact=True).select_option(
+        hospital_service_code
+    )

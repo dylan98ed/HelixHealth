@@ -41,9 +41,10 @@ The **Active**, **Inactive**, and **Incomplete** tabs have bounded, 20-record
 pages. **Search by DNI** finds active registered professionals and offers a
 prefilled registration form when no record matches.
 
-This change adds the product UI. The separate API and stricter clinical-access
-rollout tasks remain pending in `implement-epics-1-and-2`; existing clinical login
-compatibility is retained until that rollout is complete.
+The API and strict clinical-access rollout are now implemented. Medical-role
+accounts with a missing, incomplete, or inactive profile do not receive clinical
+access and are never provisioned by login. The current end-to-end operator guide
+is `docs/acceptance/sprint-3-hu-04-hu-05.md`.
 
 Acceptance runs through `tests/test_browser_workflows.py` (signed-out product
 navigation, account provisioning through Django Admin, registration with and
@@ -54,8 +55,8 @@ completed active/inactive license edits, and database persistence checks).
 
 ## Validation evidence
 
-Validated on 2026-09-08 with the bundled validator: 18 isolated PostgreSQL
-Chromium browser tests and 15 disposable Compose Chromium journeys passed, with
+Validated on 2026-09-15 with the bundled validator: 20 isolated PostgreSQL
+Chromium browser tests and 22 disposable Compose Chromium journeys passed, with
 zero skipped scenarios. Django checks, migrations, production deployment checks,
 and Compose persistence verification also passed.
 

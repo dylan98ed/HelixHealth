@@ -249,3 +249,136 @@ def test_registration_enforces_csrf(registration_setup):
     assert (
         csrf_client.post(reverse("professionals:register"), payload).status_code == 403
     )
+
+
+@pytest.mark.django_db
+def test_legacy_unknown_license_edit_and_known_license_clear_behavior(
+    client,
+    registration_setup,
+):
+    subject, payload = registration_setup
+    client.post(reverse("professionals:register"), payload)
+    profile = Professional.objects.get(user=subject)
+    original_identity = (
+        profile.pk,
+        profile.user_id,
+        profile.dni,
+        profile.registration_number,
+        profile.registration_completed_at,
+        profile.is_active,
+    )
+    Professional.objects.filter(pk=profile.pk).update(license_number=None)
+    update_url = reverse("professionals:update", args=[profile.pk])
+    detail_url = reverse("professionals:detail", args=[profile.pk])
+
+    assert b"Not recorded" in client.get(detail_url).content
+    legacy_edit = {
+        key: value for key, value in payload.items() if key not in {"username", "dni"}
+    }
+    legacy_edit["license_number"] = ""
+    legacy_edit["last_name"] = "Legacy-Edited"
+    assert client.post(update_url, legacy_edit).status_code == 302
+    profile.refresh_from_db()
+    assert profile.license_number is None
+    assert profile.last_name == "Legacy-Edited"
+    assert (
+        profile.pk,
+        profile.user_id,
+        profile.dni,
+        profile.registration_number,
+        profile.registration_completed_at,
+        profile.is_active,
+    ) == original_identity
+
+    add_license = {**legacy_edit, "license_number": "MP 0099"}
+    assert client.post(update_url, add_license).status_code == 302
+    profile.refresh_from_db()
+    assert profile.license_number == "MP 0099"
+
+    rejected_clear = client.post(update_url, {**add_license, "license_number": ""})
+    assert rejected_clear.status_code == 200
+    assert b'data-field-error="license_number"' in rejected_clear.content
+    profile.refresh_from_db()
+    assert profile.license_number == "MP 0099"
+
+
+@pytest.mark.django_db
+def test_inactive_references_can_be_repaired_before_confirmed_reactivation(
+    client,
+    registration_setup,
+):
+    subject, payload = registration_setup
+    client.post(reverse("professionals:register"), payload)
+    profile = Professional.objects.get(user=subject)
+    client.post(
+        reverse("professionals:deactivate", args=[profile.pk]),
+        {"confirm": "on"},
+    )
+    Specialty.objects.filter(code=payload["specialty_code"]).update(is_active=False)
+    HospitalService.objects.filter(code=payload["hospital_service_code"]).update(
+        is_active=False
+    )
+    reactivate_url = reverse("professionals:reactivate", args=[profile.pk])
+
+    denied = client.post(reactivate_url, {"confirm": "on"})
+    assert denied.status_code == 200
+    assert b"Select an active" in denied.content
+    profile.refresh_from_db()
+    assert profile.is_active is False
+
+    replacement_specialty = Specialty.objects.create(
+        code="replacement-specialty", name="Replacement specialty"
+    )
+    replacement_service = HospitalService.objects.create(
+        code="replacement-service", name="Replacement service"
+    )
+    changes = {
+        key: value for key, value in payload.items() if key not in {"username", "dni"}
+    }
+    changes.update(
+        specialty_code=replacement_specialty.code,
+        hospital_service_code=replacement_service.code,
+        license_number="MN 7788",
+    )
+    assert (
+        client.post(
+            reverse("professionals:update", args=[profile.pk]), changes
+        ).status_code
+        == 302
+    )
+    profile.refresh_from_db()
+    assert profile.is_active is False
+    assert profile.specialty == replacement_specialty
+    assert profile.hospital_service == replacement_service
+    assert client.post(reactivate_url, {"confirm": "on"}).status_code == 302
+    profile.refresh_from_db()
+    assert profile.is_active is True
+
+
+@pytest.mark.django_db
+def test_html_reactivation_reports_active_dni_conflict(
+    client,
+    registration_setup,
+    user_factory,
+):
+    subject, payload = registration_setup
+    client.post(reverse("professionals:register"), payload)
+    original = Professional.objects.get(user=subject)
+    client.post(
+        reverse("professionals:deactivate", args=[original.pk]),
+        {"confirm": "on"},
+    )
+    replacement = user_factory(username="html-dni-replacement")
+    client.post(
+        reverse("professionals:register"),
+        {**payload, "username": replacement.username, "license_number": "MN 8899"},
+    )
+
+    response = client.post(
+        reverse("professionals:reactivate", args=[original.pk]),
+        {"confirm": "on"},
+    )
+    assert response.status_code == 200
+    assert b"An active professional already has this DNI" in response.content
+    original.refresh_from_db()
+    assert original.is_active is False
