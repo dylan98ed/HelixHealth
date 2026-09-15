@@ -4,32 +4,34 @@ See `proposal.md` for motivation. The current stack is Django/DRF, PostgreSQL, s
 
 The user confirmed all four image stories, API plus minimal screens, and FHIR R4 XML with a documented profile. The user explicitly deferred license validity checks. The image's story IDs are local to this change: its HU-04 is catalogs, HU-05 registration, HU-06 prescribing, and HU-07 exchange. They are not the similarly numbered stories in `implement-epics-1-and-2`.
 
-Existing changes remain unarchived and `openspec/specs/` is empty. This proposal introduces four distinctly named capabilities instead of pretending that pending delta specs are published main specs. The current uncommitted edits in the older change are not modified by this planning operation.
+Existing changes remain unarchived and `openspec/specs/` is empty. This proposal introduces three capabilities: catalogs, prescribing, and clinical exchange. Existing professional work stays owned by its current changes; their artifacts are not modified by this revision.
 
 ## Goals / Non-Goals
 
 **Goals:** share transactional domain services between API and HTML; make the requested journeys discoverable for least-privileged users; define interoperable artifacts and import semantics precisely enough for implementation and independent verification.
 
-**Non-Goals:** full FHIR server operations, automatic remote transmission, arbitrary external clinical-resource ingestion, decision support or dosage recommendations, PDF generation, and credential validity checking. Existing unrelated admission behavior remains available; assignment checks govern the newly added prescription/exchange surfaces. Do not revive deferred intervention-note/audit-epic work to implement these features.
+**Non-Goals:** full FHIR server operations, automatic remote transmission, arbitrary external clinical-resource ingestion, decision support or dosage recommendations, PDF generation, credential validity checking, professional registration/API implementation, changes to DNI uniqueness or eligibility, and care assignment. Reuse existing clinical access and patient discovery. Do not revive deferred intervention-note/audit-epic work to implement these features.
 
 ## Decisions
 
-### D1. One owner for overlapping work
+### D1. Reuse existing professional work
 
 | Existing work | Treatment when applying this change |
 |---|---|
 | `add-professional-license-number` | Reuse implemented text validation, forms, and distinct identifiers. No license-expiry/status work. |
-| `implement-epics-1-and-2` tasks 8.1-8.2 | Implement missing professional API work once here or reuse it if already completed. Cross-reference overlapping tasks; mark completion only after the shared tests pass. |
-| Existing eligibility rollout, including task 8.7 | Finish the supported completed-profile predicate and remove login auto-provisioning as a prerequisite; update affected existing entry points and tests consistently. |
-| Existing D6/tasks 9.1-9.7 care relationships | Reuse that model/route design; implement the missing assignment/revocation prerequisite here if still absent. Preserve actor/time, uniqueness, deactivation cleanup, and browser acceptance. |
-| Existing active-only professional DNI rule | Superseded by global non-null professional DNI uniqueness in this change, including inactive identities. Patient rules are unaffected. |
+| `implement-epics-1-and-2` tasks 8.1-8.2 | Professional JSON routes remain pending in that change. Do not duplicate them here or make them a prerequisite; new features consume existing domain services directly. |
+| Existing eligibility rollout, including task 8.7 | Remains owned by the older change. Reuse the shared clinical access policy available at implementation time without adding a separate completeness gate or changing login provisioning. |
+| Existing D6/tasks 9.1-9.7 care relationships | Outside this change. No assignment/revocation workflow, navigation, migration, or access dependency is introduced here. |
+| Existing active-only professional DNI rule | Preserve it. No global uniqueness migration or service-policy change is included. Patient rules are also unaffected. |
 | Historical development upgrade scenarios | No compatibility implementation is required; use clean project-owned disposable databases when obsolete state conflicts. Preserve current supported partial-state denial tests. |
 
-At apply time, re-read the changed older artifacts and reconcile only overlapping pending contracts and task references. Do not overwrite their other scheduling decisions. Do not mark unrelated work complete. The alternative of parallel APIs, separate care relationships, or another account-provisioning path would create inconsistent authorization and duplicate implementation.
+Repository evidence: `professionals/services.py` implements registration, updates, activation, role assignment, and generated identifiers; `professionals/views.py` and `urls.py` expose the HTML workflows. `professionals/test_views.py` tests persisted registration and CSRF. `professionals/test_services.py` explicitly tests inactive DNI reuse. The route resolver exposes no professional JSON routes, matching pending tasks 8.1-8.2. The new functionality reuses these services and models rather than introducing another registration capability.
+
+At apply time, check the current shared interfaces and reuse them without taking ownership of the older change's pending work. Keep its scheduling and completion records unchanged. Repository evidence establishes the reuse boundary; implementation acceptance still requires the runtime verification in D8.
 
 ### D2. Catalog boundaries and model ownership
 
-Keep `Specialty` in `professionals`; expose it through a new `catalogs` app alongside `TerminologyEntry` and `MedicationEntry`. No duplicate specialty table. Keep hospital-service maintenance unchanged; expose a read-only reference list for professional API clients.
+Keep `Specialty` in `professionals`; expose it through a new `catalogs` app alongside `TerminologyEntry` and `MedicationEntry`. No duplicate specialty table. Keep hospital-service maintenance and professional API reference lookups within the existing professional work.
 
 Specialties retain `code`, `name`, and `is_active`. Codes are immutable after creation; name and active flag are editable. Normalize whitespace and check names case-insensitively for useful validation, while preserving existing identifiers. Delete only unreferenced rows and return a controlled 409 for protected links. Lock specialty rows consistently with registration to handle deletion/retirement racing a new assignment.
 
@@ -41,27 +43,23 @@ Manual POST and bounded normalized JSON upload call one append-only service. JSO
 
 Alternative considered: loading full third-party databases during deployment. Deferred because the image permits third-party data but specifies no provider or licensed distribution. The documented normalized upload provides a concrete ingestion path without depending on an unavailable vendor.
 
-### D3. Professional registration and identity
+### D3. Existing clinical access and identity reuse
 
-Reuse `register_professional`, update/status services, and the existing HTML forms. Replace `unique_active_professional_dni` with uniqueness for every non-null DNI, and update service conflict lookup, reactivation, and HTTP mappings. Keep canonical ASCII-digit checks. Permit NULL only for a genuinely incomplete profile; it must remain clinically ineligible. The registration contract continues to require active username and hospital service in addition to the image's fields.
+Use `clinical_records.services.active_professional_for_actor` and the existing medical permission helpers for the new clinical operations. The current policy checks active account, medical role, and active professional profile; active patients are available through the existing clinical directory and search. Require an active selected patient and verify that requested records belong to that patient. Do not introduce care relationships or a separate registration-completeness rule. Reuse the shared predicate if the older change updates it before implementation.
 
-License number remains 1..50 trimmed characters. No status, expiry, verification timestamp, registry adapter, or license-currency eligibility predicate is introduced. Registration completeness includes required license input for newly registered profiles. No compatibility bypass for incomplete profiles; signing in never fills missing state.
+Reuse the existing entered license and separately generated registration number as distinct values in prescription snapshots. Do not change input validation, schema constraints, account provisioning, or identifier generation. Preserve unknown source values as unknown and omit unavailable optional FHIR fields; do not fabricate credentials or add new eligibility conditions to make output fields non-null. Stable FHIR resource identifiers identify the professional independently of optional license/registration-number values. No license status, expiry, verification timestamp, registry adapter, or validity check is introduced.
 
-Registration payload: `username,dni,license_number,first_name,last_name,date_of_birth,specialty_code,hospital_service_code`. Detail retains the previously planned fields: `id,username,dni,license_number,registration_number,first_name,last_name,date_of_birth,specialty_code,hospital_service_code,registration_completed_at,is_active,is_clinically_eligible`, plus a self/detail URL. PATCH allows only license, names, birth date, specialty, and hospital service. Existing incomplete identities can be completed through supported registration, retaining their identity; this is not an upgrade requirement.
+The catalog screens may modify specialties through their existing model, while registration continues to consume those same references. Keep professional lifecycle tests as regression coverage; do not recreate their implementation or introduce new acceptance criteria for that workflow here.
 
 ### D4. API conventions and discoverability
 
-Use SessionAuthentication and CSRF for unsafe methods. Follow current project response conventions: JSON field errors with 400, anonymous/wrong-role 403, authorized missing target 404, conflict 409, unsupported method 405, body too large 413, wrong upload type 415. Authorize roles before lookup; new clinical patient-specific requests use 404 for missing/unassigned/inactive target to avoid disclosing another patient's record. No new JWT/OAuth scheme is needed for file exchange.
+Use SessionAuthentication and CSRF for unsafe methods. Follow current project response conventions: JSON field errors with 400, anonymous/wrong-role 403, authorized missing target 404, conflict 409, unsupported method 405, body too large 413, wrong upload type 415. Authorize roles before lookup; new clinical patient-specific requests use 404 for missing/inactive patients or records outside the selected patient's history. No new JWT/OAuth scheme is needed for file exchange.
 
 | Route family | Operations and payload/output |
 |---|---|
 | `/catalogs/api/specialties/`, `/<id>/` | GET/POST collection; GET/PATCH/DELETE detail. DELETE succeeds with 204 only when unreferenced. |
 | `/catalogs/api/terminology/`, `/medications/` and `/<id>/` | GET lists/details; POST collection only. `search` filters code/display/name. |
 | `/catalogs/api/terminology/import/`, `/medications/import/` | POST normalized JSON; 200 counts after one atomic import. |
-| `/catalogs/api/hospital-services/` | GET current service codes/names/active state. |
-| `/professionals/api/`, `/search/?dni=...`, `/<id>/` | POST registration (201 new, 200 completion), GET exact search, GET/PATCH detail. Search yields `{results:[]}` or one result including generated number and license. |
-| `/professionals/api/<id>/deactivate/`, `/reactivate/` | POST `{confirm:true}`; preserve identifiers, return saved profile. |
-| `/patients/api/<id>/care-team/`, `/<relationship_id>/revoke/` | Existing D6 GET/POST and confirmed revoke contracts; assignment by professional DNI. |
 | `/clinical-records/api/patients/<id>/prescriptions/` | GET paginated history; POST `{request_key,reason_entry_id?,items:[{medication_id,dose_value,dose_unit,route,frequency,duration_days,instructions?}]}`. 201 new, 200 identical retry. |
 | `/clinical-records/api/patients/<id>/prescriptions/<uuid>/` | GET immutable detail with item snapshots and report/XML links. |
 | Same prescription detail plus `report/` or `xml/` | GET printable HTML or FHIR XML attachment; return saved issuance content. |
@@ -71,7 +69,7 @@ Use SessionAuthentication and CSRF for unsafe methods. Follow current project re
 
 All collection histories use `{count,next,previous,results}`, 20 rows/page and stable ordering. Catalogs sort display/name then ID; histories sort descending clinical/receipt time then ID. Limits: prescription items 1..50; export/import bundles at most 500 entries and 2 MiB, with clear errors requesting a smaller selection. Export IDs are selected by the browser from visible history, never typed manually. Document exact route names, response examples, limits, and file/error content types in OpenAPI. Import is an application upload returning JSON errors, not a FHIR transaction endpoint returning Bundle responses.
 
-Navigation: administrator workspace -> Catalogs -> Specialties/Nomenclature/Medications; existing Professionals registration and maintenance; patient detail -> Care team. Clinical workspace adds an Assigned patients view and patient actions Prescriptions and Interoperability, alongside existing admission navigation. HTML paths mirror these operations under `/catalogs/` and `/clinical-records/patients/<id>/`. Use shared services, ordinary POST/redirect and bound errors; retain HTMX conventions where helpful. The report is escaped printable HTML reachable from prescription detail, not framework administration.
+Navigation: administrator workspace -> Catalogs -> Specialties/Nomenclature/Medications. Clinical workspace uses its existing active-patient directory/search and adds patient actions Prescriptions and Interoperability alongside admission navigation. HTML paths mirror these operations under `/catalogs/` and `/clinical-records/patients/<id>/`. Use shared services, ordinary POST/redirect and bound errors; retain HTMX conventions where helpful. The report is escaped printable HTML reachable from prescription detail, not framework administration.
 
 ### D5. Prescription persistence, retry, and access
 
@@ -79,7 +77,7 @@ Add `Prescription` and `PrescriptionItem` in a `prescriptions` app. Header: UUID
 
 Snapshot patient name/DNI/birth date, professional name/DNI/entered license/generated number, institution identifier/name, reason coding, and every item at issue time. Readable report and XML always use that snapshot. Store generated XML bytes for the prescription in the same transaction (database binary/text field, given bounded size) so an issuance cannot succeed with missing/invalid output. Build and validate before commit. No editable draft, cancellation, or correction state machine is included in this change.
 
-Author always comes from the current authenticated account, never a payload field. Check current role/profile/completeness/assignment inside the mutation transaction. Follow shared lock order from D6: User -> Professional -> Specialty -> HospitalService -> Patient -> CareRelationship; new append-only medication/terminology references require no lifecycle locks, then prescription/import records. Sort equal-model rows by PK. Serialize issuance against deactivation/revocation, and define an operation that obtained authorization locks first as allowed to finish. New operations after revocation commits are denied. Report/download routes also recheck access.
+Author always comes from the current authenticated account, never a payload field. Recheck the shared clinical policy and active selected patient inside the mutation transaction. Use existing service locking conventions, ordering relevant User -> Professional -> Patient rows before new prescription/import rows and sorting equal-model rows by PK. Append-only catalog entries require no lifecycle locks. New operations after account/profile/patient deactivation or medical-role removal must fail current access checks; no changes to existing lifecycle services or assignment state are required. Report/download routes also recheck the same access policy.
 
 Enforce unique `(prescriber,patient,request_key)`. A stable key in each HTML form prevents double-click duplication; API clients provide one. Same key plus different canonical payload is 409. Do not infer idempotency from medication content alone, since a doctor may intentionally issue a later identical prescription.
 
@@ -120,15 +118,13 @@ Select and pin XML validation dependencies after checking Python 3.13 support du
 | Journey | Initial state and visible path | Persisted/observable evidence |
 |---|---|---|
 | B1 catalogs | Signed-out `/`; non-staff administrative account -> Catalogs; create/edit/delete unused specialty, add nomenclature/medication, upload duplicate and invalid catalog data. | Correct list/version data, append-only enforcement, protected deletion, atomic import counts. |
-| B2 professional | Signed-out `/`; administrator; target active login created by supported operator path, no profile/medical role -> Professionals -> Register; fail blank license/duplicate DNI then succeed; detail and DNI search; fresh doctor login. | One profile, distinct numbers, group grant, no staff/credential changes; inactive duplicate denied; license never called verified. |
-| B3 assignment | Signed-out `/`; administrator; patient/registered doctor but no relationship -> patient search -> Care team -> DNI lookup -> assign, duplicate submit, revoke/reassign. | Unique active assignment, actor/time, revocation history, no automatic restoration. |
-| B4 prescription | Signed-out `/`; eligible assigned doctor; catalog item but no prescription -> Clinical workspace -> Assigned patients -> Prescriptions; invalid input then issuance -> detail/report/XML. | One header/items/snapshots; retry count unchanged; report and independently validated XML match; edited names do not rewrite issuance. |
-| B5 vital export | Signed-out `/`; assigned doctor; target admission absent -> existing Record admission form -> history -> Export XML. | Admission saved by UI; exact values/units/author/time in validated XML. |
-| B6 external import | Signed-out `/`; assigned doctor; no batch/external records -> patient -> Interoperability -> upload independent matching fixture -> detail -> retry. | External provenance and fields stored once; local admission/prescription counts unchanged. |
-| B7 denials | Signed-out `/`; separate no-role, missing-profile, incomplete, inactive, and unassigned accounts; expired session/CSRF and after-revocation requests at HTTP boundary. | No protected clinical output, provisioning, or mutation; safe login redirects and visible denial states. |
-| B8 invalid exchange | Signed-out `/`; assigned doctor -> Interoperability -> wrong-patient/invalid fixture; HTTP adversarial XML and concurrent conflicting uploads. | Useful errors, zero partial records/network resolution, deterministic conflicts. |
+| B2 prescription | Signed-out `/`; doctor authorized by current clinical policy; catalog item but no prescription -> Clinical workspace -> active patient -> Prescriptions; invalid input then issuance -> detail/report/XML. | One header/items/snapshots; retry count unchanged; report and independently validated XML match; edited names do not rewrite issuance. |
+| B3 vital export | Signed-out `/`; authorized doctor; target admission absent -> existing Record admission form -> history -> Export XML. | Admission saved by UI; exact values/units/author/time in validated XML. |
+| B4 external import | Signed-out `/`; authorized doctor; no batch/external records -> active patient -> Interoperability -> upload independent matching fixture -> detail -> retry. | External provenance and fields stored once; local admission/prescription counts unchanged. |
+| B5 access policy | Signed-out `/`; realistic medical and nonmedical accounts, including relevant missing/incomplete/inactive-profile states; expired session/CSRF and deactivated patient requests at HTTP boundary. | New features follow the existing shared eligibility outcome for each state; denied requests disclose no clinical output or perform writes. No new completeness or assignment gate. |
+| B6 invalid exchange | Signed-out `/`; authorized doctor -> active patient -> Interoperability -> wrong-patient/invalid fixture; HTTP adversarial XML and concurrent conflicting uploads. | Useful errors, zero partial records/network resolution, deterministic conflicts. |
 
-Use supported provisioning for accounts and unrelated professionals. Fixtures may create unrelated prerequisites; they must not precreate the profile, role, care relationship, admission, prescription, or import that the scenario establishes. Include ordinary POST without JavaScript for new forms, paginated/searchable lists, and navigation visibility by role.
+Use supported provisioning for accounts and unrelated professionals. Registration is prerequisite setup through its existing supported path, not a new workflow under test here. Fixtures must not precreate the catalog entry, admission, prescription, or import that a scenario establishes. Include ordinary POST without JavaScript for new forms, paginated/searchable lists, and navigation visibility by role. Keep existing professional tests as regression coverage.
 
 Run focused PostgreSQL HTTP/domain/concurrency tests, existing regression suites, formatting/lint/types, migration drift, and then the repository live validator. Extend both isolated browser journeys and the validator's disposable Compose journeys with persistence verification. Report separately for each environment: signed-out entry point, persona/permissions and state, visible actions, final URL/destination, persisted outcome, executed/passed/skipped browser counts, and exact blockers. Backend security/parser/conformance cases run at real HTTP/integration boundaries; do not substitute direct routes for the visible B1-B6 journeys.
 
@@ -137,15 +133,13 @@ Run focused PostgreSQL HTTP/domain/concurrency tests, existing regression suites
 - [FHIR subset mismatch] -> Publish explicit versioned constraints and representative fixtures; reject unsupported input clearly. External exchange requires the peer to use the same profile.
 - [Unverified licenses and source institutions] -> Preserve entered/declared values without validity or trust claims; no validity-based blocking was requested.
 - [Append-only catalog corrections accumulate versions] -> Show source/version prominently and preserve immutable references. Full terminology lifecycle is deferred.
-- [Care-team prerequisite increases work] -> Implement the existing bounded D6 workflow once and reuse it; avoid bypassing patient authorization.
-- [Global DNI uniqueness breaks old development data] -> Rebuild only verified project-owned local/test databases; do not add silent merging or historical compatibility branches.
 - [Raw XML storage increases database size] -> Enforce file and entry limits; avoid public media and do not log raw clinical payloads.
-- [Cross-change drift] -> Reconcile overlapping tasks at apply start and after verification, preserving unrelated edits and deferred work.
+- [Shared clinical policy changes in another change] -> Reuse the current predicate and test the same outcomes on new endpoints; do not duplicate its rollout or introduce a separate policy.
 
 ## Migration Plan
 
-1. Reconcile overlap, then create migrations from the actual current leaf for global professional DNI uniqueness, catalogs, care relationships if missing, prescription snapshots/items, and import batches/external records.
+1. Create migrations from the actual current leaf for catalogs, prescription snapshots/items, and import batches/external records. Preserve professional identity constraints and existing authorization workflows.
 2. On a clean project-owned PostgreSQL database, apply all migrations; seed only reference/bootstrap roles. Populate synthetic acceptance clinical state through supported workflows. No legacy preservation or conversion work is required.
 3. Configure stable institution/identifier values, install pinned validation assets, and run checks plus fresh database migration tests before enabling UI navigation.
-4. Run B1-B8 in isolated and disposable Compose environments and verify persisted results. Do not claim the user's running development application was validated by those environments.
+4. Run B1-B6 in isolated and disposable Compose environments and verify persisted results. Do not claim the user's running development application was validated by those environments.
 5. For local rollback, return code to its prior revision and rebuild the disposable database at the matching schema. Do not remove unrelated project volumes or attempt a destructive reset outside the verified local/test target.

@@ -30,7 +30,7 @@ The system SHALL offer searchable SNOMED CT entries identified by system, versio
 - **AND** a conflicting value for an existing identity or any invalid row rejects the whole import with row-specific errors and no partial additions
 
 ### Requirement: Role-restricted discovery and input handling
-Catalog writes SHALL require an active administrative role and session CSRF protection. Catalog reads SHALL require an administrative role or an eligible medical professional. Lists SHALL support code/name search and stable pagination of 20 entries. Unauthorized requests SHALL be rejected before retrieving protected records; missing authorized targets SHALL return 404. Invalid inputs SHALL produce field errors without raw exceptions.
+Catalog writes SHALL require an active administrative role and session CSRF protection. Catalog reads SHALL require an administrative role or a medical professional authorized by the existing clinical access rules. Lists SHALL support code/name search and stable pagination of 20 entries. Unauthorized requests SHALL be rejected before retrieving protected records; missing authorized targets SHALL return 404. Invalid inputs SHALL produce field errors without raw exceptions.
 
 #### Scenario: Wrong-role writes and searchable results
 - **WHEN** a doctor submits a catalog creation request or an anonymous client requests the catalog

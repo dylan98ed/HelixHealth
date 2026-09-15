@@ -12,17 +12,17 @@ The application SHALL document an R4 version 4.0.1 XML collection-Bundle profile
 - **THEN** the application can validate and import it without dependence on its own exporter having produced the file
 
 ### Requirement: Export existing vital signs and prescriptions
-An eligible assigned doctor SHALL export selected saved admission vital signs and issued prescriptions for one patient. Exported observations SHALL preserve measurement values, units, recorded times, and author references; medication requests SHALL preserve issuance snapshots. Selection SHALL use visible patient history and SHALL NOT require manually entering internal identifiers. Exports SHALL contain complete in-bundle references and stable record identifiers.
+A doctor authorized by the existing clinical access rules SHALL export selected saved admission vital signs and issued prescriptions for one active patient. Exported observations SHALL preserve measurement values, units, recorded times, and author references; medication requests SHALL preserve issuance snapshots. Selection SHALL use the existing clinical patient directory and visible patient history without a care-assignment prerequisite and SHALL NOT require manually entering internal identifiers. Exports SHALL contain complete in-bundle references and stable record identifiers.
 
 #### Scenario: Export a recorded admission
-- **WHEN** an assigned doctor records an admission through its existing visible form and selects its Export XML action
+- **WHEN** an authorized doctor records an admission through its existing visible form and selects its Export XML action
 - **THEN** the resulting bundle contains the recorded blood pressure, heart rate, and temperature with patient and author context and passes the documented profile validation
 
 ### Requirement: Resolve the patient and preserve external provenance
-Import SHALL target a selected authorized local patient and require the bundle's patient DNI to match that patient uniquely, with matching birth date. Mismatches, multiple subjects, missing identifiers, or ambiguous identities SHALL be rejected without heuristic matching. An import SHALL record the submitting doctor/time, source institution, external identifiers and authors, and source clinical times. External data SHALL be shown as externally reported and SHALL NOT provision local patients, professionals, roles, care relationships, or catalog entries, overwrite local admissions, or issue local prescriptions.
+Import SHALL target a selected active local patient under existing clinical access rules and require the bundle's patient DNI to match that patient uniquely, with matching birth date. Mismatches, multiple subjects, missing identifiers, or ambiguous identities SHALL be rejected without heuristic matching. An import SHALL record the submitting doctor/time, source institution, external identifiers and authors, and source clinical times. External data SHALL be shown as externally reported and SHALL NOT provision local patients, professionals, roles, or catalog entries, overwrite local admissions, or issue local prescriptions.
 
 #### Scenario: Import and inspect external interventions
-- **WHEN** an assigned doctor starts signed out at `/`, signs in, opens an assigned patient, follows Interoperability, uploads a matching supported XML file, and opens the import detail
+- **WHEN** an authorized doctor starts signed out at `/`, signs in, opens an active patient from Clinical workspace, follows Interoperability, uploads a matching supported XML file, and opens the import detail
 - **THEN** the external observations and prescriptions are persisted and visible with institution, external author, and source time
 - **AND** local admission and prescription counts remain unchanged
 
@@ -38,10 +38,10 @@ The application SHALL validate the entire import before committing clinical reco
 - **THEN** the retry adds no duplicate records, and the mixed invalid bundle adds no records at all
 
 ### Requirement: Reject unsafe or unsupported input before side effects
-The importer SHALL enforce a 2 MiB file limit and 500-entry limit, reject DTDs/external entities and malformed XML, and perform no network reference resolution. It SHALL reject unsupported resource types, unresolved references, invalid required codes/units, unsupported modifier extensions, or missing clinical fields with useful errors. Source text and narratives SHALL render as inert content. Medical authorization and care access SHALL apply to upload, listing, detail, and retrieval of imported files.
+The importer SHALL enforce a 2 MiB file limit and 500-entry limit, reject DTDs/external entities and malformed XML, and perform no network reference resolution. It SHALL reject unsupported resource types, unresolved references, invalid required codes/units, unsupported modifier extensions, or missing clinical fields with useful errors. Source text and narratives SHALL render as inert content. Existing medical authorization and active-patient checks SHALL apply to upload, listing, detail, and retrieval of imported files.
 
-#### Scenario: Unsafe XML or unassigned access
-- **WHEN** an upload contains external entities or remote references, or an unassigned doctor attempts to import or read an import
+#### Scenario: Unsafe XML or unauthorized access
+- **WHEN** an upload contains external entities or remote references, or an account without clinical access attempts to import or read an import
 - **THEN** the request fails without network access, clinical writes, or protected file disclosure
 
 ### Requirement: Demonstrate interoperable output beyond a local round trip
