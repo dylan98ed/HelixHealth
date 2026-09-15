@@ -46,6 +46,7 @@ Add nullable fields for legacy profiles. Use NULL, not empty strings, for missin
 |---|---|
 | id, user | Preserve values and user one-to-one/PROTECT. Immutable. |
 | dni | Nullable CharField(8), canonical 7/8 ASCII digits. Partial unique constraint when is_active=True and dni is non-null. Immutable after completion. |
+| license_number | Nullable CharField(50) for legacy compatibility; new registration/completion requires trimmed nonblank operator-entered text. Preserve prefixes, internal spaces, case, and leading zeroes. Mutable after completion and never inferred from the generated registration number. |
 | registration_number | Nullable unique CharField(32), PostgreSQL sequence format PR-00000001. Minimum width 8 digits; gaps allowed. Immutable once assigned. |
 | first_name, last_name | Nullable CharField(150); completion/update requires trimmed nonblank text. Store on Professional; do not overwrite account names. |
 | date_of_birth | Nullable DateField, required at completion, not in future; reuse patient validator. |
@@ -53,13 +54,13 @@ Add nullable fields for legacy profiles. Use NULL, not empty strings, for missin
 | registration_completed_at | Nullable immutable server datetime; non-null indicates successful complete registration. |
 | is_active | Preserve existing flag during migration AND completion; a newly created completed profile starts active. Reactivation is explicit. |
 
-Database checks enforce canonical non-null DNI, nonempty generated number, and complete required fields when registration_completed_at is non-null. A complete inactive row retains its data. Application validation additionally checks nonblank values, dates, and active references.
+Database checks enforce canonical non-null DNI, a NULL-or-nonblank license number, a nonempty generated registration number, and complete required fields when registration_completed_at is non-null. Existing completed rows may retain a NULL license without changing completion or clinical eligibility. A complete inactive row retains its data. Application validation additionally checks nonblank values, dates, and active references.
 
 Use sequence allocation at save/completion, never count()+1 or max()+1. Do not backfill fabricated DNI/names/numbers. An inactive DNI may be reused by another professional; reactivating the original must fail if its DNI is now held by another active row.
 
 ### D3. Professional input validation
 
-Implement professionals/validators.py using the existing patient DNI/date validators. Forms and API inputs trim surrounding DNI whitespace, then require 7 or 8 ASCII digits; preserve leading zeroes and reject internal whitespace, punctuation, and Unicode digits. Names are trimmed nonblank text up to 150 characters; birth date must not be in the future.
+Implement professionals/validators.py using the existing patient DNI/date validators. Forms and API inputs trim surrounding DNI whitespace, then require 7 or 8 ASCII digits; preserve leading zeroes and reject internal whitespace, punctuation, and Unicode digits. License number input must be text of 1..50 characters after trimming surrounding whitespace while preserving prefixes, internal spaces, case, and leading zeroes. Names are trimmed nonblank text up to 150 characters; birth date must not be in the future.
 
 Resolve specialty_code and hospital_service_code against the existing reference tables. Creation/completion requires active references. Updates validate newly assigned references; D4 defines retention of unchanged inactive references. Username resolves an existing active account exactly; there is no account directory or credential creation in this workflow.
 
@@ -75,15 +76,15 @@ Use keyword-only services in professionals/services.py:
 
 | Service | Inputs / result |
 |---|---|
-| register_professional | actor, username, dni, first_name, last_name, date_of_birth, specialty_code, hospital_service_code; returns new or completed Professional |
-| update_professional | actor, professional, changes; allow only names, birth date, specialty_code, hospital_service_code on completed profiles, active or inactive; preserve is_active |
+| register_professional | actor, username, dni, license_number, first_name, last_name, date_of_birth, specialty_code, hospital_service_code; returns new or completed Professional |
+| update_professional | actor, professional, changes; allow only license_number, names, birth date, specialty_code, hospital_service_code on completed profiles, active or inactive; preserve is_active |
 | deactivate_professional | actor, professional, confirmed; explicit true, idempotent; end its active care relationships once D6 exists; return refreshed state |
 | reactivate_professional | actor, professional, confirmed; completed inactive profile, active subject account, active references, no active DNI conflict; return refreshed state |
 | lookup_professional_by_dni | actor, canonical dni; return active completed match or None |
 
 Completion updates an existing incomplete row without changing its id/user or active flag. An inactive completed row displays "Registration complete; profile remains inactive" and requires a separate Reactivate action. Invalid registration never creates a profile or changes group membership; existing profiles stay unchanged.
 
-An inactive completed profile may be edited without activating it, so an administrator can replace an inactive specialty/service before reactivation. Validate that newly selected references are active; retaining an unchanged inactive reference is allowed during an unrelated edit, but reactivation requires both references active.
+An inactive completed profile may be edited without activating it, so an administrator can replace an inactive specialty/service before reactivation. Validate that newly selected references are active; retaining an unchanged inactive reference is allowed during an unrelated edit, but reactivation requires both references active. An untouched blank License number control on a legacy NULL profile omits that change and displays as **Not recorded** outside the form; an explicit blank cannot clear a known license. Recording a legacy license preserves completion state, activation state, identifiers, and clinical history.
 
 Write algorithm: authorize against current active User/group state; validate D3 inputs; enter transaction.atomic; lock subject User then existing Professional and selected reference rows; recheck current account/profile/reference state; allocate number if absent; write profile and group; commit. Catch identified DNI/account uniqueness conflicts outside an inner savepoint and map to 409. Unrelated validation stays 400; unexpected errors are not mislabeled as duplicates.
 
@@ -101,19 +102,21 @@ Add professionals/urls.py, include at /professionals/, namespace professionals. 
 |---|---|---|
 | GET /professionals/ | index | 20-row active completed list; visible status=inactive and status=incomplete tabs; search/register links. Inactive tab contains completed inactive rows; incomplete tab contains all incomplete rows. |
 | GET /professionals/search/ | search | Exact-DNI search; unmatched result offers prefilled registration. |
-| GET /professionals/search/results/ | search-results | HTMX result fragment: full name, registration number, one detail link. |
-| GET/POST /professionals/register/ | register | Username plus required profile data; supports new or incomplete identity. Invalid username gets field feedback without exposing an account directory. |
+| GET /professionals/search/results/ | search-results | HTMX result fragment: full name, License number (or Not recorded), Registration number, one detail link. |
+| GET/POST /professionals/register/ | register | Username plus required profile data, including License number; supports new or incomplete identity. Invalid username gets field feedback without exposing an account directory. |
 | GET /professionals/<pk>/ | detail | Profile, eligibility, appropriate maintenance links. |
 | GET/POST /professionals/<pk>/complete/ | complete | Incomplete only, fixed username, same registration service. |
-| GET/POST /professionals/<pk>/edit/ | update | Mutable fields only. |
+| GET/POST /professionals/<pk>/edit/ | update | Mutable fields only, including License number correction and legacy unknown preservation. |
 | GET/POST /professionals/<pk>/deactivate/ | deactivate | Confirmation. |
 | GET/POST /professionals/<pk>/reactivate/ | reactivate | Confirmation and current account/reference/DNI checks. |
 | POST /professionals/api/ | api-create | Registration/completion by username. |
-| GET /professionals/api/search/?dni=... | api-search | {"results":[]} or one {id,full_name,registration_number}. |
+| GET /professionals/api/search/?dni=... | api-search | {"results":[]} or one {id,full_name,registration_number,license_number}. |
 | GET/PATCH /professionals/api/<pk>/ | api-detail | Retrieve or edit; PATCH cannot complete a profile or change identity/status. |
 | POST /professionals/api/<pk>/deactivate/ or reactivate/ | api-deactivate, api-reactivate | {"confirm":true}; client status changes through PATCH are never accepted. |
 
-Create payload: username,dni,first_name,last_name,date_of_birth,specialty_code,hospital_service_code. Dates: YYYY-MM-DD. Detail: id,username,dni,registration_number,first_name,last_name,date_of_birth,specialty_code,hospital_service_code,registration_completed_at,is_active,is_clinically_eligible. Timestamps: ISO 8601 UTC; incomplete values: null.
+Pending create/completion payload: username,dni,license_number,first_name,last_name,date_of_birth,specialty_code,hospital_service_code. Pending PATCH accepts `license_number` as mutable; omission preserves the current value and explicit null/blank is invalid. Dates: YYYY-MM-DD. Pending detail: id,username,dni,license_number,registration_number,first_name,last_name,date_of_birth,specialty_code,hospital_service_code,registration_completed_at,is_active,is_clinically_eligible. Timestamps: ISO 8601 UTC; incomplete and unknown license values: null. These contracts do not claim that the pending API routes exist before tasks 8.1-8.2 are completed.
+
+**License number** always means the operator-entered credential. **Registration number** and the response keys `registration_number`, `professional_registration_number`, and `author_registration_number` always mean the separately generated immutable `PR-` identifier; none of those keys may be populated from `license_number`.
 
 API statuses: new profile 201; completion/update/status change 200; fields/immutable/unknown write keys 400 with {"field":["message"]}; anonymous/wrong role 403; missing professional 404 after role authorization; identified identity conflicts 409 with conflicting field errors plus existing_professional_id. PUT/DELETE unsupported (405).
 
@@ -125,7 +128,7 @@ CareRelationship in clinical_records/models.py: protected patient/Professional F
 
 Add Care team to administrative patient detail. GET /patients/<pk>/care-team/ lists active assignments (20/page), offers exact professional-DNI lookup and Assign form. POST submits professional_dni to assign_care_relationship(actor, patient, professional_dni). Active patient and eligible professional required. Duplicate active assignment returns the existing row idempotently. Revoke opens GET/POST /patients/<pk>/care-team/<relationship_pk>/revoke/, requires confirmation, verifies the relationship belongs to that patient, and calls revoke_care_relationship(actor, patient, relationship, confirmed).
 
-API: GET/POST /patients/api/<pk>/care-team/ and POST /patients/api/<pk>/care-team/<relationship_pk>/revoke/. New 201; existing assignment/revocation 200. Output {id,patient_id,professional_id,professional_registration_number,is_active,assigned_at,revoked_at}; GET uses D7 pagination envelope. Bad/ineligible DNI 400; wrong role 403; missing administrative target 404. Implement clinical_records/care_services.py and care_views.py and wire from patients/urls.py. Administrative care-team privilege does not permit reading intervention notes.
+API: GET/POST /patients/api/<pk>/care-team/ and POST /patients/api/<pk>/care-team/<relationship_pk>/revoke/. New 201; existing assignment/revocation 200. Output {id,patient_id,professional_id,professional_registration_number,is_active,assigned_at,revoked_at}; `professional_registration_number` remains the generated internal identifier, not the license number. GET uses D7 pagination envelope. Bad/ineligible DNI 400; wrong role 403; missing administrative target 404. Implement clinical_records/care_services.py and care_views.py and wire from patients/urls.py. Administrative care-team privilege does not permit reading intervention notes.
 
 Global domain lock order: subject professional User -> Professional -> Specialty -> HospitalService -> Patient -> CareRelationship -> Intervention; skip irrelevant rows and sort multiple same-model rows by PK. Registration/reference reassignment locks the selected reference rows in this order. Patient deactivation locks Patient then its relationships; professional deactivation locks User/Professional then its relationships. Neither path acquires preceding locks after later ones. An operation authorized before revocation may finish; revocation waits. A queued/new operation must recheck after revocation commits and be denied. Admission does not implicitly assign care. Reactivation does not restore revoked relationships.
 
@@ -163,17 +166,17 @@ Product journeys start signed out at /, use visible Sign in/navigation, and know
 
 | Key | Initial state -> visible actions -> outcome |
 |---|---|
-| B1 new professional | Active account, no medical role/profile -> application admin registers by username with valid profile data -> one profile/number and medical group; fresh clinical login succeeds. |
-| B2 legacy upgrade | Incomplete profile with existing admission -> admin Incomplete tab -> complete -> same profile/admission FK. Inactive variant remains inactive until Reactivate. |
-| B3 failures | Missing fields, unknown/disabled account, duplicate active DNI/account, inactive references -> specific feedback and no partial profile/group change. |
-| B4 lifecycle | Complete active profile -> edit/search/deactivate/reactivate with explicit confirmation -> immutable identity preserved; disabled account/inactive references/DNI conflict reject reactivation. |
+| B1 new professional | Active account, no medical role/profile -> application admin registers by username with required License number and all existing profile data -> one profile, entered license, separately generated Registration number, and medical group; fresh clinical login succeeds. |
+| B2 legacy upgrade | Incomplete profile with existing admission and no license -> admin Incomplete tab -> complete with required License number -> same profile/admission FK. Inactive variant remains inactive until Reactivate. |
+| B3 failures | Missing License number or another required field, unknown/disabled account, duplicate active DNI/account, inactive references -> specific feedback and no partial profile/group/number change. |
+| B4 lifecycle | Complete active or inactive profile -> view separate License number and Registration number -> edit/correct license, search, deactivate/reactivate with explicit confirmation -> immutable identity and generated number preserved. A legacy completed NULL license displays Not recorded and an untouched blank Edit control preserves it; disabled account/inactive references/DNI conflict reject reactivation. |
 | B5 care | Active patient and eligible professional, NO relationship -> admin Patient search -> detail -> Care team -> assign by DNI -> one active pair; duplicate submit unchanged. |
 | B6 intervention | Professional from B5 signs in fresh -> My patients -> View interventions -> empty state -> create -> correct -> original and linked correction plus matching audit events persist. |
 | B7 revoked/denied | Admin revokes via Care team -> fresh professional login -> patient absent from My patients; bookmarked target denied/audited. Cover inactive user/profile/patient and unrelated actor separately. |
 | B8 pages | Existing 21+ records -> visible Next/Previous in professional lists, care teams, My patients, intervention history, and retained patient/admission pages -> correct bounded ordered results. |
 | B9 audit faults | HTTP integration: anonymous/unknown targets, conflicts, injected audit-write failure -> generic response, accurate nullable/requested IDs, no partial clinical mutation. |
 
-B1/B2/B5/B6 must establish their target state through UI, never ORM fixtures. Synthetic reference records and unrelated histories for B8 may be seeded. Provision unrelated completed personas through the registration service. Old-state fixtures are valid when migration/denial of that exact state is under test. Update isolated browser tests AND disposable Compose acceptance plus persistence verification. Browser-only factories cannot stand in for a missing assignment/registration workflow.
+B1/B2/B5/B6 must establish their target state through UI, never ORM fixtures. Synthetic reference records and unrelated histories for B8 may be seeded. Provision unrelated completed personas through the registration service with explicit synthetic licenses. Old-state fixtures are valid when migration/denial of that exact state is under test, including a legacy NULL license that must not affect completion or clinical eligibility. Update isolated browser tests AND disposable Compose acceptance plus persistence verification. Browser-only factories cannot stand in for a missing assignment/registration workflow.
 
 ### D10. Operations and performance
 
