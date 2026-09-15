@@ -5,11 +5,15 @@ description = "OpenHIS-UNLaM educational hospital information system"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "defusedxml==0.7.1",
     "django>=5.2,<5.3",
     "django-htmx>=1.26,<2",
     "djangorestframework>=3.18,<3.19",
     "drf-spectacular>=0.28,<1",
+    "fhir.resources[xml]==6.4.0",
     "gunicorn>=23,<24",
+    "lxml==6.1.3",
+    "pydantic==1.10.21",
     "psycopg[binary]>=3.2,<4",
     "whitenoise>=6.9,<7",
 ]
@@ -40,9 +44,12 @@ python_files = ["test_*.py", "tests.py"]
 testpaths = [
     "access_control",
     "audit",
+    "catalogs",
     "clinical_records",
     "helixhealth",
+    "interoperability",
     "patients",
+    "prescriptions",
     "professionals",
     "tests",
 ]
@@ -66,7 +73,10 @@ files = [
     "access_control",
     "audit",
     "clinical_records",
+    "catalogs",
+    "interoperability",
     "patients",
+    "prescriptions",
     "professionals",
 ]
 exclude = [

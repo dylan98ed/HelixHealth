@@ -1,8 +1,8 @@
 ## 1. Existing-service integration and setup
 
-- [ ] 1.1 Confirm the existing professional services, specialty model, clinical access helpers, and patient directory interfaces described in D1-D3. Verify the integration reuses them and leaves professional API tasks, eligibility rollout, DNI policy, and care-team work in their existing change without duplicating or making them prerequisites here.
-- [ ] 1.2 Establish the `catalogs`, `prescriptions`, and `interoperability` module boundaries and settings/test discovery additions. Verify Django checks and existing test collection succeed without placeholder routes claiming implemented functionality.
-- [ ] 1.3 Select and pin Python 3.13-compatible safe XML parsing, local R4 validation assets, and independent FHIR/profile validation tooling. Verify installation and validation of one independently authored valid fixture plus rejection of one invalid fixture; record exact versions and offline/no-network runtime behavior.
+- [x] 1.1 Confirm the existing professional services, specialty model, clinical access helpers, and patient directory interfaces described in D1-D3. Verify the integration reuses them and leaves professional API tasks, eligibility rollout, DNI policy, and care-team work in their existing change without duplicating or making them prerequisites here.
+- [x] 1.2 Establish the `catalogs`, `prescriptions`, and `interoperability` module boundaries and settings/test discovery additions. Verify Django checks and existing test collection succeed without placeholder routes claiming implemented functionality.
+- [x] 1.3 Select and pin Python 3.13-compatible safe XML parsing, local R4 validation assets, and independent FHIR/profile validation tooling. Verify installation and validation of one independently authored valid fixture plus rejection of one invalid fixture; record exact versions and offline/no-network runtime behavior.
 
 ## 2. HU-04 reference catalogs
 

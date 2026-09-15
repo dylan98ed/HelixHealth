@@ -122,6 +122,9 @@ INSTALLED_APPS = [
     "patients.apps.PatientsConfig",
     "professionals.apps.ProfessionalsConfig",
     "clinical_records.apps.ClinicalRecordsConfig",
+    "catalogs.apps.CatalogsConfig",
+    "prescriptions.apps.PrescriptionsConfig",
+    "interoperability.apps.InteroperabilityConfig",
     "access_control.apps.AccessControlConfig",
     "audit.apps.AuditConfig",
 ]
