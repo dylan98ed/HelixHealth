@@ -4,11 +4,32 @@ from django.http import HttpRequest
 from professionals.models import HospitalService, Professional, Specialty
 
 
-@admin.register(Specialty, HospitalService)
+@admin.register(HospitalService)
 class ActiveReferenceDataAdmin(admin.ModelAdmin):
     list_display = ("code", "name", "is_active")
     list_filter = ("is_active",)
     search_fields = ("code", "name")
+
+
+@admin.register(Specialty)
+class SpecialtyAdmin(admin.ModelAdmin):
+    """Specialties are managed through the catalog application workflow."""
+
+    list_display = ("code", "name", "is_active")
+    readonly_fields = ("code", "name", "is_active")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(
+        self, request: HttpRequest, obj: Specialty | None = None
+    ) -> bool:
+        return False
+
+    def has_delete_permission(
+        self, request: HttpRequest, obj: Specialty | None = None
+    ) -> bool:
+        return False
 
 
 @admin.register(Professional)

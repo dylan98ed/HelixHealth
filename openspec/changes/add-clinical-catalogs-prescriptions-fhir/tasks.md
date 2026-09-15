@@ -6,10 +6,10 @@
 
 ## 2. HU-04 reference catalogs
 
-- [ ] 2.1 Add terminology and medication models with D2 source/version identities, metadata, protected links, and constraints. Verify PostgreSQL uniqueness/required-field tests and fresh migration application; preserve the existing Specialty table.
-- [ ] 2.2 Implement specialty create/edit/retire/delete services with immutable codes and protected deletion. Verify duplicate input, referenced deletion, and concurrent registration versus retirement/deletion produce controlled results without broken links.
-- [ ] 2.3 Implement append-only catalog creation and normalized JSON ingestion with size/row bounds, exact-repeat reuse, and atomic conflicting-row rejection. Verify repeated keys inside one upload, concurrent imports, invalid rows, and no partial writes in PostgreSQL tests.
-- [ ] 2.4 Add catalog APIs with D4 statuses, read/write roles, CSRF, search, and pagination. Verify real HTTP requests cover exact payloads, 20-row pages, denied roles, and 405 update/delete for immutable catalogs; disable framework-admin mutation bypasses.
+- [x] 2.1 Add terminology and medication models with D2 source/version identities, metadata, protected links, and constraints. Verify PostgreSQL uniqueness/required-field tests and fresh migration application; preserve the existing Specialty table.
+- [x] 2.2 Implement specialty create/edit/retire/delete services with immutable codes and protected deletion. Verify duplicate input, referenced deletion, and concurrent registration versus retirement/deletion produce controlled results without broken links.
+- [x] 2.3 Implement append-only catalog creation and normalized JSON ingestion with size/row bounds, exact-repeat reuse, and atomic conflicting-row rejection. Verify repeated keys inside one upload, concurrent imports, invalid rows, and no partial writes in PostgreSQL tests.
+- [x] 2.4 Add catalog APIs with D4 statuses, read/write roles, CSRF, search, and pagination. Verify real HTTP requests cover exact payloads, 20-row pages, denied roles, and 405 update/delete for immutable catalogs; disable framework-admin mutation bypasses.
 - [ ] 2.5 Add Catalogs navigation, specialty forms/confirmation, nomenclature/medication entry forms, and JSON upload/results screens. Verify B1 starts at signed-out `/`, uses a non-staff administrator, persists all intended changes through visible controls, and exercises ordinary POST without JavaScript.
 
 ## 3. FHIR R4 contract and export components

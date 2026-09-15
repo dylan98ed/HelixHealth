@@ -3,10 +3,10 @@
 from functools import cache
 from pathlib import Path
 
-from defusedxml.common import DefusedXmlException
-from defusedxml.ElementTree import fromstring
-from fhir.resources.bundle import Bundle
-from lxml import etree
+from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]
+from defusedxml.ElementTree import fromstring  # type: ignore[import-untyped]
+from fhir.resources.bundle import Bundle  # type: ignore[import-untyped]
+from lxml import etree  # type: ignore[import-untyped]
 from pydantic import ValidationError
 
 FHIR_R4_ASSETS_DIR = Path(__file__).parent / "validation_assets" / "fhir-r4"
