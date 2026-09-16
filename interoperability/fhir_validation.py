@@ -2,6 +2,7 @@
 
 from functools import cache
 from pathlib import Path
+from xml.etree.ElementTree import ParseError
 
 from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]
 from defusedxml.ElementTree import fromstring  # type: ignore[import-untyped]
@@ -51,6 +52,7 @@ def validate_fhir_r4_bundle(xml: bytes) -> Bundle:
         return Bundle.parse_raw(xml, content_type="text/xml")
     except (
         DefusedXmlException,
+        ParseError,
         etree.DocumentInvalid,
         etree.XMLSyntaxError,
         ValidationError,

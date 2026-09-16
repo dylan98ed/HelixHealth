@@ -36,6 +36,11 @@ def test_checked_in_r4_assets_reject_an_invalid_bundle() -> None:
         )
 
 
+def test_validation_normalizes_malformed_xml() -> None:
+    with pytest.raises(FhirValidationError):
+        validate_fhir_r4_bundle(b"<Bundle>")
+
+
 def test_validation_rejects_external_entities_before_any_resolution() -> None:
     unsafe_xml = b"""<?xml version="1.0"?>
     <!DOCTYPE Bundle [<!ENTITY remote SYSTEM "https://invalid.example/fhir.xml">]>
