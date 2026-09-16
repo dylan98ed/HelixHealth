@@ -11,17 +11,44 @@
     <a class="ms-3" href="{% url 'prescriptions:list' patient.pk %}">Prescriptions</a>
   </header>
 
-  {% include "clinical_records/_admission_form.html" %}
+  <div class="admission-layout">
+    <aside class="patient-summary form-panel" aria-labelledby="patient-summary-heading">
+      <p class="eyebrow">Current patient</p>
+      <h2 class="h5 mb-4" id="patient-summary-heading">Patient details</h2>
+      <dl class="record-details">
+        <dt>Clinical record</dt>
+        <dd>{{ patient.clinical_record_number }}</dd>
+        <dt>DNI</dt>
+        <dd>{{ patient.dni }}</dd>
+        <dt>Date of birth</dt>
+        <dd>{{ patient.date_of_birth|date:"d M Y" }}</dd>
+        <dt>Sex</dt>
+        <dd>{{ patient.sex }}</dd>
+        <dt>Phone</dt>
+        <dd>{{ patient.phone }}</dd>
+        <dt>Email</dt>
+        <dd>{{ patient.email }}</dd>
+        <dt>Address</dt>
+        <dd>{{ patient.address }}</dd>
+        <dt>Health insurer</dt>
+        <dd>{{ patient.health_insurer }}</dd>
+      </dl>
+    </aside>
 
-  <section class="mt-5" aria-labelledby="history-heading">
-    <h2 id="history-heading">Admission history</h2>
-    {% for admission in admissions %}
-      {% include "clinical_records/_admission_record.html" %}
-    {% empty %}
-      <p>No admissions have been recorded.</p>
-    {% endfor %}
-    {% include "_pagination.html" with page_obj=admissions_page page_parameter="history_page" label="Admission history" %}
-  </section>
+    <main class="admission-content">
+      {% include "clinical_records/_admission_form.html" %}
+
+      <section class="mt-5" aria-labelledby="history-heading">
+        <h2 id="history-heading">Admission history</h2>
+        {% for admission in admissions %}
+          {% include "clinical_records/_admission_record.html" %}
+        {% empty %}
+          <p>No admissions have been recorded.</p>
+        {% endfor %}
+        {% include "_pagination.html" with page_obj=admissions_page page_parameter="history_page" label="Admission history" %}
+      </section>
+    </main>
+  </div>
 {% endblock %}
 
 {% block extra_scripts %}

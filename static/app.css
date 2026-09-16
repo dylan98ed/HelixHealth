@@ -580,6 +580,41 @@ a:focus-visible,button:focus-visible{
   grid-template-columns:1fr 1fr;
   gap:24px
 }
+.admission-layout{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(280px,340px);
+  align-items:start;
+  gap:28px
+}
+.admission-content{
+  grid-column:1;
+  grid-row:1;
+  min-width:0
+}
+.patient-summary{
+  grid-column:2;
+  grid-row:1;
+  position:sticky;
+  top:24px
+}
+.patient-summary .eyebrow{
+  margin-bottom:8px
+}
+.patient-summary .record-details{
+  grid-template-columns:1fr;
+  gap:3px
+}
+.patient-summary .record-details dt{
+  font-size:.7rem;
+  letter-spacing:.08em;
+  text-transform:uppercase
+}
+.patient-summary .record-details dd{
+  margin-bottom:14px
+}
+.patient-summary .record-details dd:last-child{
+  margin-bottom:0
+}
 .record-details{
   display:grid;
   grid-template-columns:130px minmax(0,1fr);
@@ -615,6 +650,16 @@ a:focus-visible,button:focus-visible{
   }
 }
 @media(max-width:991px){
+  .admission-layout{
+    grid-template-columns:1fr
+  }
+  .admission-content,.patient-summary{
+    grid-column:auto;
+    grid-row:auto
+  }
+  .patient-summary{
+    position:static
+  }
   .app-nav{
     gap:20px
   }

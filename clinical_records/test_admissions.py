@@ -538,6 +538,33 @@ def test_patient_admission_history_is_paginated(client, user_factory):
 
 
 @pytest.mark.django_db
+def test_patient_admission_page_shows_the_current_patients_complete_details(
+    client, user_factory
+):
+    patient = Patient.objects.create(**patient_attributes())
+    user, _ = create_professional_user(user_factory)
+    client.force_login(user)
+
+    response = client.get(
+        reverse("clinical_records:patient-admissions", args=[patient.pk])
+    )
+
+    assert response.status_code == 200
+    assert b"Patient details" in response.content
+    for value in (
+        patient.clinical_record_number,
+        patient.dni,
+        patient.date_of_birth.strftime("%d %b %Y"),
+        patient.sex,
+        patient.phone,
+        patient.email,
+        patient.address,
+        patient.health_insurer,
+    ):
+        assert value.encode() in response.content
+
+
+@pytest.mark.django_db
 def test_medical_search_finds_active_patient_and_links_to_admission_form(
     client,
     user_factory,

@@ -657,6 +657,18 @@ def test_medical_professional_records_admission_through_ui(
     expect(
         browser_page.get_by_role("heading", name="Patient admission")
     ).to_be_visible()
+    patient_summary = browser_page.get_by_role("complementary", name="Patient details")
+    for value in (
+        browser_admission_patient.clinical_record_number,
+        browser_admission_patient.dni,
+        browser_admission_patient.date_of_birth.strftime("%d %b %Y"),
+        browser_admission_patient.sex,
+        browser_admission_patient.phone,
+        browser_admission_patient.email,
+        browser_admission_patient.address,
+        browser_admission_patient.health_insurer,
+    ):
+        expect(patient_summary.get_by_text(value, exact=True)).to_be_visible()
     browser_page.get_by_label("Consultation reason").fill("Browser headache")
     browser_page.get_by_label("Systolic blood pressure").fill("251")
     browser_page.get_by_label("Heart rate").fill("72")
