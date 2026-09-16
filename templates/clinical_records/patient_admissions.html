@@ -8,6 +8,7 @@
     <p class="lead mb-1">{{ patient.first_name }} {{ patient.last_name }}</p>
     <p>Clinical record number: {{ patient.clinical_record_number }}</p>
     <a href="{% url 'clinical_records:admission-search' %}">Find another patient</a>
+    <a class="ms-3" href="{% url 'prescriptions:list' patient.pk %}">Prescriptions</a>
   </header>
 
   {% include "clinical_records/_admission_form.html" %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Prescription report · HelixHealth{% endblock %}
+{% block content %}
+  <article class="prescription-report">
+    <h1>Medication prescription</h1>
+    <p><strong>Identifier:</strong> {{ prescription.identifier }}<br><strong>Issued:</strong> {{ prescription.issued_at }}</p>
+    <h2>Patient</h2><p>{{ prescription.snapshot.patient.first_name }} {{ prescription.snapshot.patient.last_name }} · DNI {{ prescription.snapshot.patient.dni }}</p>
+    <h2>Prescriber</h2><p>{{ prescription.snapshot.prescriber.first_name }} {{ prescription.snapshot.prescriber.last_name }} · {{ prescription.snapshot.prescriber.registration_number }}</p>
+    <h2>Directions</h2><ol>{% for item in prescription.items.all %}<li><strong>{{ item.snapshot.medication.display }}</strong>: {{ item.dose_value }} {{ item.dose_unit }}, {{ item.route }}, {{ item.frequency }}, for {{ item.duration_days }} days{% if item.instructions %}; {{ item.instructions }}{% endif %}</li>{% endfor %}</ol>
+  </article>
+{% endblock %}

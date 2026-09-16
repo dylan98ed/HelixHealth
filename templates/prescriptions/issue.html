@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}New prescription · HelixHealth{% endblock %}
+{% block content %}
+  <header class="mb-4"><h1>New prescription</h1><p class="lead">{{ patient.first_name }} {{ patient.last_name }}</p></header>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ header.request_key }}
+    {{ header.non_field_errors }}
+    <div class="mb-3">{{ header.reason_entry_id.label_tag }} {{ header.reason_entry_id }} {{ header.reason_entry_id.errors }}</div>
+    {{ formset.management_form }}
+    {% for item in formset %}
+      <fieldset class="card mb-3"><div class="card-body">
+        <legend class="h5">Medication {{ forloop.counter }}</legend>
+        {{ item.non_field_errors }}
+        {% for field in item.visible_fields %}<div class="mb-3">{{ field.label_tag }} {{ field }} {{ field.errors }}</div>{% endfor %}
+      </div></fieldset>
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Issue prescription</button>
+    <a class="btn btn-outline-secondary" href="{% url 'prescriptions:list' patient.pk %}">Cancel</a>
+  </form>
+{% endblock %}

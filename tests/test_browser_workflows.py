@@ -16,6 +16,7 @@ from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
+from prescriptions.models import Prescription, PrescriptionItem
 from professionals.models import HospitalService, Professional, Specialty
 from tests.professional_journeys import fill_professional_registration
 
@@ -1475,3 +1476,94 @@ def test_non_staff_administrator_manages_catalogs_through_visible_no_javascript_
             persisted_counts
         ).result()
     assert (specialty_count, terminology_count, medication_count) == (0, 1, 2)
+
+
+@pytest.fixture
+def browser_prescription_medication(browser_medical_professional):
+    return MedicationEntry.objects.create(
+        system="https://catalog.example.test/medications",
+        version="2026-09",
+        code="BROWSER-RX-1",
+        name="Browser prescription medication",
+        presentation="400 mg tablet",
+        source_label="Browser prerequisite catalog",
+        created_by=browser_medical_professional,
+    )
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
+    browser_medical_professional,
+    browser_admission_patient,
+    browser_prescription_medication,
+    browser,
+    live_server,
+):
+    """B2: signed-out doctor corrects input and issues one persisted prescription."""
+
+    medication_id = browser_prescription_medication.pk
+    patient_id = browser_admission_patient.pk
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_role("link", name="Prescriptions", exact=True).click()
+        page.get_by_role("link", name="New prescription", exact=True).click()
+        page.get_by_label("Medication", exact=True).nth(0).select_option(
+            label="BROWSER-RX-1 â€” Browser prescription medication (2026-09)"
+        )
+        page.get_by_label("Dose value", exact=True).nth(0).fill("0")
+        page.get_by_label("Dose unit", exact=True).nth(0).fill("mg")
+        page.get_by_label("Route", exact=True).nth(0).fill("oral")
+        page.get_by_label("Frequency", exact=True).nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days", exact=True).nth(0).fill("5")
+        page.get_by_label("Medication", exact=True).nth(1).select_option(
+            str(medication_id)
+        )
+        page.get_by_label("Dose value", exact=True).nth(1).fill("200")
+        page.get_by_label("Dose unit", exact=True).nth(1).fill("mg")
+        page.get_by_label("Route", exact=True).nth(1).fill("oral")
+        page.get_by_label("Frequency", exact=True).nth(1).fill("at night")
+        page.get_by_label("Duration days", exact=True).nth(1).fill("3")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(
+            page.get_by_text("Ensure this value is greater than or equal to 0.0001.")
+        ).to_be_visible()
+        page.get_by_label("Dose value", exact=True).nth(0).fill("400")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
+        expect(page).to_have_url(re.compile(r"/prescriptions/[0-9a-f-]+/$"))
+        page.get_by_role("link", name="Printable report", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="Medication prescription")
+        ).to_be_visible()
+        page.go_back()
+        with page.expect_download() as download_info:
+            page.get_by_role("link", name="Download FHIR XML", exact=True).click()
+        assert download_info.value.suggested_filename.startswith("prescription-")
+
+    def saved_state() -> tuple[int, int]:
+        try:
+            return (
+                Prescription.objects.filter(patient_id=patient_id).count(),
+                PrescriptionItem.objects.filter(
+                    prescription__patient_id=patient_id,
+                    medication_id=medication_id,
+                ).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(saved_state).result() == (1, 2)
