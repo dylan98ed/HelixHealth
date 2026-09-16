@@ -502,9 +502,11 @@ def test_superuser_creates_user_through_admin(
 @pytest.mark.django_db(transaction=True)
 def test_administrative_user_registers_patient_through_ui(
     browser_patient_administrator,
+    browser_superuser,
     next_clinical_record_number,
     live_server,
     browser_page,
+    browser,
 ):
     login_through_application(
         browser_page,
@@ -570,6 +572,20 @@ def test_administrative_user_registers_patient_through_ui(
     expect(browser_page.get_by_text("Inactive", exact=True)).to_be_visible()
     expect(browser_page.get_by_role("link", name="Edit patient")).to_have_count(0)
     expect(browser_page.get_by_role("link", name="Deactivate patient")).to_have_count(0)
+
+    with browser.new_context() as admin_context:
+        admin_page = admin_context.new_page()
+        login_through_admin(
+            admin_page,
+            live_server.url,
+            username=browser_superuser.username,
+            password=TEST_PASSWORD,
+        )
+        admin_page.get_by_role("link", name="Patients", exact=True).click()
+        admin_page.locator("#changelist-filter").get_by_role(
+            "link", name="No", exact=True
+        ).click()
+        expect(admin_page.get_by_text("Browser Patient", exact=True)).to_be_visible()
 
 
 @pytest.mark.browser

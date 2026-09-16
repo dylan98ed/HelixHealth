@@ -16,6 +16,10 @@ class PatientAdmin(admin.ModelAdmin):
     search_fields = ("dni", "clinical_record_number", "last_name", "first_name")
     readonly_fields = ("clinical_record_number",)
 
+    def get_queryset(self, request):
+        """Keep retained inactive records available to Django Admin operators."""
+        return Patient.all_objects.all()
+
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = super().get_readonly_fields(request, obj)
         if obj is None:
