@@ -122,6 +122,10 @@ def compose_environment() -> tuple[dict[str, str], str, str]:
         "DJANGO_ENVIRONMENT": "production",
         "DJANGO_SECRET_KEY": secrets.token_urlsafe(50),
         "DJANGO_ALLOWED_HOSTS": "127.0.0.1,localhost",
+        "INTEROPERABILITY_BASE_URI": "https://validation.helixhealth.test/interoperability",
+        "INTEROPERABILITY_INSTITUTION_SYSTEM": "https://validation.helixhealth.test/identifiers/institution",
+        "INTEROPERABILITY_INSTITUTION_CODE": "helixhealth-validation",
+        "INTEROPERABILITY_INSTITUTION_NAME": "HelixHealth Validation Institution",
         # The disposable browser probe uses HTTP. Deployments retain the secure
         # default, which redirects HTTP before serving an authenticated page.
         "DJANGO_SECURE_SSL_REDIRECT": "false",

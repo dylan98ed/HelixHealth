@@ -82,6 +82,18 @@ def database_env(name, *, local_default):
     )
 
 
+def interoperability_env(name, *, local_default):
+    """Read an exchange identity, allowing synthetic values only locally."""
+    value = os.environ.get(name)
+    if value is not None and value.strip():
+        return value.strip().rstrip("/")
+    if ENVIRONMENT in {"development", "test"}:
+        return local_default
+    raise ImproperlyConfigured(
+        f"{name} must be set outside the development and test environments."
+    )
+
+
 # manage.py opts into development; deployed ASGI/WSGI processes default to production.
 DEBUG = env_bool("DJANGO_DEBUG", default=ENVIRONMENT == "development")
 
@@ -235,6 +247,25 @@ CLINICAL_VITAL_SIGN_RANGES = {
         "unit": "degrees Celsius",
     },
 }
+
+# FHIR exchange identities are deliberately deployment configuration.  The
+# synthetic values below are only for disposable development/test environments.
+INTEROPERABILITY_BASE_URI = interoperability_env(
+    "INTEROPERABILITY_BASE_URI",
+    local_default="https://helixhealth.local/interoperability",
+)
+INTEROPERABILITY_INSTITUTION_SYSTEM = interoperability_env(
+    "INTEROPERABILITY_INSTITUTION_SYSTEM",
+    local_default=f"{INTEROPERABILITY_BASE_URI}/identifiers/institution",
+)
+INTEROPERABILITY_INSTITUTION_CODE = interoperability_env(
+    "INTEROPERABILITY_INSTITUTION_CODE",
+    local_default="helixhealth-local",
+)
+INTEROPERABILITY_INSTITUTION_NAME = interoperability_env(
+    "INTEROPERABILITY_INSTITUTION_NAME",
+    local_default="HelixHealth Local Development Institution",
+)
 
 
 # Database

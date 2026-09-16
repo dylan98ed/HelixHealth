@@ -14,9 +14,9 @@
 
 ## 3. FHIR R4 contract and export components
 
-- [ ] 3.1 Deliver `docs/interoperability/fhir-r4/` profile documentation, machine-readable constraints, identifier conventions, configured institution values, and independent positive/negative fixtures. Verify the independent validator accepts the supported R4 examples and rejects mismatched codes, units, references, and unsupported resource types.
-- [ ] 3.2 Implement safe serialization and in-bundle reference generation for Patient, Practitioner, Organization, and admission Observations using D6 codes/units. Verify official R4/profile validation, stable identifiers, correct recorded times, escaping, UTF-8 MIME headers, and no unintended record writes.
-- [ ] 3.3 Implement MedicationRequest and prescription bundle serialization from issuance snapshots, including grouping, dosage fields, and optional reason coding. Verify multi-item output with the independent validator and assert every represented patient/prescriber/medication value matches the supplied snapshot.
+- [x] 3.1 Deliver `docs/interoperability/fhir-r4/` profile documentation, machine-readable constraints, identifier conventions, configured institution values, and independent positive/negative fixtures. Verify the independent validator accepts the supported R4 examples and rejects mismatched codes, units, references, and unsupported resource types.
+- [x] 3.2 Implement safe serialization and in-bundle reference generation for Patient, Practitioner, Organization, and admission Observations using D6 codes/units. Verify official R4/profile validation, stable identifiers, correct recorded times, escaping, UTF-8 MIME headers, and no unintended record writes.
+- [x] 3.3 Implement MedicationRequest and prescription bundle serialization from issuance snapshots, including grouping, dosage fields, and optional reason coding. Verify multi-item output with the independent validator and assert every represented patient/prescriber/medication value matches the supplied snapshot.
 
 ## 4. HU-06 prescriptions and outputs
 
