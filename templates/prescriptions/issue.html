@@ -10,7 +10,8 @@
     {{ formset.management_form }}
     {% for item in formset %}
       <fieldset class="card mb-3"><div class="card-body">
-        <legend class="h5">Medication {{ forloop.counter }}</legend>
+        <legend class="h5">Medication {{ forloop.counter }}{% if not forloop.first %} (optional){% endif %}</legend>
+        {% if forloop.first %}<p class="text-muted">Complete this medication to issue a prescription. Additional medication sections are optional; leave every field blank to issue a single-medication prescription.</p>{% else %}<p class="text-muted">Leave every field in this section blank unless this prescription needs another medication.</p>{% endif %}
         {{ item.non_field_errors }}
         {% for field in item.visible_fields %}<div class="mb-3">{{ field.label_tag }} {{ field }} {{ field.errors }}</div>{% endfor %}
       </div></fieldset>

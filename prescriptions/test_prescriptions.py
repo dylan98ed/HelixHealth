@@ -153,6 +153,25 @@ def test_api_rejects_spoofed_or_unknown_input_without_writing(client, user_facto
 
 
 @pytest.mark.django_db
+def test_anonymous_html_prescription_routes_redirect_to_sign_in(client):
+    patient_pk = 99999
+    identifier = uuid4()
+    routes = (
+        reverse("prescriptions:list", args=[patient_pk]),
+        reverse("prescriptions:issue", args=[patient_pk]),
+        reverse("prescriptions:detail", args=[patient_pk, identifier]),
+        reverse("prescriptions:report", args=[patient_pk, identifier]),
+        reverse("prescriptions:xml", args=[patient_pk, identifier]),
+    )
+
+    for route in routes:
+        response = client.get(route)
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.url.startswith(reverse("login"))
+
+
+@pytest.mark.django_db
 def test_report_and_xml_recheck_current_access(client, user_factory):
     target = patient()
     user, professional = prescriber(user_factory)

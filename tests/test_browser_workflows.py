@@ -1567,3 +1567,55 @@ def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         assert executor.submit(saved_state).result() == (1, 2)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_issues_a_single_medication_prescription_through_visible_workflow(
+    browser_medical_professional,
+    browser_admission_patient,
+    browser_prescription_medication,
+    browser,
+    live_server,
+):
+    """B2 regression: blank optional medication sections do not block issuance."""
+
+    patient_id = browser_admission_patient.pk
+    medication_id = browser_prescription_medication.pk
+    with browser.new_context(java_script_enabled=False) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_role("link", name="Prescriptions", exact=True).click()
+        page.get_by_role("link", name="New prescription", exact=True).click()
+        expect(page.get_by_text("Medication 2 (optional)", exact=True)).to_be_visible()
+        page.get_by_label("Medication", exact=True).nth(0).select_option(
+            str(medication_id)
+        )
+        page.get_by_label("Dose value", exact=True).nth(0).fill("400")
+        page.get_by_label("Dose unit", exact=True).nth(0).fill("mg")
+        page.get_by_label("Route", exact=True).nth(0).fill("oral")
+        page.get_by_label("Frequency", exact=True).nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days", exact=True).nth(0).fill("5")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
+        expect(page.get_by_text("Medication 2 (optional)", exact=True)).to_have_count(0)
+
+    def saved_item_count() -> int:
+        try:
+            return PrescriptionItem.objects.filter(
+                prescription__patient_id=patient_id,
+                medication_id=medication_id,
+            ).count()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(saved_item_count).result() == 1

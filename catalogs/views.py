@@ -313,19 +313,22 @@ def _import_catalog(
     row_errors = None
     if request.method == "POST" and form.is_valid():
         upload = form.cleaned_data["file"]
-        try:
-            result = import_entries(
-                actor=actor_context_from_user(request.user),
-                model=model,
-                payload=upload.read(),
-            )
-        except CatalogInputError as error:
-            row_errors = error.errors.get("entries")
-            form.add_error("file", "The upload contains invalid rows.")
-        except ValidationError as error:
-            _form_validation_errors(form, error)
-        except CatalogConflictError as error:
-            form.add_error("file", str(error))
+        if upload.size > MAX_IMPORT_BYTES:
+            form.add_error("file", "The import must not exceed 2 MiB.")
+        else:
+            try:
+                result = import_entries(
+                    actor=actor_context_from_user(request.user),
+                    model=model,
+                    payload=upload.read(),
+                )
+            except CatalogInputError as error:
+                row_errors = error.errors.get("entries")
+                form.add_error("file", "The upload contains invalid rows.")
+            except ValidationError as error:
+                _form_validation_errors(form, error)
+            except CatalogConflictError as error:
+                form.add_error("file", str(error))
     return render(
         request,
         "catalogs/import_form.html",

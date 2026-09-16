@@ -16,7 +16,7 @@ from rest_framework.response import Response
 
 from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import IsActiveMedicalProfessionalActor
-from clinical_records.services import active_professional_for_actor
+from clinical_records.views import medical_professional_required
 from patients.models import Patient
 from prescriptions.forms import PrescriptionHeaderForm, PrescriptionItemForm
 from prescriptions.models import Prescription
@@ -37,10 +37,6 @@ def _patient_or_404(patient_pk: int) -> Patient:
     return get_object_or_404(Patient.objects, pk=patient_pk)
 
 
-def _authorize(request: HttpRequest) -> None:
-    active_professional_for_actor(actor_context_from_user(request.user))
-
-
 def _prescription_or_404(patient: Patient, identifier: str) -> Prescription:
     try:
         return Prescription.objects.prefetch_related("items").get(
@@ -50,9 +46,9 @@ def _prescription_or_404(patient: Patient, identifier: str) -> Prescription:
         raise Http404 from error
 
 
+@medical_professional_required
 @require_http_methods(["GET"])
 def prescription_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
-    _authorize(request)
     patient = _patient_or_404(patient_pk)
     prescriptions = Paginator(
         Prescription.objects.filter(patient=patient).prefetch_related("items"),
@@ -65,9 +61,9 @@ def prescription_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
     )
 
 
+@medical_professional_required
 @require_http_methods(["GET", "POST"])
 def prescription_issue(request: HttpRequest, patient_pk: int) -> HttpResponse:
-    _authorize(request)
     patient = _patient_or_404(patient_pk)
     from django.forms import formset_factory
 
@@ -132,11 +128,11 @@ def prescription_issue(request: HttpRequest, patient_pk: int) -> HttpResponse:
     )
 
 
+@medical_professional_required
 @require_http_methods(["GET"])
 def prescription_detail(
     request: HttpRequest, patient_pk: int, identifier: str
 ) -> HttpResponse:
-    _authorize(request)
     patient = _patient_or_404(patient_pk)
     return render(
         request,
@@ -148,11 +144,11 @@ def prescription_detail(
     )
 
 
+@medical_professional_required
 @require_http_methods(["GET"])
 def prescription_report(
     request: HttpRequest, patient_pk: int, identifier: str
 ) -> HttpResponse:
-    _authorize(request)
     patient = _patient_or_404(patient_pk)
     return render(
         request,
@@ -164,11 +160,11 @@ def prescription_report(
     )
 
 
+@medical_professional_required
 @require_http_methods(["GET"])
 def prescription_xml(
     request: HttpRequest, patient_pk: int, identifier: str
 ) -> FileResponse:
-    _authorize(request)
     patient = _patient_or_404(patient_pk)
     prescription = _prescription_or_404(patient, identifier)
     response = FileResponse(

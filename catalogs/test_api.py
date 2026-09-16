@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 from django.contrib import admin
 from django.contrib.auth.models import Group
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -13,6 +14,7 @@ from rest_framework.test import APIClient
 
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from catalogs.models import MedicationEntry, TerminologyEntry
+from catalogs.services import MAX_IMPORT_BYTES
 from professionals.admin import SpecialtyAdmin
 from professionals.models import HospitalService, Professional, Specialty
 
@@ -243,3 +245,21 @@ def test_catalog_api_session_authentication_enforces_csrf(administrative_user):
     )
     response = client.post(url, payload, format="json", HTTP_X_CSRFTOKEN=token)
     assert response.status_code == status.HTTP_201_CREATED
+
+
+@pytest.mark.django_db
+def test_catalog_html_import_rejects_oversized_upload_before_reading(
+    client, administrative_user
+):
+    client.force_login(administrative_user)
+    upload = SimpleUploadedFile(
+        "too-large.json",
+        b" " * (MAX_IMPORT_BYTES + 1),
+        content_type="application/json",
+    )
+
+    response = client.post(reverse("catalogs:terminology-import"), {"file": upload})
+
+    assert response.status_code == status.HTTP_200_OK
+    assert "The import must not exceed 2 MiB." in response.content.decode()
+    assert TerminologyEntry.objects.count() == 0
