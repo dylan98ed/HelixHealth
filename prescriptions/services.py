@@ -186,10 +186,14 @@ def issue_prescription(
             medication_id = int(raw.get("medication_id", 0))
             dose = Decimal(str(raw.get("dose_value", "")))
             if not dose.is_finite() or dose <= 0:
-                raise ValueError
+                errors[f"{prefix}.dose_value"] = ["Enter a positive dose."]
             duration = int(raw.get("duration_days", 0))
             if not 1 <= duration <= 365:
-                raise ValueError
+                errors[f"{prefix}.duration_days"] = [
+                    "Enter a duration from 1 to 365 days."
+                ]
+            if f"{prefix}.dose_value" in errors or f"{prefix}.duration_days" in errors:
+                continue
             medication_ids.append(medication_id)
             normalized_items.append(
                 {
@@ -210,7 +214,9 @@ def issue_prescription(
                 errors[f"{prefix}.instructions"] = [
                     "Ensure this value has at most 2000 characters."
                 ]
-        except (ArithmeticError, TypeError, ValueError, PrescriptionInputError):
+        except PrescriptionInputError as error:
+            errors.update(error.message_dict)
+        except (ArithmeticError, TypeError, ValueError):
             errors[prefix] = [
                 "Enter a known medication, positive dose, and duration from 1 to 365 days."
             ]

@@ -46,6 +46,23 @@ def _prescription_or_404(patient: Patient, identifier: str) -> Prescription:
         raise Http404 from error
 
 
+def _add_issuance_errors(
+    header: PrescriptionHeaderForm, formset: object, error: PrescriptionInputError
+) -> None:
+    """Attach item validation messages to their visible no-JavaScript fields."""
+    forms = getattr(formset, "forms", ())
+    for name, messages in error.message_dict.items():
+        prefix, separator, field_name = name.partition(".")
+        if prefix == "items" and separator:
+            index_text, separator, field_name = field_name.partition(".")
+            if separator and index_text.isdigit() and int(index_text) < len(forms):
+                for message in messages:
+                    forms[int(index_text)].add_error(field_name, message)
+                continue
+        for message in messages:
+            header.add_error(None, message)
+
+
 @medical_professional_required
 @require_http_methods(["GET"])
 def prescription_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
@@ -101,14 +118,7 @@ def prescription_issue(request: HttpRequest, patient_pk: int) -> HttpResponse:
                 items=item_data,
             )
         except PrescriptionInputError as error:
-            header.add_error(
-                None,
-                "; ".join(
-                    message
-                    for messages in error.message_dict.values()
-                    for message in messages
-                ),
-            )
+            _add_issuance_errors(header, formset, error)
         except PrescriptionConflictError as error:
             header.add_error(None, str(error))
         else:
@@ -230,6 +240,7 @@ class PrescriptionCollectionAPIView(GenericAPIView):
 
 class PrescriptionDetailAPIView(GenericAPIView):
     permission_classes = [IsActiveMedicalProfessionalActor]
+    serializer_class = PrescriptionSerializer
 
     def get(self, request: Request, patient_pk: int, identifier: str) -> Response:
         prescription = _prescription_or_404(_patient_or_404(patient_pk), identifier)

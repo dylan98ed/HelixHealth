@@ -581,11 +581,18 @@ def test_administrative_user_registers_patient_through_ui(
             username=browser_superuser.username,
             password=TEST_PASSWORD,
         )
-        admin_page.get_by_role("link", name="Patients", exact=True).click()
+        admin_page.locator("#patients-patient").get_by_role(
+            "link", name="Patients", exact=True
+        ).click()
         admin_page.locator("#changelist-filter").get_by_role(
             "link", name="No", exact=True
         ).click()
-        expect(admin_page.get_by_text("Browser Patient", exact=True)).to_be_visible()
+        expect(
+            admin_page.get_by_role(
+                "row",
+                name=re.compile(r"HC-\d+ 24681357 Patient Browser False"),
+            )
+        ).to_be_visible()
 
 
 @pytest.mark.browser
@@ -1548,27 +1555,21 @@ def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
         ).click()
         page.get_by_role("link", name="Prescriptions", exact=True).click()
         page.get_by_role("link", name="New prescription", exact=True).click()
-        page.get_by_label("Medication", exact=True).nth(0).select_option(
-            label="BROWSER-RX-1 â€” Browser prescription medication (2026-09)"
-        )
-        page.get_by_label("Dose value", exact=True).nth(0).fill("0")
-        page.get_by_label("Dose unit", exact=True).nth(0).fill("mg")
-        page.get_by_label("Route", exact=True).nth(0).fill("oral")
-        page.get_by_label("Frequency", exact=True).nth(0).fill("every 8 hours")
-        page.get_by_label("Duration days", exact=True).nth(0).fill("5")
-        page.get_by_label("Medication", exact=True).nth(1).select_option(
-            str(medication_id)
-        )
-        page.get_by_label("Dose value", exact=True).nth(1).fill("200")
-        page.get_by_label("Dose unit", exact=True).nth(1).fill("mg")
-        page.get_by_label("Route", exact=True).nth(1).fill("oral")
-        page.get_by_label("Frequency", exact=True).nth(1).fill("at night")
-        page.get_by_label("Duration days", exact=True).nth(1).fill("3")
+        page.get_by_label("Medication").nth(0).select_option(str(medication_id))
+        page.get_by_label("Dose value").nth(0).fill("0")
+        page.get_by_label("Dose unit").nth(0).fill("mg")
+        page.get_by_label("Route").nth(0).fill("oral")
+        page.get_by_label("Frequency").nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days").nth(0).fill("5")
+        page.get_by_label("Medication").nth(1).select_option(str(medication_id))
+        page.get_by_label("Dose value").nth(1).fill("200")
+        page.get_by_label("Dose unit").nth(1).fill("mg")
+        page.get_by_label("Route").nth(1).fill("oral")
+        page.get_by_label("Frequency").nth(1).fill("at night")
+        page.get_by_label("Duration days").nth(1).fill("3")
         page.get_by_role("button", name="Issue prescription", exact=True).click()
-        expect(
-            page.get_by_text("Ensure this value is greater than or equal to 0.0001.")
-        ).to_be_visible()
-        page.get_by_label("Dose value", exact=True).nth(0).fill("400")
+        expect(page.get_by_text("Enter a positive dose.")).to_be_visible()
+        page.get_by_label("Dose value").nth(0).fill("400")
         page.get_by_role("button", name="Issue prescription", exact=True).click()
         expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
         expect(page).to_have_url(re.compile(r"/prescriptions/[0-9a-f-]+/$"))
@@ -1624,14 +1625,12 @@ def test_doctor_issues_a_single_medication_prescription_through_visible_workflow
         page.get_by_role("link", name="Prescriptions", exact=True).click()
         page.get_by_role("link", name="New prescription", exact=True).click()
         expect(page.get_by_text("Medication 2 (optional)", exact=True)).to_be_visible()
-        page.get_by_label("Medication", exact=True).nth(0).select_option(
-            str(medication_id)
-        )
-        page.get_by_label("Dose value", exact=True).nth(0).fill("400")
-        page.get_by_label("Dose unit", exact=True).nth(0).fill("mg")
-        page.get_by_label("Route", exact=True).nth(0).fill("oral")
-        page.get_by_label("Frequency", exact=True).nth(0).fill("every 8 hours")
-        page.get_by_label("Duration days", exact=True).nth(0).fill("5")
+        page.get_by_label("Medication").nth(0).select_option(str(medication_id))
+        page.get_by_label("Dose value").nth(0).fill("400")
+        page.get_by_label("Dose unit").nth(0).fill("mg")
+        page.get_by_label("Route").nth(0).fill("oral")
+        page.get_by_label("Frequency").nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days").nth(0).fill("5")
         page.get_by_role("button", name="Issue prescription", exact=True).click()
         expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
         expect(page.get_by_text("Medication 2 (optional)", exact=True)).to_have_count(0)

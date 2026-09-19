@@ -20,10 +20,10 @@
 
 ## 4. HU-06 prescriptions and outputs
 
-- [ ] 4.1 Add prescription/item models, immutable snapshots, request-key constraints, and stored XML field. Verify clean migrations, protected references, positive doses/durations, unique item order, and no mutable framework-admin surface.
-- [ ] 4.2 Implement atomic issuance from the authenticated prescriber with D5 access locks, item validation, snapshot capture, and validated XML generation before commit. Verify spoofed fields, unknown medication, invalid directions, inactive patients or denied clinical access, and serializer failure leave no partial prescription.
-- [ ] 4.3 Implement request-key replay/conflict handling and history/detail/report/XML endpoints. Verify identical concurrent retry creates one prescription, changed retry returns 409, post-issuance patient/professional edits preserve report/XML content, and unauthorized retrieval discloses no clinical output.
-- [ ] 4.4 Add patient Prescriptions list, medication selection, issuance form, detail, printable report, and XML download controls. Verify B2 from signed-out `/`, invalid-then-valid input, multiple items, ordinary POST, repeated submit, final destinations, downloaded content, and persisted counts.
+- [x] 4.1 Add prescription/item models, immutable snapshots, request-key constraints, and stored XML field. Verify clean migrations, protected references, positive doses/durations, unique item order, and no mutable framework-admin surface.
+- [x] 4.2 Implement atomic issuance from the authenticated prescriber with D5 access locks, item validation, snapshot capture, and validated XML generation before commit. Verify spoofed fields, unknown medication, invalid directions, inactive patients or denied clinical access, and serializer failure leave no partial prescription.
+- [x] 4.3 Implement request-key replay/conflict handling and history/detail/report/XML endpoints. Verify identical concurrent retry creates one prescription, changed retry returns 409, post-issuance patient/professional edits preserve report/XML content, and unauthorized retrieval discloses no clinical output.
+- [x] 4.4 Add patient Prescriptions list, medication selection, issuance form, detail, printable report, and XML download controls. Verify B2 from signed-out `/`, invalid-then-valid input, multiple items, ordinary POST, repeated submit, final destinations, downloaded content, and persisted counts.
 
 ## 5. HU-07 external import and patient exchange
 
