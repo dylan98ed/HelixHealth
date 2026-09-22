@@ -110,6 +110,35 @@ def test_import_is_atomic_idempotent_and_retains_external_provenance(user_factor
 
 
 @pytest.mark.django_db
+def test_import_rejects_reused_external_record_with_changed_author(user_factory):
+    target = patient()
+    user, _ = professional(user_factory)
+    xml = FIXTURE.read_bytes()
+    import_external_bundle(
+        actor=actor(user),
+        patient=target,
+        source_system=SOURCE_SYSTEM,
+        request_key=uuid4(),
+        xml=xml,
+    )
+
+    with pytest.raises(ImportConflictError, match="different content"):
+        import_external_bundle(
+            actor=actor(user),
+            patient=target,
+            source_system=SOURCE_SYSTEM,
+            request_key=uuid4(),
+            xml=xml.replace(b"EXT-001", b"EXT-002"),
+        )
+
+    assert ImportBatch.objects.count() == 1
+    assert (
+        ExternalClinicalRecord.objects.get().external_author["identifier_value"]
+        == "EXT-001"
+    )
+
+
+@pytest.mark.django_db
 def test_import_api_rejects_unsafe_or_wrong_mime_without_writes(client, user_factory):
     target = patient()
     user, _ = professional(user_factory)

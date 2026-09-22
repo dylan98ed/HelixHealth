@@ -108,6 +108,21 @@ def test_independent_profile_fixtures_cover_acceptance_and_rejection() -> None:
             validate_helixhealth_profile(source)
 
 
+def test_profile_rejects_entry_operation_metadata() -> None:
+    valid = (FIXTURES_DIR / "independent-valid-observation.xml").read_bytes()
+    source = valid.replace(
+        b"</resource></entry>",
+        (
+            b'</resource><request><method value="DELETE"/>'
+            b'<url value="Patient/example"/></request></entry>'
+        ),
+        1,
+    )
+
+    with pytest.raises(FhirValidationError, match="may not include"):
+        validate_helixhealth_profile(source)
+
+
 @pytest.mark.django_db
 def test_admission_export_is_valid_escaped_stable_and_does_not_write() -> None:
     patient = _patient()

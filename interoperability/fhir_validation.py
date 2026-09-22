@@ -219,6 +219,14 @@ def validate_helixhealth_profile(xml: bytes) -> Bundle:
         entries = _resource_entries(root)
         if not entries:
             raise FhirValidationError("The Bundle must contain at least one entry.")
+        if any(
+            entry.find(f"f:{metadata}", NS) is not None
+            for entry, _ in entries
+            for metadata in ("search", "request", "response")
+        ):
+            raise FhirValidationError(
+                "Bundle entries may not include search, request, or response metadata."
+            )
         full_urls = {
             _required(entry, "f:fullUrl", "Bundle entry fullUrl")
             for entry, _ in entries

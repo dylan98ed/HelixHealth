@@ -36,8 +36,18 @@ class ParsedExternalRecord:
 
     @property
     def content_digest(self) -> str:
+        """Hash every immutable value retained for one external record."""
         encoded = json.dumps(
-            self.content, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            {
+                "resource_type": self.resource_type,
+                "kind": self.kind,
+                "source_recorded_at": self.source_recorded_at.isoformat(),
+                "external_author": self.external_author,
+                "content": self.content,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
