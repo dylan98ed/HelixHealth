@@ -8,8 +8,12 @@ from access_control.acceptance_personas import (
     ADMINISTRATIVE_UPDATED_PHONE,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
+    CATALOG_MEDICATION_CODE,
+    CATALOG_SPECIALTY_CODE,
+    CATALOG_TERMINOLOGY_CODE,
     COMPLETED_ACTIVE_PROFESSIONAL_DNI,
     COMPLETED_INACTIVE_PROFESSIONAL_DNI,
+    EXTERNAL_IMPORT_SOURCE_SYSTEM,
     LEGACY_COMPLETE_ACTIVE_DNI,
     LEGACY_COMPLETE_ACTIVE_LICENSE,
     LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER,
@@ -38,9 +42,12 @@ from access_control.medical_professionals import (
     has_active_medical_professional_context,
 )
 from access_control.roles import MEDICAL_PROFESSIONAL_GROUP
+from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission
+from interoperability.models import ExternalClinicalRecord, ImportBatch
 from patients.models import Patient
-from professionals.models import Professional
+from prescriptions.models import Prescription, PrescriptionItem
+from professionals.models import Professional, Specialty
 
 
 class Command(BaseCommand):
@@ -74,6 +81,51 @@ class Command(BaseCommand):
 
         if not user_model.objects.filter(username=BROWSER_CREATED_USERNAME).exists():
             failures.append("the Django Admin user creation was not persisted")
+
+        if Specialty.objects.filter(code=CATALOG_SPECIALTY_CODE).exists():
+            failures.append("the unreferenced catalog specialty was not deleted")
+        if not TerminologyEntry.objects.filter(code=CATALOG_TERMINOLOGY_CODE).exists():
+            failures.append("the catalog terminology entry was not persisted")
+        medication = MedicationEntry.objects.filter(
+            code=CATALOG_MEDICATION_CODE
+        ).first()
+        if medication is None or medication.name != "Compose prescription medication":
+            failures.append("the catalog medication entry was not persisted")
+
+        acceptance_patient = Patient.all_objects.filter(dni=ACTIVE_PATIENT_DNI).first()
+        if acceptance_patient is None:
+            failures.append("the acceptance patient is missing for clinical checks")
+        else:
+            prescriptions = Prescription.objects.filter(
+                patient=acceptance_patient,
+                prescriber__user__username=MEDICAL_ACTIVE_USERNAME,
+            )
+            if (
+                prescriptions.count() != 1
+                or PrescriptionItem.objects.filter(
+                    prescription__in=prescriptions,
+                    medication__code=CATALOG_MEDICATION_CODE,
+                ).count()
+                != 1
+            ):
+                failures.append("the medical prescription issue was not persisted")
+            imports = ImportBatch.objects.filter(patient=acceptance_patient)
+            if (
+                imports.count() != 1
+                or not imports.filter(
+                    source_system=EXTERNAL_IMPORT_SOURCE_SYSTEM
+                ).exists()
+            ):
+                failures.append(
+                    "the matching external FHIR import was not persisted once"
+                )
+            if (
+                ExternalClinicalRecord.objects.filter(
+                    patient=acceptance_patient
+                ).count()
+                != 1
+            ):
+                failures.append("the external FHIR record was not persisted once")
 
         for username, dni, license_number, active, is_staff in (
             (

@@ -90,3 +90,12 @@ class PrescriptionSerializer(serializers.ModelSerializer):
 
     def get_xml_url(self, value: Prescription) -> str:
         return self._url(value, "xml")
+
+
+class PrescriptionPageSerializer(serializers.Serializer):
+    """The stable 20-item history response returned by the collection endpoint."""
+
+    count = serializers.IntegerField(min_value=0)
+    next = serializers.IntegerField(required=False, allow_null=True)
+    previous = serializers.IntegerField(required=False, allow_null=True)
+    results = PrescriptionSerializer(many=True)

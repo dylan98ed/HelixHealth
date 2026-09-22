@@ -40,12 +40,12 @@ urlpatterns = [
     ),
     path(
         "api/patients/<int:patient_pk>/prescriptions/<uuid:identifier>/report/",
-        views.prescription_report,
+        views.PrescriptionReportAPIView.as_view(),
         name="api-report",
     ),
     path(
         "api/patients/<int:patient_pk>/prescriptions/<uuid:identifier>/xml/",
-        views.prescription_xml,
+        views.PrescriptionXmlAPIView.as_view(),
         name="api-xml",
     ),
 ]

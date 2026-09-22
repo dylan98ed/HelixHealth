@@ -8,7 +8,12 @@ from django.core.paginator import Paginator
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+)
 from rest_framework import status
 from rest_framework.generics import GenericAPIView
 from rest_framework.request import Request
@@ -22,6 +27,7 @@ from prescriptions.forms import PrescriptionHeaderForm, PrescriptionItemForm
 from prescriptions.models import Prescription
 from prescriptions.serializers import (
     PrescriptionIssueSerializer,
+    PrescriptionPageSerializer,
     PrescriptionSerializer,
 )
 from prescriptions.services import (
@@ -194,7 +200,11 @@ class PrescriptionCollectionAPIView(GenericAPIView):
     def _patient(self, patient_pk: int) -> Patient:
         return _patient_or_404(patient_pk)
 
-    @extend_schema(responses={200: PrescriptionSerializer(many=True)})
+    @extend_schema(
+        operation_id="prescription_history",
+        description="Return the patient's immutable prescription history in stable 20-item pages.",
+        responses={200: PrescriptionPageSerializer},
+    )
     def get(self, request: Request, patient_pk: int) -> Response:
         patient = self._patient(patient_pk)
         page = Paginator(
@@ -214,7 +224,56 @@ class PrescriptionCollectionAPIView(GenericAPIView):
         )
 
     @extend_schema(
-        request=PrescriptionIssueSerializer, responses={201: PrescriptionSerializer}
+        operation_id="prescription_issue",
+        description=(
+            "Issue an immutable prescription. Repeating an identical normalized "
+            "request_key returns the original result; changed content returns 409."
+        ),
+        request=PrescriptionIssueSerializer,
+        examples=[
+            OpenApiExample(
+                "Prescription issuance request",
+                request_only=True,
+                value={
+                    "request_key": "7a8c97fe-6a5c-4a3c-94bb-b7495174cd73",
+                    "reason_entry_id": 12,
+                    "items": [
+                        {
+                            "medication_id": 34,
+                            "dose_value": "500",
+                            "dose_unit": "mg",
+                            "route": "oral",
+                            "frequency": "every 8 hours",
+                            "duration_days": 5,
+                            "instructions": "Take with water.",
+                        }
+                    ],
+                },
+            ),
+            OpenApiExample(
+                "Idempotent retry",
+                response_only=True,
+                status_codes=["200"],
+                value={
+                    "identifier": "6a519f10-8bb3-480a-9758-2a8a09cac217",
+                    "issued_at": "2026-09-22T12:00:00Z",
+                    "snapshot": {"patient": {"dni": "12345678"}},
+                    "items": [],
+                    "report_url": "/clinical-records/patients/9/prescriptions/6a519f10-8bb3-480a-9758-2a8a09cac217/report/",
+                    "xml_url": "/clinical-records/patients/9/prescriptions/6a519f10-8bb3-480a-9758-2a8a09cac217/xml/",
+                },
+            ),
+        ],
+        responses={
+            200: PrescriptionSerializer,
+            201: PrescriptionSerializer,
+            400: OpenApiResponse(
+                description="Invalid directions or an unknown catalog entry."
+            ),
+            409: OpenApiResponse(
+                description="The request key was reused with different content."
+            ),
+        },
     )
     def post(self, request: Request, patient_pk: int) -> Response:
         patient = self._patient(patient_pk)
@@ -242,8 +301,40 @@ class PrescriptionDetailAPIView(GenericAPIView):
     permission_classes = [IsActiveMedicalProfessionalActor]
     serializer_class = PrescriptionSerializer
 
+    @extend_schema(
+        operation_id="prescription_detail", responses={200: PrescriptionSerializer}
+    )
     def get(self, request: Request, patient_pk: int, identifier: str) -> Response:
         prescription = _prescription_or_404(_patient_or_404(patient_pk), identifier)
         return Response(
             PrescriptionSerializer(prescription, context={"request": request}).data
         )
+
+
+class PrescriptionReportAPIView(GenericAPIView):
+    """Serve the same printable report as the discoverable prescription screen."""
+
+    permission_classes = [IsActiveMedicalProfessionalActor]
+
+    @extend_schema(
+        description="Return the printable HTML report for an immutable prescription.",
+        responses={(200, "text/html"): OpenApiTypes.STR},
+    )
+    def get(self, request: Request, patient_pk: int, identifier: str) -> HttpResponse:
+        return prescription_report(request._request, patient_pk, identifier)
+
+
+class PrescriptionXmlAPIView(GenericAPIView):
+    """Serve the saved FHIR XML bytes behind the documented API URL."""
+
+    permission_classes = [IsActiveMedicalProfessionalActor]
+
+    @extend_schema(
+        description=(
+            "Download the saved FHIR R4 XML prescription file. The response is "
+            "UTF-8 application/fhir+xml and is never a new issuance."
+        ),
+        responses={(200, "application/fhir+xml"): OpenApiTypes.BINARY},
+    )
+    def get(self, request: Request, patient_pk: int, identifier: str) -> FileResponse:
+        return prescription_xml(request._request, patient_pk, identifier)

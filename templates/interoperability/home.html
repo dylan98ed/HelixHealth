@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Interoperability · HelixHealth{% endblock %}
+{% block content %}
+  <header class="mb-4">
+    <h1>Interoperability</h1>
+    <p class="lead">{{ patient.first_name }} {{ patient.last_name }} · {{ patient.clinical_record_number }}</p>
+    <a class="btn btn-primary" href="{% url 'interoperability:import-upload' patient.pk %}">Import FHIR XML</a>
+    <a class="btn btn-outline-secondary" href="{% url 'clinical_records:patient-admissions' patient.pk %}">Patient record</a>
+  </header>
+  <section class="card mb-4" aria-labelledby="export-heading"><div class="card-body">
+    <h2 class="h4" id="export-heading">Export selected records</h2>
+    <p class="text-muted">Choose admissions or one issued prescription for a FHIR XML file.</p>
+    <form method="post" action="{% url 'interoperability:export' patient.pk %}">
+      {% csrf_token %}
+      {% for admission in admissions %}<div class="form-check"><input class="form-check-input" id="admission-{{ admission.pk }}" type="checkbox" name="admission_ids" value="{{ admission.pk }}"><label class="form-check-label" for="admission-{{ admission.pk }}">Admission {{ admission.created_at }} · {{ admission.consultation_reason }}</label></div>{% endfor %}
+      {% for prescription in prescriptions %}<div class="form-check"><input class="form-check-input" id="prescription-{{ prescription.identifier }}" type="checkbox" name="prescription_ids" value="{{ prescription.identifier }}"><label class="form-check-label" for="prescription-{{ prescription.identifier }}">Prescription {{ prescription.identifier }} · {{ prescription.issued_at }}</label></div>{% endfor %}
+      <button class="btn btn-outline-primary mt-3" type="submit">Export selected XML</button>
+    </form>
+  </div></section>
+  <section aria-label="External import history">
+    <h2 class="h4">External import history</h2>
+    {% for batch in batches %}
+      <article class="card mb-3"><div class="card-body">
+        <h3 class="h5">Import {{ batch.identifier }}</h3>
+        <p>{{ batch.source_system }} · {{ batch.summary.record_count }} clinical record{{ batch.summary.record_count|pluralize }}</p>
+        <a href="{% url 'interoperability:import-detail' patient.pk batch.identifier %}">Open import</a>
+      </div></article>
+    {% empty %}<p>No external clinical files have been imported.</p>{% endfor %}
+    {% include "_pagination.html" with page_obj=batches page_parameter="page" label="External import history" %}
+  </section>
+{% endblock %}

@@ -11,7 +11,12 @@ from django.db.models import Q, QuerySet
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import BasePermission
@@ -634,14 +639,92 @@ class CatalogImportAPIView(GenericAPIView):
 
 
 @extend_schema_view(
-    post=extend_schema(operation_id="catalogs_terminology_import"),
+    post=extend_schema(
+        operation_id="catalogs_terminology_import",
+        description=(
+            "Atomically ingest up to 500 normalized terminology rows (2 MiB). "
+            "Exact repeats are reported as unchanged; a conflicting or invalid row "
+            "rejects the whole upload."
+        ),
+        examples=[
+            OpenApiExample(
+                "Terminology ingestion request",
+                request_only=True,
+                value={
+                    "source_label": "Example terminology release",
+                    "entries": [
+                        {
+                            "system": "http://snomed.info/sct",
+                            "version": "2026-09",
+                            "code": "44054006",
+                            "display": "Diabetes mellitus type 2",
+                        }
+                    ],
+                },
+            ),
+            OpenApiExample(
+                "Atomic ingestion result",
+                response_only=True,
+                status_codes=["200"],
+                value={"created": 1, "unchanged": 0},
+            ),
+        ],
+        responses={
+            200: CatalogImportResultSerializer,
+            400: OpenApiResponse(description="Invalid rows; no entries were saved."),
+            409: OpenApiResponse(
+                description="A stored identity has conflicting content."
+            ),
+            413: OpenApiResponse(description="The JSON payload exceeds 2 MiB."),
+            415: OpenApiResponse(description="Only application/json is accepted."),
+        },
+    ),
 )
 class TerminologyImportAPIView(CatalogImportAPIView):
     model = TerminologyEntry
 
 
 @extend_schema_view(
-    post=extend_schema(operation_id="catalogs_medications_import"),
+    post=extend_schema(
+        operation_id="catalogs_medications_import",
+        description=(
+            "Atomically ingest up to 500 normalized medication rows (2 MiB). "
+            "Corrections require a new source version; saved entries are append-only."
+        ),
+        examples=[
+            OpenApiExample(
+                "Medication ingestion request",
+                request_only=True,
+                value={
+                    "source_label": "Example medication release",
+                    "entries": [
+                        {
+                            "system": "https://catalog.example.test/medications",
+                            "version": "2026-09",
+                            "code": "ACET-500",
+                            "name": "Acetaminophen",
+                            "presentation": "500 mg tablet",
+                        }
+                    ],
+                },
+            ),
+            OpenApiExample(
+                "Exact-repeat result",
+                response_only=True,
+                status_codes=["200"],
+                value={"created": 0, "unchanged": 1},
+            ),
+        ],
+        responses={
+            200: CatalogImportResultSerializer,
+            400: OpenApiResponse(description="Invalid rows; no entries were saved."),
+            409: OpenApiResponse(
+                description="A stored identity has conflicting content."
+            ),
+            413: OpenApiResponse(description="The JSON payload exceeds 2 MiB."),
+            415: OpenApiResponse(description="Only application/json is accepted."),
+        },
+    ),
 )
 class MedicationImportAPIView(CatalogImportAPIView):
     model = MedicationEntry

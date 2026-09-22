@@ -1,5 +1,7 @@
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -14,9 +16,15 @@ from access_control.acceptance_personas import (
     ADMINISTRATOR_USERNAME,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
+    CATALOG_MEDICATION_CODE,
+    CATALOG_MEDICATION_SYSTEM,
+    CATALOG_MEDICATION_VERSION,
+    CATALOG_SPECIALTY_CODE,
+    CATALOG_TERMINOLOGY_CODE,
     COMPLETED_ACTIVE_PROFESSIONAL_DNI,
     COMPLETED_INACTIVE_PROFESSIONAL_DNI,
     DJANGO_ADMIN_USERNAME,
+    EXTERNAL_IMPORT_SOURCE_SYSTEM,
     INACTIVE_PATIENT_DNI,
     LEGACY_COMPLETE_ACTIVE_DNI,
     LEGACY_COMPLETE_ACTIVE_LICENSE,
@@ -44,8 +52,12 @@ from access_control.acceptance_personas import (
 )
 from access_control.actors import actor_context_from_user
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
+from catalogs.models import MedicationEntry, TerminologyEntry
+from catalogs.services import create_catalog_entry, create_specialty, delete_specialty
 from clinical_records.models import Admission
+from interoperability.services import import_external_bundle
 from patients.models import Patient
+from prescriptions.services import issue_prescription
 from professionals.models import Professional
 from professionals.services import register_professional, update_professional
 
@@ -180,11 +192,6 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
         heart_rate=72,
         temperature=Decimal("36.7"),
     )
-    managed_patient = Patient.all_objects.get(dni=ACTIVE_PATIENT_DNI)
-    managed_patient.phone = ADMINISTRATIVE_UPDATED_PHONE
-    managed_patient.is_active = False
-    managed_patient.save(update_fields=["phone", "is_active"])
-
     actor = actor_context_from_user(
         user_model.objects.get(username=ADMINISTRATOR_USERNAME)
     )
@@ -255,5 +262,75 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
         specialty_code="general-medicine",
         hospital_service_code="inpatient-ward",
     )
+
+    temporary_specialty = create_specialty(
+        actor=actor,
+        code=CATALOG_SPECIALTY_CODE,
+        name="Compose catalog specialty",
+    )
+    delete_specialty(actor=actor, specialty=temporary_specialty)
+    terminology, _ = create_catalog_entry(
+        actor=actor,
+        model=TerminologyEntry,
+        values={
+            "system": "https://acceptance.example.test/terminology",
+            "version": CATALOG_MEDICATION_VERSION,
+            "code": CATALOG_TERMINOLOGY_CODE,
+            "display": "Compose terminology",
+            "source_label": "Compose acceptance source",
+        },
+    )
+    medication, _ = create_catalog_entry(
+        actor=actor,
+        model=MedicationEntry,
+        values={
+            "system": CATALOG_MEDICATION_SYSTEM,
+            "version": CATALOG_MEDICATION_VERSION,
+            "code": CATALOG_MEDICATION_CODE,
+            "name": "Compose prescription medication",
+            "presentation": "500 mg tablet",
+            "source_label": "Compose acceptance source",
+        },
+    )
+    acceptance_patient = Patient.objects.get(dni=ACTIVE_PATIENT_DNI)
+    medical_actor = actor_context_from_user(
+        user_model.objects.get(username=MEDICAL_ACTIVE_USERNAME)
+    )
+    issue_prescription(
+        actor=medical_actor,
+        patient=acceptance_patient,
+        request_key=uuid4(),
+        reason_entry_id=terminology.pk,
+        items=[
+            {
+                "medication_id": medication.pk,
+                "dose_value": "500",
+                "dose_unit": "mg",
+                "route": "oral",
+                "frequency": "every 8 hours",
+                "duration_days": 5,
+                "instructions": "",
+            }
+        ],
+    )
+    import_external_bundle(
+        actor=medical_actor,
+        patient=acceptance_patient,
+        request_key=uuid4(),
+        source_system=EXTERNAL_IMPORT_SOURCE_SYSTEM,
+        xml=(
+            Path(
+                "docs/interoperability/fhir-r4/fixtures/independent-valid-observation.xml"
+            )
+            .read_bytes()
+            .replace(b"12345678", ACTIVE_PATIENT_DNI.encode())
+            .replace(b"1980-04-20", b"1990-01-01")
+        ),
+    )
+
+    managed_patient = Patient.all_objects.get(dni=ACTIVE_PATIENT_DNI)
+    managed_patient.phone = ADMINISTRATIVE_UPDATED_PHONE
+    managed_patient.is_active = False
+    managed_patient.save(update_fields=["phone", "is_active"])
 
     call_command("verify_acceptance")

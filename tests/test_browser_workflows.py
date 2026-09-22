@@ -2,6 +2,7 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -14,6 +15,7 @@ from playwright.sync_api import Page, expect
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission
+from interoperability.models import ExternalClinicalRecord, ImportBatch
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
 from prescriptions.models import Prescription, PrescriptionItem
@@ -1404,6 +1406,16 @@ def test_non_staff_administrator_manages_catalogs_through_visible_no_javascript_
 ):
     """B1: each catalog mutation originates in the signed-out product UI."""
 
+    imported_entries = [
+        {
+            "system": "https://medications.example.test",
+            "version": "2026-10",
+            "code": f"BROWSER-IMPORTED-{offset:02d}",
+            "name": f"Imported browser medication {offset:02d}",
+            "presentation": "20 mg tablet",
+        }
+        for offset in range(21)
+    ]
     with browser.new_context(java_script_enabled=False) as context:
         page = context.new_page()
         page.goto(f"{live_server.url}{reverse('home')}")
@@ -1478,30 +1490,26 @@ def test_non_staff_administrator_manages_catalogs_through_visible_no_javascript_
                 "buffer": json.dumps(
                     {
                         "source_label": "Browser imported source",
-                        "entries": [
-                            {
-                                "system": "https://medications.example.test",
-                                "version": "2026-10",
-                                "code": "BROWSER-IMPORTED",
-                                "name": "Imported browser medication",
-                                "presentation": "20 mg tablet",
-                            }
-                        ],
+                        "entries": imported_entries,
                     }
                 ).encode(),
             }
         )
         page.get_by_role("button", name="Import JSON", exact=True).click()
-        expect(page.get_by_role("status")).to_contain_text("Imported 1 new entries")
+        expect(page.get_by_role("status")).to_contain_text("Imported 21 new entries")
+        page.get_by_role("link", name="Back to catalog", exact=True).click()
+        pagination = page.get_by_role("navigation", name="Medications pagination")
+        pagination.get_by_role("link", name="Next", exact=True).click()
+        expect(
+            page.get_by_text("Imported browser medication 20", exact=True)
+        ).to_be_visible()
 
     def persisted_counts() -> tuple[int, int, int]:
         try:
             return (
                 Specialty.objects.filter(code="browser-catalog-specialty").count(),
                 TerminologyEntry.objects.filter(code="BROWSER-TERM").count(),
-                MedicationEntry.objects.filter(
-                    code__in={"BROWSER-MED", "BROWSER-IMPORTED"}
-                ).count(),
+                MedicationEntry.objects.filter(code__startswith="BROWSER-").count(),
             )
         finally:
             connections.close_all()
@@ -1510,7 +1518,7 @@ def test_non_staff_administrator_manages_catalogs_through_visible_no_javascript_
         specialty_count, terminology_count, medication_count = executor.submit(
             persisted_counts
         ).result()
-    assert (specialty_count, terminology_count, medication_count) == (0, 1, 2)
+    assert (specialty_count, terminology_count, medication_count) == (0, 1, 22)
 
 
 @pytest.fixture
@@ -1646,3 +1654,188 @@ def test_doctor_issues_a_single_medication_prescription_through_visible_workflow
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         assert executor.submit(saved_item_count).result() == 1
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_exports_a_visible_admission_through_no_javascript_workflow(
+    browser_medical_professional,
+    browser_admission_patient,
+    browser,
+    live_server,
+    tmp_path,
+):
+    """B3: a signed-out doctor records and exports an admission from visible controls."""
+
+    patient_id = browser_admission_patient.pk
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_label("Consultation reason").fill("Browser FHIR export")
+        page.get_by_label("Systolic blood pressure").fill("120")
+        page.get_by_label("Diastolic blood pressure").fill("80")
+        page.get_by_label("Heart rate").fill("72")
+        page.get_by_label("Temperature").fill("36.7")
+        page.get_by_role("button", name="Record admission", exact=True).click()
+        expect(page.get_by_text("Browser FHIR export", exact=True)).to_be_visible()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.locator('input[name="admission_ids"]').check()
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Export selected XML", exact=True).click()
+        download = download_info.value
+        assert download.suggested_filename.startswith("clinical-export-")
+        export_path = tmp_path / download.suggested_filename
+        download.save_as(export_path)
+        assert b"Observation" in export_path.read_bytes()
+
+    def persisted_admission_count() -> int:
+        try:
+            return Admission.objects.filter(
+                patient_id=patient_id,
+                consultation_reason="Browser FHIR export",
+            ).count()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_admission_count).result() == 1
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_medical_professional_sees_only_clinical_navigation_after_sign_in(
+    browser_medical_professional,
+    browser,
+    live_server,
+):
+    """B5: an active doctor reaches Clinical workspace but not administrator catalogs."""
+
+    with browser.new_context(java_script_enabled=False) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
+        expect(page.get_by_role("link", name="Clinical workspace")).to_be_visible()
+        expect(page.get_by_role("link", name="Catalogs")).to_have_count(0)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
+    browser_medical_professional, browser_admission_patient, browser, live_server
+):
+    """B4: a signed-out doctor imports and downloads one external file."""
+
+    patient_id = browser_admission_patient.pk
+    xml = (
+        Path("docs/interoperability/fhir-r4/fixtures/independent-valid-observation.xml")
+        .read_bytes()
+        .replace(b"12345678", browser_admission_patient.dni.encode())
+        .replace(
+            b"1980-04-20", browser_admission_patient.date_of_birth.isoformat().encode()
+        )
+    )
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.get_by_role("link", name="Import FHIR XML", exact=True).click()
+        page.get_by_label("Source organization system").fill(
+            "https://external.example/identifiers/institution"
+        )
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "wrong-patient.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": (
+                    Path(
+                        "docs/interoperability/fhir-r4/fixtures/independent-valid-observation.xml"
+                    ).read_bytes()
+                ),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_text(
+                "The Bundle Patient DNI and birth date must exactly match the selected patient."
+            )
+        ).to_be_visible()
+
+        def no_partial_import() -> tuple[int, int]:
+            try:
+                return (
+                    ImportBatch.objects.filter(patient_id=patient_id).count(),
+                    ExternalClinicalRecord.objects.filter(
+                        patient_id=patient_id
+                    ).count(),
+                )
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(no_partial_import).result() == (0, 0)
+
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "external-observation.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": xml,
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="External clinical import")
+        ).to_be_visible()
+        with page.expect_download() as download_info:
+            page.get_by_role("link", name="Download original XML", exact=True).click()
+        assert download_info.value.suggested_filename.startswith("import-")
+        page.get_by_role("link", name="Retry this import", exact=True).click()
+        expect(page.get_by_label("Source organization system")).to_have_value(
+            "https://external.example/identifiers/institution"
+        )
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "external-observation-retry.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": xml,
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="External clinical import")
+        ).to_be_visible()
+
+    def persisted_counts() -> tuple[int, int]:
+        try:
+            return (
+                ImportBatch.objects.filter(patient_id=patient_id).count(),
+                ExternalClinicalRecord.objects.filter(patient_id=patient_id).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_counts).result() == (1, 1)

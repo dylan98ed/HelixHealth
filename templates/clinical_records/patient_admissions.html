@@ -9,6 +9,7 @@
     <p>Clinical record number: {{ patient.clinical_record_number }}</p>
     <a href="{% url 'clinical_records:admission-search' %}">Find another patient</a>
     <a class="ms-3" href="{% url 'prescriptions:list' patient.pk %}">Prescriptions</a>
+    <a class="ms-3" href="{% url 'interoperability:home' patient.pk %}">Interoperability</a>
   </header>
 
   <div class="admission-layout">
