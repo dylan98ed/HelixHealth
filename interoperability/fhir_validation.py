@@ -3,6 +3,7 @@
 from functools import cache
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
+from zipfile import ZipFile
 
 from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]
 from defusedxml.ElementTree import fromstring  # type: ignore[import-untyped]
@@ -11,7 +12,8 @@ from lxml import etree  # type: ignore[import-untyped]
 from pydantic import ValidationError
 
 FHIR_R4_ASSETS_DIR = Path(__file__).parent / "validation_assets" / "fhir-r4"
-FHIR_R4_SCHEMA_PATH = FHIR_R4_ASSETS_DIR / "fhir-all.xsd"
+FHIR_R4_SCHEMA_ARCHIVE = FHIR_R4_ASSETS_DIR / "fhir-r4-xsd.zip"
+FHIR_R4_SCHEMA_BASE_URL = "file:///fhir-r4/"
 
 
 class FhirValidationError(ValueError):
@@ -33,9 +35,35 @@ VITAL_UNITS = {"85354-9": "mm[Hg]", "8867-4": "/min", "8310-5": "Cel"}
 
 @cache
 def fhir_r4_schema() -> etree.XMLSchema:
-    """Load the checked-in R4 schema and its local imports without a network fetch."""
-    parser = etree.XMLParser(no_network=True, resolve_entities=False, load_dtd=False)
-    return etree.XMLSchema(etree.parse(str(FHIR_R4_SCHEMA_PATH), parser=parser))
+    """Compile the checked-in R4 XSDs from one archive without network access."""
+
+    class SchemaArchiveResolver(etree.Resolver):
+        def __init__(self, archive: ZipFile) -> None:
+            self.archive = archive
+
+        def resolve(self, url: str, pubid: str, context: object) -> object:
+            if not url.startswith(FHIR_R4_SCHEMA_BASE_URL):
+                raise FhirValidationError(f"Unexpected FHIR schema reference: {url}")
+            name = url.removeprefix(FHIR_R4_SCHEMA_BASE_URL)
+            if "/" in name or name not in self.archive.namelist():
+                raise FhirValidationError(f"Missing FHIR schema: {name}")
+            return self.resolve_string(
+                self.archive.read(name),
+                context,
+                base_url=f"{FHIR_R4_SCHEMA_BASE_URL}{name}",
+            )
+
+    with ZipFile(FHIR_R4_SCHEMA_ARCHIVE) as archive:
+        parser = etree.XMLParser(
+            no_network=True, resolve_entities=False, load_dtd=False
+        )
+        parser.resolvers.add(SchemaArchiveResolver(archive))
+        document = etree.fromstring(
+            archive.read("fhir-all.xsd"),
+            parser=parser,
+            base_url=f"{FHIR_R4_SCHEMA_BASE_URL}fhir-all.xsd",
+        )
+        return etree.XMLSchema(document)
 
 
 def validate_fhir_r4_bundle(xml: bytes) -> Bundle:

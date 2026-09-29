@@ -4,7 +4,7 @@ import pytest
 from django.apps import apps
 
 from interoperability.fhir_validation import (
-    FHIR_R4_SCHEMA_PATH,
+    FHIR_R4_SCHEMA_ARCHIVE,
     FhirValidationError,
     validate_fhir_r4_bundle,
 )
@@ -23,7 +23,7 @@ def test_checked_in_r4_assets_validate_an_independent_bundle() -> None:
         (FIXTURES_DIR / "independent-valid-bundle.xml").read_bytes()
     )
 
-    assert FHIR_R4_SCHEMA_PATH.is_file()
+    assert FHIR_R4_SCHEMA_ARCHIVE.is_file()
     assert bundle.resource_type == "Bundle"
     assert bundle.type == "collection"
     assert bundle.entry[0].resource.resource_type == "Patient"
