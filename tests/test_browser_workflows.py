@@ -1,4 +1,3 @@
-import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
@@ -12,14 +11,18 @@ from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import Page, expect
 
+from access_control.actors import actor_context_from_user
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission
+from interoperability.fhir_validation import validate_fhir_r4_bundle
 from interoperability.models import ExternalClinicalRecord, ImportBatch
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
 from prescriptions.models import Prescription, PrescriptionItem
 from professionals.models import HospitalService, Professional, Specialty
+from professionals.services import register_professional
+from tests.catalog_journeys import import_catalog_and_verify_retries
 from tests.professional_journeys import fill_professional_registration
 
 TEST_PASSWORD = "Browser-test-password-2026!"
@@ -204,19 +207,24 @@ def browser_patient_administrator(user_factory):
 
 
 @pytest.fixture
-def browser_medical_professional(user_factory, browser_professional_references):
+def browser_medical_professional(
+    user_factory, browser_professional_references, browser_patient_administrator
+):
     user = user_factory(
         username="browser-medical-professional",
         password=TEST_PASSWORD,
         is_staff=False,
     )
-    medical_group, _ = Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)
-    user.groups.add(medical_group)
-    create_completed_browser_profile(
-        user,
+    register_professional(
+        actor=actor_context_from_user(browser_patient_administrator),
+        username=user.username,
         dni="06789012",
-        registration_number="PR-BROWSER-MEDICAL",
         license_number="MN 670012",
+        first_name="Browser",
+        last_name="Professional",
+        date_of_birth=date(1990, 1, 1),
+        specialty_code="general-medicine",
+        hospital_service_code="inpatient-ward",
     )
     return user
 
@@ -1406,16 +1414,6 @@ def test_non_staff_administrator_manages_catalogs_through_visible_no_javascript_
 ):
     """B1: each catalog mutation originates in the signed-out product UI."""
 
-    imported_entries = [
-        {
-            "system": "https://medications.example.test",
-            "version": "2026-10",
-            "code": f"BROWSER-IMPORTED-{offset:02d}",
-            "name": f"Imported browser medication {offset:02d}",
-            "presentation": "20 mg tablet",
-        }
-        for offset in range(21)
-    ]
     with browser.new_context(java_script_enabled=False) as context:
         page = context.new_page()
         page.goto(f"{live_server.url}{reverse('home')}")
@@ -1482,34 +1480,14 @@ def test_non_staff_administrator_manages_catalogs_through_visible_no_javascript_
         page.get_by_role("button", name="Save entry", exact=True).click()
         expect(page.get_by_text("Browser medication", exact=True)).to_be_visible()
 
-        page.get_by_role("link", name="Import JSON", exact=True).click()
-        page.get_by_label("Normalized JSON file", exact=True).set_input_files(
-            {
-                "name": "medications.json",
-                "mimeType": "application/json",
-                "buffer": json.dumps(
-                    {
-                        "source_label": "Browser imported source",
-                        "entries": imported_entries,
-                    }
-                ).encode(),
-            }
-        )
-        page.get_by_role("button", name="Import JSON", exact=True).click()
-        expect(page.get_by_role("status")).to_contain_text("Imported 21 new entries")
-        page.get_by_role("link", name="Back to catalog", exact=True).click()
-        pagination = page.get_by_role("navigation", name="Medications pagination")
-        pagination.get_by_role("link", name="Next", exact=True).click()
-        expect(
-            page.get_by_text("Imported browser medication 20", exact=True)
-        ).to_be_visible()
+        import_catalog_and_verify_retries(page)
 
     def persisted_counts() -> tuple[int, int, int]:
         try:
             return (
                 Specialty.objects.filter(code="browser-catalog-specialty").count(),
                 TerminologyEntry.objects.filter(code="BROWSER-TERM").count(),
-                MedicationEntry.objects.filter(code__startswith="BROWSER-").count(),
+                MedicationEntry.objects.count(),
             )
         finally:
             connections.close_all()
@@ -1581,6 +1559,10 @@ def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
         page.get_by_role("button", name="Issue prescription", exact=True).click()
         expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
         expect(page).to_have_url(re.compile(r"/prescriptions/[0-9a-f-]+/$"))
+        issued_url = page.url
+        page.go_back()
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page).to_have_url(issued_url)
         page.get_by_role("link", name="Printable report", exact=True).click()
         expect(
             page.get_by_role("heading", name="Medication prescription")
@@ -1589,6 +1571,14 @@ def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
         with page.expect_download() as download_info:
             page.get_by_role("link", name="Download FHIR XML", exact=True).click()
         assert download_info.value.suggested_filename.startswith("prescription-")
+        bundle = validate_fhir_r4_bundle(Path(download_info.value.path()).read_bytes())
+        assert (
+            sum(
+                entry.resource.resource_type == "MedicationRequest"
+                for entry in bundle.entry
+            )
+            == 2
+        )
 
     def saved_state() -> tuple[int, int]:
         try:
@@ -1696,7 +1686,11 @@ def test_doctor_exports_a_visible_admission_through_no_javascript_workflow(
         assert download.suggested_filename.startswith("clinical-export-")
         export_path = tmp_path / download.suggested_filename
         download.save_as(export_path)
-        assert b"Observation" in export_path.read_bytes()
+        bundle = validate_fhir_r4_bundle(export_path.read_bytes())
+        assert (
+            sum(entry.resource.resource_type == "Observation" for entry in bundle.entry)
+            == 3
+        )
 
     def persisted_admission_count() -> int:
         try:
@@ -1885,6 +1879,7 @@ def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
         with page.expect_download() as download_info:
             page.get_by_role("link", name="Download original XML", exact=True).click()
         assert download_info.value.suggested_filename.startswith("import-")
+        assert Path(download_info.value.path()).read_bytes() == xml
         page.get_by_role("link", name="Retry this import", exact=True).click()
         expect(page.get_by_label("Source organization system")).to_have_value(
             "https://external.example/identifiers/institution"
@@ -1901,14 +1896,16 @@ def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
             page.get_by_role("heading", name="External clinical import")
         ).to_be_visible()
 
-    def persisted_counts() -> tuple[int, int]:
+    def persisted_counts() -> tuple[int, int, int, int]:
         try:
             return (
                 ImportBatch.objects.filter(patient_id=patient_id).count(),
                 ExternalClinicalRecord.objects.filter(patient_id=patient_id).count(),
+                Admission.objects.filter(patient_id=patient_id).count(),
+                Prescription.objects.filter(patient_id=patient_id).count(),
             )
         finally:
             connections.close_all()
 
     with ThreadPoolExecutor(max_workers=1) as executor:
-        assert executor.submit(persisted_counts).result() == (1, 1)
+        assert executor.submit(persisted_counts).result() == (1, 1, 0, 0)

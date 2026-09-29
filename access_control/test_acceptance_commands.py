@@ -55,8 +55,10 @@ from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROU
 from catalogs.models import MedicationEntry, TerminologyEntry
 from catalogs.services import create_catalog_entry, create_specialty, delete_specialty
 from clinical_records.models import Admission
+from interoperability.models import ExternalClinicalRecord, ImportBatch
 from interoperability.services import import_external_bundle
 from patients.models import Patient
+from prescriptions.models import Prescription
 from prescriptions.services import issue_prescription
 from professionals.models import Professional
 from professionals.services import register_professional, update_professional
@@ -70,6 +72,14 @@ def test_seed_acceptance_creates_deterministic_personas(monkeypatch):
 
     call_command("seed_acceptance")
     call_command("seed_acceptance")
+    assert not MedicationEntry.objects.exists()
+    assert not TerminologyEntry.objects.exists()
+    assert not Prescription.objects.exists()
+    assert not ImportBatch.objects.exists()
+    assert not ExternalClinicalRecord.objects.exists()
+    assert not Admission.objects.filter(
+        patient__dni=ACTIVE_PATIENT_DNI, consultation_reason=ADMISSION_REASON
+    ).exists()
 
     user_model = get_user_model()
     django_admin = user_model.objects.get(username=DJANGO_ADMIN_USERNAME)
@@ -170,7 +180,7 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
     call_command("seed_acceptance")
     user_model = get_user_model()
 
-    registered_patient = Patient.objects.create(
+    Patient.objects.create(
         dni=REGISTERED_PATIENT_DNI,
         clinical_record_number="HC-ACCEPTANCE-REGISTERED",
         first_name="Compose",
@@ -184,7 +194,7 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
     )
     user_model.objects.create_user(username=BROWSER_CREATED_USERNAME)
     Admission.objects.create(
-        patient=registered_patient,
+        patient=Patient.objects.get(dni=ACTIVE_PATIENT_DNI),
         professional=Professional.objects.get(user__username=MEDICAL_ACTIVE_USERNAME),
         consultation_reason=ADMISSION_REASON,
         systolic_blood_pressure=120,
@@ -292,6 +302,19 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
             "source_label": "Compose acceptance source",
         },
     )
+    for index in range(21):
+        create_catalog_entry(
+            actor=actor,
+            model=MedicationEntry,
+            values={
+                "system": "https://acceptance.example.test/upload",
+                "version": "2026-09",
+                "code": f"UPLOAD-{index:02d}",
+                "name": f"Uploaded medication {index:02d}",
+                "presentation": "10 mg tablet",
+                "source_label": "Acceptance upload",
+            },
+        )
     acceptance_patient = Patient.objects.get(dni=ACTIVE_PATIENT_DNI)
     medical_actor = actor_context_from_user(
         user_model.objects.get(username=MEDICAL_ACTIVE_USERNAME)
@@ -310,7 +333,16 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
                 "frequency": "every 8 hours",
                 "duration_days": 5,
                 "instructions": "",
-            }
+            },
+            {
+                "medication_id": medication.pk,
+                "dose_value": "250",
+                "dose_unit": "mg",
+                "route": "oral",
+                "frequency": "at night",
+                "duration_days": 3,
+                "instructions": "",
+            },
         ],
     )
     import_external_bundle(

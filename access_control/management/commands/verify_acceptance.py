@@ -92,6 +92,16 @@ class Command(BaseCommand):
         if medication is None or medication.name != "Compose prescription medication":
             failures.append("the catalog medication entry was not persisted")
 
+        if (
+            MedicationEntry.objects.filter(
+                system="https://acceptance.example.test/upload",
+                code__startswith="UPLOAD-",
+            ).count()
+            != 21
+            or MedicationEntry.objects.filter(code="REJECTED-UPLOAD").exists()
+        ):
+            failures.append("catalog upload retry or atomic rejection failed")
+
         acceptance_patient = Patient.all_objects.filter(dni=ACTIVE_PATIENT_DNI).first()
         if acceptance_patient is None:
             failures.append("the acceptance patient is missing for clinical checks")
@@ -106,7 +116,7 @@ class Command(BaseCommand):
                     prescription__in=prescriptions,
                     medication__code=CATALOG_MEDICATION_CODE,
                 ).count()
-                != 1
+                != 2
             ):
                 failures.append("the medical prescription issue was not persisted")
             imports = ImportBatch.objects.filter(patient=acceptance_patient)
@@ -126,6 +136,23 @@ class Command(BaseCommand):
                 != 1
             ):
                 failures.append("the external FHIR record was not persisted once")
+
+        record = ExternalClinicalRecord.objects.filter(
+            patient=acceptance_patient
+        ).first()
+        if record is None or (
+            record.external_author.get("identifier_value") != "EXT-001"
+            or record.content.get("coding", {}).get("code") != "8867-4"
+            or record.source_system != EXTERNAL_IMPORT_SOURCE_SYSTEM
+        ):
+            failures.append("external provenance or observation coding changed")
+        if (
+            Admission.objects.filter(
+                patient=acceptance_patient, consultation_reason=ADMISSION_REASON
+            ).count()
+            != 1
+        ):
+            failures.append("external import changed local admission count")
 
         for username, dni, license_number, active, is_staff in (
             (
