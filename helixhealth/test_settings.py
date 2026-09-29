@@ -29,6 +29,7 @@ def run_settings_probe(*, include_interoperability=True, **environment):
         "DB_USER",
         "DB_PASSWORD",
         "INTEROPERABILITY_BASE_URI",
+        "INTEROPERABILITY_PATIENT_DNI_SYSTEM",
         "INTEROPERABILITY_INSTITUTION_SYSTEM",
         "INTEROPERABILITY_INSTITUTION_CODE",
         "INTEROPERABILITY_INSTITUTION_NAME",
@@ -48,6 +49,7 @@ def run_settings_probe(*, include_interoperability=True, **environment):
         process_environment.update(
             {
                 "INTEROPERABILITY_BASE_URI": "https://hospital.example/interoperability",
+                "INTEROPERABILITY_PATIENT_DNI_SYSTEM": "https://hospital.example/identifiers/dni",
                 "INTEROPERABILITY_INSTITUTION_SYSTEM": "https://hospital.example/identifiers/institution",
                 "INTEROPERABILITY_INSTITUTION_CODE": "hospital-example",
                 "INTEROPERABILITY_INSTITUTION_NAME": "Hospital Example",

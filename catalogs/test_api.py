@@ -263,3 +263,57 @@ def test_catalog_html_import_rejects_oversized_upload_before_reading(
     assert response.status_code == status.HTTP_200_OK
     assert "The import must not exceed 2 MiB." in response.content.decode()
     assert TerminologyEntry.objects.count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind", ["terminology", "medications"])
+def test_single_entry_creation_reuses_exact_retries_and_reports_conflicts(
+    administrator_client, kind
+):
+    payload = terminology_payload("REPLAY")
+    model = TerminologyEntry
+    if kind == "medications":
+        payload["name"] = payload.pop("display")
+        payload["presentation"] = "10 mg tablet"
+        model = MedicationEntry
+    url = reverse(f"catalogs:api-{kind}")
+    created = administrator_client.post(url, payload, format="json")
+    assert created.status_code == 201, created.data
+    replay = administrator_client.post(url, payload, format="json")
+    assert replay.status_code == 200, replay.data
+    assert replay.data["id"] == created.data["id"]
+    conflict = administrator_client.post(
+        url, {**payload, "source_label": "Different source"}, format="json"
+    )
+    assert conflict.status_code == 409
+    assert model.objects.count() == 1
+    assert model.objects.get().source_label == payload["source_label"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("document", "error"),
+    [
+        ({"entries": []}, "This field is required."),
+        ({"source_label": "Test", "entries": []}, "Provide at least one entry."),
+        (
+            {"source_label": "Test", "entries": [], "typo": True},
+            "This field is not allowed.",
+        ),
+    ],
+)
+def test_catalog_upload_displays_envelope_errors(
+    client, administrative_user, document, error
+):
+    client.force_login(administrative_user)
+    response = client.post(
+        reverse("catalogs:terminology-import"),
+        {
+            "file": SimpleUploadedFile(
+                "catalog.json", json.dumps(document).encode(), "application/json"
+            )
+        },
+    )
+    assert response.status_code == 200
+    assert error in response.content.decode()
+    assert TerminologyEntry.objects.count() == 0

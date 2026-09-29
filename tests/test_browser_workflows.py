@@ -1867,6 +1867,26 @@ def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
 
         page.get_by_label("FHIR XML file").set_input_files(
             {
+                "name": "wrong-identifier-system.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": xml.replace(
+                    b"https://helixhealth.local/interoperability/identifiers/dni",
+                    b"https://external.example/identifiers/hospital-record-number",
+                ),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_text(
+                "The Bundle Patient must contain exactly one DNI identifier",
+                exact=False,
+            )
+        ).to_be_visible()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(no_partial_import).result() == (0, 0)
+
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
                 "name": "external-observation.xml",
                 "mimeType": "application/fhir+xml",
                 "buffer": xml,
@@ -1909,3 +1929,99 @@ def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         assert executor.submit(persisted_counts).result() == (1, 1, 0, 0)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("selection_case", ["different-authors", "too-many-admissions"])
+def test_existing_admission_export_selection_errors_are_recoverable(
+    browser_medical_professional,
+    browser_patient_administrator,
+    browser_admission_patient,
+    user_factory,
+    browser,
+    live_server,
+    selection_case,
+):
+    """Export existing history from a cold session; correct selection without writes."""
+    patient_id = browser_admission_patient.pk
+    expected_error = "Select at most 165 admissions per FHIR file."
+    if selection_case == "different-authors":
+        expected_error = "Admissions with different authors require separate exports."
+
+    def create_history() -> int:
+        try:
+            profile = Professional.objects.get(user=browser_medical_professional)
+            profiles = [profile] * 166
+            if selection_case == "different-authors":
+                other = user_factory(username="browser-other-export-author")
+                other_profile = register_professional(
+                    actor=actor_context_from_user(browser_patient_administrator),
+                    username=other.username,
+                    dni="07890123",
+                    license_number="MN 789012",
+                    first_name="Other",
+                    last_name="Author",
+                    date_of_birth=date(1990, 1, 1),
+                    specialty_code="general-medicine",
+                    hospital_service_code="inpatient-ward",
+                )
+                profiles = [profile, other_profile]
+            Admission.objects.bulk_create(
+                [
+                    Admission(
+                        patient=browser_admission_patient,
+                        professional=author,
+                        consultation_reason=f"Existing export history {index}",
+                        systolic_blood_pressure=120,
+                        diastolic_blood_pressure=80,
+                        heart_rate=72,
+                        temperature="36.7",
+                    )
+                    for index, author in enumerate(profiles)
+                ]
+            )
+            return len(profiles)
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        history_count = executor.submit(create_history).result()
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}/")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link", name="Record admission for Admission Patient", exact=True
+        ).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        selection = page.get_by_role("checkbox")
+        for checkbox in selection.all():
+            checkbox.check()
+        page.get_by_role("button", name="Export selected XML", exact=True).click()
+        expect(page.get_by_role("alert")).to_have_text(expected_error)
+        expect(page).to_have_url(re.compile(r"/interoperability/export/$"))
+        for checkbox in selection.all():
+            expect(checkbox).to_be_checked()
+            checkbox.uncheck()
+        selection.first.check()
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Export selected XML", exact=True).click()
+        validate_fhir_r4_bundle(Path(download_info.value.path()).read_bytes())
+
+    def counts():
+        try:
+            return (
+                Admission.objects.filter(patient_id=patient_id).count(),
+                ImportBatch.objects.filter(patient_id=patient_id).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(counts).result() == (history_count, 0)

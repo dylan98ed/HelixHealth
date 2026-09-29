@@ -18,19 +18,26 @@ def import_catalog_and_verify_retries(page: Page) -> None:
         for index in range(21)
     ]
 
-    def upload(rows: list[dict[str, str]]) -> None:
+    def upload(rows: list[dict[str, str]], *, include_source: bool = True) -> None:
+        document: dict[str, object] = {"entries": rows}
+        if include_source:
+            document["source_label"] = "Acceptance upload"
         page.get_by_role("link", name="Import JSON", exact=True).click()
         page.get_by_label("Normalized JSON file", exact=True).set_input_files(
             {
                 "name": "catalog.json",
                 "mimeType": "application/json",
-                "buffer": json.dumps(
-                    {"source_label": "Acceptance upload", "entries": rows}
-                ).encode(),
+                "buffer": json.dumps(document).encode(),
             }
         )
         page.get_by_role("button", name="Import JSON", exact=True).click()
 
+    upload([])
+    expect(page.get_by_role("alert")).to_contain_text("Provide at least one entry.")
+    page.get_by_role("link", name="Back to catalog", exact=True).click()
+    upload(entries, include_source=False)
+    expect(page.get_by_role("alert")).to_contain_text("This field is required.")
+    page.get_by_role("link", name="Back to catalog", exact=True).click()
     upload(entries)
     expect(page.get_by_role("status")).to_contain_text(
         "Imported 21 new entries; 0 unchanged."

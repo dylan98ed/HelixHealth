@@ -43,6 +43,8 @@ class TerminologySerializer(StrictInputMixin, serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = ("id", "created_at")
+        # The transactional service distinguishes exact retries from conflicts.
+        validators: list[object] = []
 
 
 class MedicationSerializer(StrictInputMixin, serializers.ModelSerializer):
@@ -60,6 +62,7 @@ class MedicationSerializer(StrictInputMixin, serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = ("id", "created_at")
+        validators: list[object] = []
 
 
 class CatalogImportSerializer(serializers.Serializer):

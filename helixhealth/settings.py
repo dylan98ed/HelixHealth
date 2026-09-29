@@ -254,6 +254,10 @@ INTEROPERABILITY_BASE_URI = interoperability_env(
     "INTEROPERABILITY_BASE_URI",
     local_default="https://helixhealth.local/interoperability",
 )
+INTEROPERABILITY_PATIENT_DNI_SYSTEM = interoperability_env(
+    "INTEROPERABILITY_PATIENT_DNI_SYSTEM",
+    local_default=f"{INTEROPERABILITY_BASE_URI}/identifiers/dni",
+)
 INTEROPERABILITY_INSTITUTION_SYSTEM = interoperability_env(
     "INTEROPERABILITY_INSTITUTION_SYSTEM",
     local_default=f"{INTEROPERABILITY_BASE_URI}/identifiers/institution",

@@ -193,3 +193,26 @@ def test_report_and_xml_recheck_current_access(client, user_factory):
     professional.save(update_fields=["is_active"])
     assert client.get(report).status_code == status.HTTP_403_FORBIDDEN
     assert client.get(xml).status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+def test_api_issues_without_optional_reason_and_replays_explicit_null(
+    client, user_factory
+):
+    target = patient()
+    user, _ = prescriber(user_factory)
+    entry = medication(user)
+    client.force_login(user)
+    url = reverse("prescriptions:api-list", args=[target.pk])
+    payload = {"request_key": str(uuid4()), "items": data(entry)}
+
+    issued = client.post(url, payload, content_type="application/json")
+    assert issued.status_code == 201, issued.content
+    replay = client.post(
+        url, {**payload, "reason_entry_id": None}, content_type="application/json"
+    )
+    assert replay.status_code == 200, replay.content
+    assert replay.json()["identifier"] == issued.json()["identifier"]
+    assert Prescription.objects.count() == 1
+    assert Prescription.objects.get().reason_entry_id is None
+    assert PrescriptionItem.objects.count() == 1

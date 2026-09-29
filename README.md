@@ -183,6 +183,7 @@ DJANGO_ENVIRONMENT=production
 DJANGO_SECRET_KEY=<a long random value>
 DJANGO_ALLOWED_HOSTS=helixhealth.example.org
 INTEROPERABILITY_BASE_URI=https://helixhealth.example.org/interoperability
+INTEROPERABILITY_PATIENT_DNI_SYSTEM=https://helixhealth.example.org/identifiers/dni
 INTEROPERABILITY_INSTITUTION_SYSTEM=https://helixhealth.example.org/identifiers/institution
 INTEROPERABILITY_INSTITUTION_CODE=helixhealth-example
 INTEROPERABILITY_INSTITUTION_NAME=HelixHealth Example Hospital

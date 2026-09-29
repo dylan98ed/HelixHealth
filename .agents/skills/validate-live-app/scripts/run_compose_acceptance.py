@@ -486,6 +486,23 @@ def main() -> int:
         )
         page.get_by_label("FHIR XML file").set_input_files(
             {
+                "name": "wrong-identifier-system.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": _matching_external_xml().replace(
+                    b"https://helixhealth.local/interoperability/identifiers/dni",
+                    b"https://external.example/identifiers/hospital-record-number",
+                ),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_text(
+                "The Bundle Patient must contain exactly one DNI identifier",
+                exact=False,
+            )
+        ).to_be_visible()
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
                 "name": "matching-external-observation.xml",
                 "mimeType": "application/fhir+xml",
                 "buffer": _matching_external_xml(),

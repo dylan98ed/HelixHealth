@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 
+from django.conf import settings
 from lxml import etree  # type: ignore[import-untyped]
 
 from interoperability.fhir_validation import (
@@ -14,10 +15,11 @@ from interoperability.fhir_validation import (
     FhirValidationError,
     validate_helixhealth_profile,
 )
+from interoperability.limits import MAX_BUNDLE_BYTES, MAX_BUNDLE_ENTRIES
 
 NS = {"f": FHIR_NAMESPACE}
-MAX_IMPORT_BYTES = 2 * 1024 * 1024
-MAX_IMPORT_ENTRIES = 500
+MAX_IMPORT_BYTES = MAX_BUNDLE_BYTES
+MAX_IMPORT_ENTRIES = MAX_BUNDLE_ENTRIES
 MAX_IMPORT_DEPTH = 64
 
 
@@ -138,6 +140,21 @@ def _author(practitioner: etree._Element) -> dict[str, str]:
     }
 
 
+def _patient_dni(patient: etree._Element) -> str:
+    system = str(settings.INTEROPERABILITY_PATIENT_DNI_SYSTEM)  # type: ignore[misc]
+    identifiers = [
+        identifier
+        for identifier in patient.findall("f:identifier", NS)
+        if _optional(identifier, "f:system") == system
+    ]
+    if len(identifiers) != 1:
+        raise ExternalImportError(
+            "The Bundle Patient must contain exactly one DNI identifier "
+            f"using {system}."
+        )
+    return _primitive(identifiers[0], "f:value", "Patient DNI")
+
+
 def parse_external_bundle(xml: bytes, *, source_system: str) -> ParsedBundle:
     """Validate and normalize a complete external file without any database access."""
     root = _safe_root(xml)
@@ -167,6 +184,7 @@ def parse_external_bundle(xml: bytes, *, source_system: str) -> ParsedBundle:
         for resource in resources.values()
         if etree.QName(resource).localname == "Patient"
     )
+    _patient_dni(patient)
     organization = next(
         resource
         for resource in resources.values()
@@ -317,6 +335,6 @@ def patient_identity(xml: bytes) -> tuple[str, str]:
     if patient is None:
         raise ExternalImportError("The Bundle requires one Patient.")
     return (
-        _primitive(patient, "f:identifier/f:value", "Patient DNI"),
+        _patient_dni(patient),
         _primitive(patient, "f:birthDate", "Patient birth date"),
     )

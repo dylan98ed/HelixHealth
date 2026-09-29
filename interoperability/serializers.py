@@ -2,6 +2,7 @@
 
 from rest_framework import serializers
 
+from interoperability.limits import MAX_EXPORTED_ADMISSIONS
 from interoperability.models import ExternalClinicalRecord, ImportBatch
 
 
@@ -32,8 +33,10 @@ class ExportRequestSerializer(serializers.Serializer):
         prescription_ids = attrs["prescription_ids"]
         if not admission_ids and not prescription_ids:
             raise serializers.ValidationError("Select at least one clinical record.")
-        if len(admission_ids) + len(prescription_ids) > 500:
-            raise serializers.ValidationError("Select at most 500 clinical records.")
+        if len(admission_ids) > MAX_EXPORTED_ADMISSIONS:
+            raise serializers.ValidationError(
+                f"Select at most {MAX_EXPORTED_ADMISSIONS} admissions per FHIR file."
+            )
         if len(set(admission_ids)) != len(admission_ids) or len(
             set(prescription_ids)
         ) != len(prescription_ids):

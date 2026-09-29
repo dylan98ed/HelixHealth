@@ -15,6 +15,7 @@ XML depth of 64 at the import boundary (implemented with the importer).
 ## Deployment identity
 
 `INTEROPERABILITY_BASE_URI`, `INTEROPERABILITY_INSTITUTION_SYSTEM`,
+`INTEROPERABILITY_PATIENT_DNI_SYSTEM`,
 `INTEROPERABILITY_INSTITUTION_CODE`, and `INTEROPERABILITY_INSTITUTION_NAME`
 are required outside development and test environments. Development defaults
 are synthetic and must not be published as an institutional identity.
@@ -23,7 +24,7 @@ The base URI derives these stable systems and profile canonicals:
 
 | Purpose | URI |
 | --- | --- |
-| Patient DNI | `{base}/identifiers/dni` |
+| Patient DNI | `INTEROPERABILITY_PATIENT_DNI_SYSTEM` (agreed with exchange partners) |
 | Professional registration | `{base}/identifiers/professional-registration` |
 | Bundle identifier | `{base}/identifiers/bundle` |
 | Prescription group | `{base}/identifiers/prescription-group` |
@@ -33,6 +34,16 @@ The patient matching contract is the configured DNI identifier plus
 `Patient.birthDate`; it never exposes a database primary key. Resources and
 entry `fullUrl` values have deterministic UUIDs derived from stable local
 identifiers. Every reference is an in-bundle `urn:uuid:` reference.
+
+Every exchange partner must configure the same DNI identifier system. Imports
+select exactly one identifier with that exact system, regardless of its position;
+missing or duplicate DNI identifiers are rejected. Other identifier systems are
+never interpreted as DNI. The independent fixtures use the synthetic local
+system `https://helixhealth.local/interoperability/identifiers/dni`.
+
+Exported files share the 500-entry and 2 MiB import limits. An admission produces
+three Observations in addition to three shared context resources, so select at
+most 165 admissions with the same author per file, or one issued prescription.
 
 ## Supported resources and semantics
 

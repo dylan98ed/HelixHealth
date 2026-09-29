@@ -13,6 +13,7 @@ from lxml import etree  # type: ignore[import-untyped]
 
 from clinical_records.models import Admission
 from interoperability.fhir_validation import validate_helixhealth_profile
+from interoperability.limits import MAX_BUNDLE_BYTES, MAX_EXPORTED_ADMISSIONS
 from patients.models import Patient
 from professionals.models import Professional
 
@@ -148,7 +149,7 @@ def _patient_resource(snapshot: PatientSnapshot) -> tuple[etree._Element, str]:
     _element(patient, "id", resource_id)
     _profile(patient, f"{BASE_URI}/StructureDefinition/patient")
     identifier = _element(patient, "identifier")
-    _element(identifier, "system", f"{BASE_URI}/identifiers/dni")
+    _element(identifier, "system", _setting("INTEROPERABILITY_PATIENT_DNI_SYSTEM"))
     _element(identifier, "value", snapshot.dni)
     name = _element(patient, "name")
     _element(name, "family", snapshot.last_name)
@@ -341,6 +342,10 @@ def serialize_admission_bundle(admissions: Iterable[Admission]) -> bytes:
     selected = tuple(admissions)
     if not selected:
         raise FhirExportError("Select at least one admission for export.")
+    if len(selected) > MAX_EXPORTED_ADMISSIONS:
+        raise FhirExportError(
+            f"Select at most {MAX_EXPORTED_ADMISSIONS} admissions per FHIR file."
+        )
     patient = selected[0].patient
     if any(admission.patient_id != patient.pk for admission in selected):
         raise FhirExportError("All selected admissions must belong to one patient.")
@@ -421,6 +426,10 @@ def serialize_admission_bundle(admissions: Iterable[Admission]) -> bytes:
             _resource_id("Observation", f"admission-{admission.pk}-temperature"),
         )
     xml = etree.tostring(bundle, encoding="UTF-8", xml_declaration=True)
+    if len(xml) > MAX_BUNDLE_BYTES:
+        raise FhirExportError(
+            "FHIR exports may not exceed 2 MiB; select fewer records."
+        )
     validate_helixhealth_profile(xml)
     return xml
 
@@ -449,5 +458,9 @@ def serialize_prescription_bundle(prescription: PrescriptionSnapshot) -> bytes:
         )
         _add_entry(bundle, request, request_id)
     xml = etree.tostring(bundle, encoding="UTF-8", xml_declaration=True)
+    if len(xml) > MAX_BUNDLE_BYTES:
+        raise FhirExportError(
+            "FHIR exports may not exceed 2 MiB; select fewer records."
+        )
     validate_helixhealth_profile(xml)
     return xml

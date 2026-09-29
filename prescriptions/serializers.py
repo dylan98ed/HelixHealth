@@ -29,7 +29,7 @@ class PrescriptionItemInputSerializer(serializers.Serializer):
 class PrescriptionIssueSerializer(serializers.Serializer):
     request_key = serializers.UUIDField()
     reason_entry_id = serializers.IntegerField(
-        min_value=1, required=False, allow_null=True
+        min_value=1, required=False, allow_null=True, default=None
     )
     items = PrescriptionItemInputSerializer(many=True)
 

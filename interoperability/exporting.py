@@ -8,7 +8,8 @@ from uuid import UUID
 from django.http import Http404
 
 from clinical_records.models import Admission
-from interoperability.fhir_export import serialize_admission_bundle
+from interoperability.fhir_export import FhirExportError, serialize_admission_bundle
+from interoperability.limits import MAX_BUNDLE_BYTES
 from patients.models import Patient
 from prescriptions.models import Prescription
 
@@ -41,7 +42,13 @@ def export_selected_records(
             "Export admissions or a prescription in separate files."
         )
     if admissions:
-        return serialize_admission_bundle(admissions)
+        try:
+            return serialize_admission_bundle(admissions)
+        except FhirExportError as error:
+            raise ExportSelectionError(str(error)) from error
     if len(prescriptions) == 1:
-        return bytes(prescriptions[0].fhir_xml)
+        xml = bytes(prescriptions[0].fhir_xml)
+        if len(xml) > MAX_BUNDLE_BYTES:
+            raise ExportSelectionError("FHIR exports may not exceed 2 MiB.")
+        return xml
     raise ExportSelectionError("Select at least one supported clinical record.")
