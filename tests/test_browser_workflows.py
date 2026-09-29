@@ -1713,6 +1713,79 @@ def test_doctor_exports_a_visible_admission_through_no_javascript_workflow(
 
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
+def test_doctor_sees_an_inline_error_for_mixed_fhir_export_selection(
+    browser_medical_professional,
+    browser_admission_patient,
+    browser_prescription_medication,
+    browser,
+    live_server,
+):
+    """A clinician corrects a mixed export selection through visible controls."""
+
+    patient_id = browser_admission_patient.pk
+    with browser.new_context(java_script_enabled=False) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_label("Consultation reason").fill("Mixed export validation")
+        page.get_by_label("Systolic blood pressure").fill("120")
+        page.get_by_label("Diastolic blood pressure").fill("80")
+        page.get_by_label("Heart rate").fill("72")
+        page.get_by_label("Temperature").fill("36.7")
+        page.get_by_role("button", name="Record admission", exact=True).click()
+        page.get_by_role("link", name="Prescriptions", exact=True).click()
+        page.get_by_role("link", name="New prescription", exact=True).click()
+        page.get_by_label("Medication").nth(0).select_option(
+            str(browser_prescription_medication.pk)
+        )
+        page.get_by_label("Dose value").nth(0).fill("400")
+        page.get_by_label("Dose unit").nth(0).fill("mg")
+        page.get_by_label("Route").nth(0).fill("oral")
+        page.get_by_label("Frequency").nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days").nth(0).fill("5")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
+        page.get_by_role("link", name="Prescription history", exact=True).click()
+        page.get_by_role("link", name="Patient record", exact=True).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.locator('input[name="admission_ids"]').check()
+        page.locator('input[name="prescription_ids"]').check()
+        page.get_by_role("button", name="Export selected XML", exact=True).click()
+
+        expect(page.get_by_role("alert")).to_have_text(
+            "Export admissions or one prescription in a separate file."
+        )
+        expect(page).to_have_url(
+            re.compile(r"/clinical-records/patients/\d+/interoperability/export/$")
+        )
+        expect(page.locator('input[name="admission_ids"]')).to_be_checked()
+        expect(page.locator('input[name="prescription_ids"]')).to_be_checked()
+
+    def persisted_records() -> tuple[int, int]:
+        try:
+            return (
+                Admission.objects.filter(
+                    patient_id=patient_id,
+                    consultation_reason="Mixed export validation",
+                ).count(),
+                Prescription.objects.filter(patient_id=patient_id).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_records).result() == (1, 1)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
 def test_medical_professional_sees_only_clinical_navigation_after_sign_in(
     browser_medical_professional,
     browser,

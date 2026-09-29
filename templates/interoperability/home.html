@@ -10,10 +10,11 @@
   <section class="card mb-4" aria-labelledby="export-heading"><div class="card-body">
     <h2 class="h4" id="export-heading">Export selected records</h2>
     <p class="text-muted">Choose admissions or one issued prescription for a FHIR XML file.</p>
+    {% if export_error %}<div class="alert alert-danger" role="alert">{{ export_error }}</div>{% endif %}
     <form method="post" action="{% url 'interoperability:export' patient.pk %}">
       {% csrf_token %}
-      {% for admission in admissions %}<div class="form-check"><input class="form-check-input" id="admission-{{ admission.pk }}" type="checkbox" name="admission_ids" value="{{ admission.pk }}"><label class="form-check-label" for="admission-{{ admission.pk }}">Admission {{ admission.created_at }} · {{ admission.consultation_reason }}</label></div>{% endfor %}
-      {% for prescription in prescriptions %}<div class="form-check"><input class="form-check-input" id="prescription-{{ prescription.identifier }}" type="checkbox" name="prescription_ids" value="{{ prescription.identifier }}"><label class="form-check-label" for="prescription-{{ prescription.identifier }}">Prescription {{ prescription.identifier }} · {{ prescription.issued_at }}</label></div>{% endfor %}
+      {% for admission in admissions %}<div class="form-check"><input class="form-check-input" id="admission-{{ admission.pk }}" type="checkbox" name="admission_ids" value="{{ admission.pk }}"{% if admission.pk|stringformat:"s" in selected_admission_ids %} checked{% endif %}><label class="form-check-label" for="admission-{{ admission.pk }}">Admission {{ admission.created_at }} · {{ admission.consultation_reason }}</label></div>{% endfor %}
+      {% for prescription in prescriptions %}<div class="form-check"><input class="form-check-input" id="prescription-{{ prescription.identifier }}" type="checkbox" name="prescription_ids" value="{{ prescription.identifier }}"{% if prescription.identifier|stringformat:"s" in selected_prescription_ids %} checked{% endif %}><label class="form-check-label" for="prescription-{{ prescription.identifier }}">Prescription {{ prescription.identifier }} · {{ prescription.issued_at }}</label></div>{% endfor %}
       <button class="btn btn-outline-primary mt-3" type="submit">Export selected XML</button>
     </form>
   </div></section>

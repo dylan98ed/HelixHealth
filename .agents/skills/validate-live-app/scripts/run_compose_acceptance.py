@@ -345,9 +345,10 @@ def main() -> int:
         page.get_by_role("link", name="Prescriptions", exact=True).click()
         page.get_by_role("link", name="New prescription", exact=True).click()
         page.get_by_label("Medication").nth(0).select_option(
-            label=(
-                f"{CATALOG_MEDICATION_CODE} â€” Compose prescription medication "
-                f"({CATALOG_MEDICATION_VERSION})"
+            label=re.compile(
+                rf"^{re.escape(CATALOG_MEDICATION_CODE)} .*"
+                rf"Compose prescription medication "
+                rf"\({re.escape(CATALOG_MEDICATION_VERSION)}\)$"
             )
         )
         page.get_by_label("Dose value").nth(0).fill("0")
@@ -379,6 +380,12 @@ def main() -> int:
         ).click()
         page.get_by_role("link", name="Interoperability", exact=True).click()
         page.get_by_label(re.compile(f"Admission .*{ADMISSION_REASON}")).check()
+        page.get_by_label(re.compile("Prescription ")).check()
+        page.get_by_role("button", name="Export selected XML", exact=True).click()
+        expect(page.get_by_role("alert")).to_contain_text(
+            "Export admissions or one prescription in a separate file."
+        )
+        page.get_by_label(re.compile("Prescription ")).uncheck()
         with page.expect_download() as download_info:
             page.get_by_role("button", name="Export selected XML", exact=True).click()
         assert download_info.value.suggested_filename.startswith("clinical-export-")

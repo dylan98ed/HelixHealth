@@ -256,3 +256,14 @@ def test_selected_admission_export_is_patient_scoped_and_has_fhir_mime(
         content_type="application/json",
     )
     assert missing.status_code == status.HTTP_404_NOT_FOUND
+
+    mixed_selection = client.post(
+        reverse("interoperability:export", args=[target.pk]),
+        {"admission_ids": [admission.pk], "prescription_ids": [str(uuid4())]},
+    )
+    assert mixed_selection.status_code == status.HTTP_400_BAD_REQUEST
+    assert (
+        b"Export admissions or one prescription in a separate file."
+        in mixed_selection.content
+    )
+    assert b"non_field_errors" not in mixed_selection.content

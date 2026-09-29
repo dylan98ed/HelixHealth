@@ -54,10 +54,15 @@ def _batch_or_404(patient: Patient, identifier: str) -> ImportBatch:
         raise Http404 from error
 
 
-@medical_professional_required
-@require_http_methods(["GET"])
-def exchange_home(request: HttpRequest, patient_pk: int) -> HttpResponse:
-    patient = _patient_or_404(patient_pk)
+def _render_exchange_home(
+    request: HttpRequest,
+    patient: Patient,
+    *,
+    export_error: str | None = None,
+    selected_admission_ids: tuple[str, ...] = (),
+    selected_prescription_ids: tuple[str, ...] = (),
+    status_code: int = 200,
+) -> HttpResponse:
     batches = Paginator(
         ImportBatch.objects.filter(patient=patient).prefetch_related("records"),
         IMPORTS_PER_PAGE,
@@ -70,8 +75,19 @@ def exchange_home(request: HttpRequest, patient_pk: int) -> HttpResponse:
             "batches": batches,
             "admissions": Admission.objects.filter(patient=patient),
             "prescriptions": Prescription.objects.filter(patient=patient),
+            "export_error": export_error,
+            "selected_admission_ids": selected_admission_ids,
+            "selected_prescription_ids": selected_prescription_ids,
         },
+        status=status_code,
     )
+
+
+@medical_professional_required
+@require_http_methods(["GET"])
+def exchange_home(request: HttpRequest, patient_pk: int) -> HttpResponse:
+    patient = _patient_or_404(patient_pk)
+    return _render_exchange_home(request, patient)
 
 
 @medical_professional_required
@@ -149,18 +165,39 @@ def export_selected(
     request: HttpRequest, patient_pk: int
 ) -> FileResponse | HttpResponse:
     patient = _patient_or_404(patient_pk)
+    admission_ids = tuple(request.POST.getlist("admission_ids"))
+    prescription_ids = tuple(request.POST.getlist("prescription_ids"))
     serializer = ExportRequestSerializer(
         data={
-            "admission_ids": request.POST.getlist("admission_ids"),
-            "prescription_ids": request.POST.getlist("prescription_ids"),
+            "admission_ids": admission_ids,
+            "prescription_ids": prescription_ids,
         }
     )
     if not serializer.is_valid():
-        return HttpResponse(str(serializer.errors), status=400)
+        messages = [
+            str(message)
+            for field_errors in serializer.errors.values()
+            for message in field_errors
+        ]
+        return _render_exchange_home(
+            request,
+            patient,
+            export_error=messages[0] if messages else "Select valid clinical records.",
+            selected_admission_ids=admission_ids,
+            selected_prescription_ids=prescription_ids,
+            status_code=400,
+        )
     try:
         xml = export_selected_records(patient=patient, **serializer.validated_data)
     except ExportSelectionError as error:
-        return HttpResponse(str(error), status=400)
+        return _render_exchange_home(
+            request,
+            patient,
+            export_error=str(error),
+            selected_admission_ids=admission_ids,
+            selected_prescription_ids=prescription_ids,
+            status_code=400,
+        )
     response = FileResponse(
         BytesIO(xml),
         as_attachment=True,
