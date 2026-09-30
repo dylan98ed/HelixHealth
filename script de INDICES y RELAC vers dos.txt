@@ -1,0 +1,330 @@
+-- ================================================================
+-- SCRIPT DE REVISIÓN DE ÍNDICES Y RELACIONES - VERSIÓN 2.0
+-- OPENHIS-UNLaM - Auditoría de Base de Datos (Post-Sprint 3)
+-- ================================================================
+-- Actualizado para incluir:
+--   ✅ Columna 'activo' en Pacientes, Profesionales, SignosVitales, Prescripciones
+--   ✅ Nueva columna 'medico_id' en SignosVitales
+--   ✅ Índices para filtros por 'activo'
+--   ✅ Verificación de integridad referencial completa
+-- ================================================================
+
+
+-- ================================================================
+-- 1. VERIFICAR QUE TODAS LAS TABLAS EXISTEN
+-- ================================================================
+
+SELECT '=== VERIFICACIÓN DE TABLAS ===' as '';
+
+SELECT name as 'Tabla Existente' 
+FROM sqlite_master 
+WHERE type='table' 
+AND name IN (
+    'Especialidades', 'Profesionales', 'Pacientes', 
+    'SignosVitales', 'SnomedCT', 'Farmacos', 'Prescripciones'
+)
+ORDER BY name;
+
+
+-- ================================================================
+-- 2. VERIFICAR ESTRUCTURA DE CADA TABLA
+-- ================================================================
+
+SELECT '=== ESTRUCTURA DE TABLAS ===' as '';
+
+-- Especialidades
+SELECT '--- Especialidades ---' as '';
+PRAGMA table_info(Especialidades);
+
+-- Profesionales
+SELECT '--- Profesionales ---' as '';
+PRAGMA table_info(Profesionales);
+
+-- Pacientes
+SELECT '--- Pacientes ---' as '';
+PRAGMA table_info(Pacientes);
+
+-- SignosVitales
+SELECT '--- SignosVitales ---' as '';
+PRAGMA table_info(SignosVitales);
+
+-- SnomedCT
+SELECT '--- SnomedCT ---' as '';
+PRAGMA table_info(SnomedCT);
+
+-- Farmacos
+SELECT '--- Farmacos ---' as '';
+PRAGMA table_info(Farmacos);
+
+-- Prescripciones
+SELECT '--- Prescripciones ---' as '';
+PRAGMA table_info(Prescripciones);
+
+
+-- ================================================================
+-- 3. VERIFICAR COLUMNA 'activo' EN TODAS LAS TABLAS
+-- ================================================================
+
+SELECT '=== VERIFICACIÓN DE COLUMNA ACTIVO ===' as '';
+
+SELECT 
+    m.name as Tabla,
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 FROM pragma_table_info(m.name) 
+            WHERE name = 'activo'
+        ) THEN '✅ SÍ'
+        ELSE '❌ NO'
+    END as 'Tiene activo'
+FROM sqlite_master m
+WHERE type = 'table' 
+AND name IN (
+    'Pacientes', 'Profesionales', 'SignosVitales', 
+    'Prescripciones', 'Especialidades', 'SnomedCT', 'Farmacos'
+)
+ORDER BY m.name;
+
+
+-- ================================================================
+-- 4. VERIFICAR CLAVES FORÁNEAS
+-- ================================================================
+
+SELECT '=== CLAVES FORÁNEAS ===' as '';
+
+-- Verificar si las FK están habilitadas
+SELECT 'Foreign Keys activas:' as 'Estado';
+PRAGMA foreign_keys;
+
+-- FK de Profesionales
+SELECT '--- FK Profesionales → Especialidades ---' as '';
+PRAGMA foreign_key_list(Profesionales);
+
+-- FK de SignosVitales
+SELECT '--- FK SignosVitales → Pacientes ---' as '';
+PRAGMA foreign_key_list(SignosVitales);
+
+-- FK de Prescripciones
+SELECT '--- FK Prescripciones ---' as '';
+PRAGMA foreign_key_list(Prescripciones);
+
+
+-- ================================================================
+-- 5. VERIFICAR ÍNDICES EXISTENTES
+-- ================================================================
+
+SELECT '=== ÍNDICES EXISTENTES ===' as '';
+
+-- Todos los índices
+SELECT 
+    name as 'Índice',
+    tbl_name as 'Tabla',
+    CASE 
+        WHEN sql LIKE '%UNIQUE%' THEN 'UNIQUE'
+        ELSE 'Normal'
+    END as 'Tipo'
+FROM sqlite_master 
+WHERE type='index' 
+AND name NOT LIKE 'sqlite_%'
+ORDER BY tbl_name, name;
+
+
+-- ================================================================
+-- 6. CONTAR REGISTROS POR TABLA (ACTIVOS/INACTIVOS)
+-- ================================================================
+
+SELECT '=== CONTEO DE REGISTROS ===' as '';
+
+-- Pacientes
+SELECT '--- PACIENTES ---' as '';
+SELECT 
+    COUNT(*) as Total,
+    SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as Activos,
+    SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as Inactivos
+FROM Pacientes;
+
+-- Profesionales
+SELECT '--- PROFESIONALES ---' as '';
+SELECT 
+    COUNT(*) as Total,
+    SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as Activos,
+    SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as Inactivos
+FROM Profesionales;
+
+-- SignosVitales
+SELECT '--- SIGNOS VITALES ---' as '';
+SELECT 
+    COUNT(*) as Total,
+    SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as Activos,
+    SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as Inactivos
+FROM SignosVitales;
+
+-- Prescripciones
+SELECT '--- PRESCRIPCIONES ---' as '';
+SELECT 
+    COUNT(*) as Total,
+    SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as Activas,
+    SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as Anuladas
+FROM Prescripciones;
+
+-- Especialidades
+SELECT '--- ESPECIALIDADES ---' as '';
+SELECT 
+    COUNT(*) as Total,
+    SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as Activas,
+    SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as Inactivas
+FROM Especialidades;
+
+-- SnomedCT
+SELECT '--- SNOMED CT ---' as '';
+SELECT 
+    COUNT(*) as Total,
+    SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as Activos,
+    SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as Inactivos
+FROM SnomedCT;
+
+-- Farmacos
+SELECT '--- FÁRMACOS ---' as '';
+SELECT 
+    COUNT(*) as Total,
+    SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as Activos,
+    SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as Inactivos
+FROM Farmacos;
+
+
+-- ================================================================
+-- 7. VERIFICAR INTEGRIDAD REFERENCIAL
+-- ================================================================
+
+SELECT '=== VERIFICACIÓN DE INTEGRIDAD REFERENCIAL ===' as '';
+
+-- Profesionales sin especialidad válida
+SELECT '--- Profesionales con especialidad inválida ---' as '';
+SELECT p.id, p.dni, p.nombre, p.apellido, p.especialidad_id
+FROM Profesionales p
+LEFT JOIN Especialidades e ON p.especialidad_id = e.id
+WHERE p.especialidad_id IS NOT NULL AND e.id IS NULL;
+
+-- SignosVitales sin paciente válido
+SELECT '--- SignosVitales sin paciente válido ---' as '';
+SELECT s.id, s.paciente_id 
+FROM SignosVitales s
+LEFT JOIN Pacientes p ON s.paciente_id = p.id
+WHERE p.id IS NULL;
+
+-- SignosVitales sin médico válido
+SELECT '--- SignosVitales sin médico válido ---' as '';
+SELECT s.id, s.medico_id 
+FROM SignosVitales s
+LEFT JOIN Profesionales p ON s.medico_id = p.id
+WHERE s.medico_id IS NOT NULL AND p.id IS NULL;
+
+-- Prescripciones sin paciente válido
+SELECT '--- Prescripciones sin paciente válido ---' as '';
+SELECT pr.id, pr.paciente_id 
+FROM Prescripciones pr
+LEFT JOIN Pacientes p ON pr.paciente_id = p.id
+WHERE p.id IS NULL;
+
+-- Prescripciones sin profesional válido
+SELECT '--- Prescripciones sin profesional válido ---' as '';
+SELECT pr.id, pr.profesional_id 
+FROM Prescripciones pr
+LEFT JOIN Profesionales p ON pr.profesional_id = p.id
+WHERE p.id IS NULL;
+
+-- Prescripciones sin fármaco válido
+SELECT '--- Prescripciones sin fármaco válido ---' as '';
+SELECT pr.id, pr.farmaco_id 
+FROM Prescripciones pr
+LEFT JOIN Farmacos f ON pr.farmaco_id = f.id
+WHERE f.id IS NULL;
+
+-- Prescripciones con SNOMED inválido
+SELECT '--- Prescripciones con SNOMED inválido ---' as '';
+SELECT pr.id, pr.snomed_id 
+FROM Prescripciones pr
+LEFT JOIN SnomedCT s ON pr.snomed_id = s.id
+WHERE pr.snomed_id IS NOT NULL AND s.id IS NULL;
+
+
+-- ================================================================
+-- 8. CREAR ÍNDICES NUEVOS (POST-SPRINT 3)
+-- ================================================================
+
+SELECT '=== CREACIÓN DE ÍNDICES NUEVOS ===' as '';
+
+-- --- Pacientes ---
+CREATE INDEX IF NOT EXISTS idx_pacientes_dni ON Pacientes(dni);
+CREATE INDEX IF NOT EXISTS idx_pacientes_activo ON Pacientes(activo);
+CREATE INDEX IF NOT EXISTS idx_pacientes_apellido ON Pacientes(apellido, nombre);
+
+-- --- Profesionales ---
+CREATE INDEX IF NOT EXISTS idx_profesionales_dni ON Profesionales(dni);
+CREATE INDEX IF NOT EXISTS idx_profesionales_matricula ON Profesionales(matricula);
+CREATE INDEX IF NOT EXISTS idx_profesionales_especialidad ON Profesionales(especialidad_id);
+CREATE INDEX IF NOT EXISTS idx_profesionales_activo ON Profesionales(activo);
+CREATE INDEX IF NOT EXISTS idx_profesionales_apellido ON Profesionales(apellido, nombre);
+
+-- --- SignosVitales ---
+CREATE INDEX IF NOT EXISTS idx_signos_paciente ON SignosVitales(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_signos_medico ON SignosVitales(medico_id);
+CREATE INDEX IF NOT EXISTS idx_signos_fecha ON SignosVitales(fecha_hora);
+CREATE INDEX IF NOT EXISTS idx_signos_activo ON SignosVitales(activo);
+CREATE INDEX IF NOT EXISTS idx_signos_paciente_activo ON SignosVitales(paciente_id, activo);
+
+-- --- Prescripciones ---
+CREATE INDEX IF NOT EXISTS idx_prescripciones_paciente ON Prescripciones(paciente_id);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_profesional ON Prescripciones(profesional_id);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_farmaco ON Prescripciones(farmaco_id);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_snomed ON Prescripciones(snomed_id);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_fecha ON Prescripciones(fecha_prescripcion);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_activo ON Prescripciones(activo);
+CREATE INDEX IF NOT EXISTS idx_prescripciones_paciente_activo ON Prescripciones(paciente_id, activo);
+
+-- --- Especialidades ---
+CREATE INDEX IF NOT EXISTS idx_especialidades_codigo ON Especialidades(codigo);
+CREATE INDEX IF NOT EXISTS idx_especialidades_activo ON Especialidades(activo);
+CREATE INDEX IF NOT EXISTS idx_especialidades_nombre ON Especialidades(nombre);
+
+-- --- SnomedCT ---
+CREATE INDEX IF NOT EXISTS idx_snomed_codigo ON SnomedCT(codigo);
+CREATE INDEX IF NOT EXISTS idx_snomed_categoria ON SnomedCT(categoria);
+CREATE INDEX IF NOT EXISTS idx_snomed_termino ON SnomedCT(termino);
+CREATE INDEX IF NOT EXISTS idx_snomed_activo ON SnomedCT(activo);
+
+-- --- Farmacos ---
+CREATE INDEX IF NOT EXISTS idx_farmacos_codigo ON Farmacos(codigo);
+CREATE INDEX IF NOT EXISTS idx_farmacos_nombre ON Farmacos(nombre);
+CREATE INDEX IF NOT EXISTS idx_farmacos_activo ON Farmacos(activo);
+
+
+-- ================================================================
+-- 9. RESUMEN FINAL
+-- ================================================================
+
+SELECT '=== RESUMEN FINAL ===' as '';
+
+-- Total de tablas
+SELECT 
+    '📊 Total de tablas: ' || COUNT(*) as 'Resumen'
+FROM sqlite_master 
+WHERE type='table' 
+AND name IN (
+    'Especialidades', 'Profesionales', 'Pacientes', 
+    'SignosVitales', 'SnomedCT', 'Farmacos', 'Prescripciones'
+);
+
+-- Total de índices
+SELECT 
+    '📇 Total de índices: ' || COUNT(*) as 'Resumen'
+FROM sqlite_master 
+WHERE type='index' 
+AND name NOT LIKE 'sqlite_%';
+
+-- Verificar FK activas
+SELECT 
+    '🔗 Foreign Keys activas: ' || CASE WHEN (SELECT * FROM pragma_foreign_keys) = 1 
+                                        THEN 'SÍ' ELSE 'NO' 
+                                   END as 'Resumen';
+
+SELECT '=== FIN DEL SCRIPT ===' as '';

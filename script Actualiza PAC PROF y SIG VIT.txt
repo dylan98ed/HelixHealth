@@ -1,0 +1,31 @@
+-- ================================================================
+-- ACTUALIZACIÓN: Agregar columna 'activo' a las tablas
+-- ================================================================
+
+-- 1. Agregar columna activo a Pacientes (si no existe)
+ALTER TABLE Pacientes ADD COLUMN activo INTEGER DEFAULT 1;
+
+-- 2. Agregar columna activo a SignosVitales (si no existe)
+ALTER TABLE SignosVitales ADD COLUMN activo INTEGER DEFAULT 1;
+
+-- 3. Agregar columna activo a Prescripciones (si no existe)
+-- ALTER TABLE Prescripciones ADD COLUMN activo INTEGER DEFAULT 1;
+
+-- 4. Agregar columna activo a Profesionales (si no existe)
+ALTER TABLE Profesionales ADD COLUMN activo INTEGER DEFAULT 1;
+
+-- 5. Actualizar todos los registros existentes a activo = 1
+UPDATE Pacientes SET activo = 1 WHERE activo IS NULL;
+UPDATE SignosVitales SET activo = 1 WHERE activo IS NULL;
+UPDATE Prescripciones SET activo = 1 WHERE activo IS NULL;
+UPDATE Profesionales SET activo = 1 WHERE activo IS NULL;
+
+-- 6. Verificar
+SELECT '=== PACIENTES ===' as '';
+SELECT COUNT(*) as Total, SUM(activo) as Activos FROM Pacientes;
+
+SELECT '=== SIGNOS VITALES ===' as '';
+SELECT COUNT(*) as Total, SUM(activo) as Activos FROM SignosVitales;
+
+SELECT '=== PRESCRIPCIONES ===' as '';
+SELECT COUNT(*) as Total, SUM(activo) as Activos FROM Prescripciones;
