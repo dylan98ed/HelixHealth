@@ -1,0 +1,1091 @@
+# ================================================================
+# Profesionales_def_app.py
+# SPRINT 3 - MÓDULO DE GESTIÓN DE PROFESIONALES
+# CON BORRADO LÓGICO Y REACTIVACIÓN
+# ================================================================
+#
+# CAMBIOS RESPECTO A LA VERSIÓN ANTERIOR:
+#   ✅ Borrado LÓGICO (activo = 0) en vez de DELETE físico
+#   ✅ Botón "Ver Inactivos" para ver profesionales dados de baja
+#   ✅ Botón "Reactivar" para restaurar profesionales
+#   ✅ Advertencia al dar de baja sobre registros asociados
+#   ✅ Verificación de prescripciones y signos vitales asociados
+#
+# ESTRUCTURA DE TABLA:
+#   Profesionales (
+#       id INTEGER PRIMARY KEY AUTOINCREMENT,
+#       dni TEXT UNIQUE NOT NULL,
+#       nombre TEXT NOT NULL,
+#       apellido TEXT NOT NULL,
+#       fecha_nacimiento TEXT NOT NULL,
+#       sexo TEXT NOT NULL CHECK (sexo IN ('M', 'F')),
+#       matricula TEXT UNIQUE NOT NULL,
+#       especialidad_id INTEGER NOT NULL,
+#       telefono TEXT,
+#       email TEXT,
+#       fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+#       activo INTEGER DEFAULT 1,   -- 1=Activo, 0=Dado de baja
+#       FOREIGN KEY (especialidad_id) REFERENCES Especialidades(id)
+#   )
+# ================================================================
+
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+# ================================================================
+# CAPA DE ACCESO A DATOS (BACKEND)
+# ================================================================
+
+def conectar_bd():
+    """Establece conexión con la base de datos Salud.db"""
+    return sqlite3.connect('BD/Salud.db')
+
+
+# -------------------- FUNCIONES DE TABLAS MAESTRAS --------------------
+
+def obtener_especialidades_selector():
+    """Obtiene lista de especialidades activas para el selector (combobox)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT id, codigo, nombre 
+            FROM Especialidades 
+            WHERE activo = 1 
+            ORDER BY nombre
+        """)
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error al obtener especialidades: {e}")
+        return []
+
+
+# -------------------- CRUD DE PROFESIONALES --------------------
+
+def registrar_profesional(datos):
+    """HU-04: Registrar nuevo profesional (CREATE)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        cursor.execute("""
+            INSERT INTO Profesionales 
+            (dni, nombre, apellido, fecha_nacimiento, sexo, 
+             matricula, especialidad_id, telefono, email, activo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            datos['dni'],
+            datos['nombre'],
+            datos['apellido'],
+            datos['fecha_nac'],
+            datos['sexo'],
+            datos['matricula'],
+            datos['especialidad_id'],
+            datos.get('telefono', ''),
+            datos.get('email', ''),
+            1  # activo
+        ))
+        
+        conexion.commit()
+        nuevo_id = cursor.lastrowid
+        conexion.close()
+        return True, nuevo_id
+        
+    except sqlite3.IntegrityError as e:
+        if 'dni' in str(e):
+            return False, "❌ DNI duplicado. Ya existe un profesional con ese DNI."
+        elif 'matricula' in str(e):
+            return False, "❌ Matrícula duplicada. Ya existe un profesional con esa matrícula."
+        return False, f"❌ Error de integridad: {e}"
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def buscar_profesional(dni):
+    """
+    HU-05: Buscar profesional por DNI (READ)
+    Busca tanto activos como inactivos
+    """
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT p.*, e.nombre as especialidad_nombre 
+            FROM Profesionales p
+            LEFT JOIN Especialidades e ON p.especialidad_id = e.id
+            WHERE p.dni = ?
+        """, (dni,))
+        profesional = cursor.fetchone()
+        conexion.close()
+        
+        if profesional:
+            return {
+                'id': profesional[0],
+                'dni': profesional[1],
+                'nombre': profesional[2],
+                'apellido': profesional[3],
+                'fecha_nac': profesional[4],
+                'sexo': profesional[5],
+                'matricula': profesional[6],
+                'especialidad_id': profesional[7],
+                'telefono': profesional[8] or '',
+                'email': profesional[9] or '',
+                'fecha_registro': profesional[10],
+                'activo': profesional[11] if len(profesional) > 11 else 1,
+                'especialidad_nombre': profesional[12] if len(profesional) > 12 else 'Sin especialidad'
+            }
+        return None
+    except Exception as e:
+        print(f"[ERROR] Error en buscar_profesional: {e}")
+        return None
+
+
+def buscar_profesional_por_id(profesional_id):
+    """Busca un profesional por su ID"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT p.*, e.nombre as especialidad_nombre 
+            FROM Profesionales p
+            LEFT JOIN Especialidades e ON p.especialidad_id = e.id
+            WHERE p.id = ?
+        """, (profesional_id,))
+        profesional = cursor.fetchone()
+        conexion.close()
+        
+        if profesional:
+            return {
+                'id': profesional[0],
+                'dni': profesional[1],
+                'nombre': profesional[2],
+                'apellido': profesional[3],
+                'fecha_nac': profesional[4],
+                'sexo': profesional[5],
+                'matricula': profesional[6],
+                'especialidad_id': profesional[7],
+                'telefono': profesional[8] or '',
+                'email': profesional[9] or '',
+                'fecha_registro': profesional[10],
+                'activo': profesional[11] if len(profesional) > 11 else 1,
+                'especialidad_nombre': profesional[12] if len(profesional) > 12 else 'Sin especialidad'
+            }
+        return None
+    except Exception as e:
+        return None
+
+
+def listar_profesionales(activos=True):
+    """
+    Lista profesionales según su estado
+    activos=True: solo activos
+    activos=False: solo inactivos
+    """
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        estado = 1 if activos else 0
+        
+        cursor.execute(f"""
+            SELECT 
+                p.id, 
+                p.dni, 
+                p.nombre, 
+                p.apellido, 
+                COALESCE(e.nombre, 'Sin especialidad') as especialidad_nombre,
+                p.matricula,
+                p.activo
+            FROM Profesionales p
+            LEFT JOIN Especialidades e ON p.especialidad_id = e.id
+            WHERE p.activo = {estado}
+            ORDER BY p.apellido, p.nombre
+        """)
+        
+        profesionales = cursor.fetchall()
+        conexion.close()
+        return profesionales
+    except Exception as e:
+        print(f"[ERROR] Error en listar_profesionales: {e}")
+        return []
+
+
+def modificar_profesional(profesional_id, datos):
+    """Modifica datos de un profesional (UPDATE)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        cursor.execute("""
+            UPDATE Profesionales 
+            SET telefono = ?, email = ?, especialidad_id = ?
+            WHERE id = ?
+        """, (
+            datos.get('telefono', ''),
+            datos.get('email', ''),
+            datos.get('especialidad_id'),
+            profesional_id
+        ))
+        
+        conexion.commit()
+        afectados = cursor.rowcount
+        conexion.close()
+        
+        if afectados > 0:
+            return True, "✅ Profesional modificado correctamente."
+        return False, "❌ No se encontró el profesional."
+        
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def dar_baja_profesional(profesional_id):
+    """
+    BORRADO LÓGICO de profesional (activo = 0)
+    
+    IMPORTANTE: Los datos NO se eliminan. Se marca como inactivo.
+    Las prescripciones y signos vitales se conservan.
+    """
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        # Verificar que el profesional existe
+        cursor.execute("SELECT id, activo FROM Profesionales WHERE id = ?", (profesional_id,))
+        resultado = cursor.fetchone()
+        
+        if not resultado:
+            conexion.close()
+            return False, "❌ No se encontró el profesional."
+        
+        if resultado[1] == 0:
+            conexion.close()
+            return False, "❌ El profesional ya estaba dado de baja."
+        
+        # Baja lógica
+        cursor.execute("UPDATE Profesionales SET activo = 0 WHERE id = ?", (profesional_id,))
+        conexion.commit()
+        conexion.close()
+        
+        return True, "✅ Profesional dado de baja correctamente.\nSus prescripciones y registros se conservan."
+        
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def reactivar_profesional(profesional_id):
+    """Reactiva un profesional dado de baja (activo = 1)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        cursor.execute("UPDATE Profesionales SET activo = 1 WHERE id = ?", (profesional_id,))
+        conexion.commit()
+        afectados = cursor.rowcount
+        conexion.close()
+        
+        if afectados > 0:
+            return True, "✅ Profesional reactivado correctamente."
+        return False, "❌ No se encontró el profesional."
+        
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def contar_prescripciones_profesional(profesional_id):
+    """Cuenta las prescripciones asociadas a un profesional"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("SELECT COUNT(*) FROM Prescripciones WHERE profesional_id = ?", (profesional_id,))
+        total = cursor.fetchone()[0]
+        conexion.close()
+        return total
+    except Exception as e:
+        return 0
+
+
+def contar_signos_profesional(profesional_id):
+    """Cuenta los signos vitales asociados a un profesional (como médico)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("SELECT COUNT(*) FROM SignosVitales WHERE medico_id = ?", (profesional_id,))
+        total = cursor.fetchone()[0]
+        conexion.close()
+        return total
+    except Exception as e:
+        return 0
+
+
+# ================================================================
+# CAPA DE PRESENTACIÓN (FRONTEND)
+# ================================================================
+
+class AppProfesionales:
+    """Aplicación de gestión de profesionales con borrado lógico"""
+    
+    def __init__(self, root):
+        self.root = root
+        self.root.title("OpenHIS-UNLaM - Gestión de Profesionales")
+        self.root.geometry("1050x650")
+        self.root.configure(bg='#f0f0f0')
+        
+        # Centrar
+        self.root.update_idletasks()
+        ancho = self.root.winfo_width()
+        alto = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (ancho // 2)
+        y = (self.root.winfo_screenheight() // 2) - (alto // 2)
+        self.root.geometry(f'{ancho}x{alto}+{x}+{y}')
+        
+        # ---------- FRAME PRINCIPAL ----------
+        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        # ---------- TÍTULO ----------
+        titulo = tk.Label(
+            self.frame_principal,
+            text="👨‍⚕️ HOSPITAL UNIVERSITARIO SAN JUSTO",
+            font=('Arial', 18, 'bold'),
+            bg='#f0f0f0',
+            fg='#003366'
+        )
+        titulo.pack(pady=5)
+        
+        subtitulo = tk.Label(
+            self.frame_principal,
+            text="Sistema de Gestión de Profesionales - Sprint 3",
+            font=('Arial', 11),
+            bg='#f0f0f0',
+            fg='#666666'
+        )
+        subtitulo.pack(pady=2)
+        
+        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        
+        # ---------- BOTONES PRINCIPALES ----------
+        frame_botones = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_botones.pack(pady=10)
+        
+        estilo_boton = {
+            'font': ('Arial', 10, 'bold'),
+            'padx': 15,
+            'pady': 8,
+            'relief': 'raised',
+            'bd': 2
+        }
+        
+        self.btn_registrar = tk.Button(
+            frame_botones,
+            text="📋 Registrar Profesional",
+            bg='#4CAF50',
+            fg='white',
+            command=self.abrir_registro,
+            **estilo_boton
+        )
+        self.btn_registrar.pack(side='left', padx=3)
+        
+        self.btn_buscar = tk.Button(
+            frame_botones,
+            text="🔍 Buscar Profesional",
+            bg='#2196F3',
+            fg='white',
+            command=self.abrir_busqueda,
+            **estilo_boton
+        )
+        self.btn_buscar.pack(side='left', padx=3)
+        
+        self.btn_modificar = tk.Button(
+            frame_botones,
+            text="✏️ Modificar Profesional",
+            bg='#FF9800',
+            fg='white',
+            command=self.abrir_modificacion,
+            **estilo_boton
+        )
+        self.btn_modificar.pack(side='left', padx=3)
+        
+        self.btn_baja = tk.Button(
+            frame_botones,
+            text="🗑️ Dar de Baja",
+            bg='#f44336',
+            fg='white',
+            command=self.dar_baja_profesional,
+            **estilo_boton
+        )
+        self.btn_baja.pack(side='left', padx=3)
+        
+        # --- SEPARADOR ---
+        tk.Frame(frame_botones, width=10, bg='#f0f0f0').pack(side='left')
+        
+        self.btn_ver_activos = tk.Button(
+            frame_botones,
+            text="📊 Ver Activos",
+            bg='#607D8B',
+            fg='white',
+            command=lambda: self.ver_profesionales(activos=True),
+            **estilo_boton
+        )
+        self.btn_ver_activos.pack(side='left', padx=3)
+        
+        self.btn_ver_inactivos = tk.Button(
+            frame_botones,
+            text="📋 Ver Inactivos",
+            bg='#9E9E9E',
+            fg='white',
+            command=lambda: self.ver_profesionales(activos=False),
+            **estilo_boton
+        )
+        self.btn_ver_inactivos.pack(side='left', padx=3)
+        
+        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        
+        # ---------- LABEL DE RESULTADOS ----------
+        self.label_resultados = tk.Label(
+            self.frame_principal,
+            text="Seleccione una acción para comenzar",
+            font=('Arial', 11, 'italic'),
+            bg='#f0f0f0',
+            fg='#666666'
+        )
+        self.label_resultados.pack(pady=5)
+        
+        # ---------- TABLA DE PROFESIONALES ----------
+        frame_tabla = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_tabla.pack(fill='both', expand=True, pady=10)
+        
+        self.tree = ttk.Treeview(
+            frame_tabla,
+            columns=('ID', 'DNI', 'Nombre', 'Apellido', 'Especialidad', 'Matrícula', 'Estado'),
+            show='headings',
+            height=12,
+            selectmode='browse'
+        )
+        
+        columnas = [
+            ('ID', 'ID', 40, 'center'),
+            ('DNI', 'DNI', 100, 'center'),
+            ('Nombre', 'Nombre', 160, 'w'),
+            ('Apellido', 'Apellido', 160, 'w'),
+            ('Especialidad', 'Especialidad', 160, 'w'),
+            ('Matrícula', 'Matrícula', 100, 'center'),
+            ('Estado', 'Estado', 90, 'center')
+        ]
+        
+        for col, heading, width, anchor in columnas:
+            self.tree.heading(col, text=heading)
+            self.tree.column(col, width=width, anchor=anchor)
+        
+        self.tree.pack(side='left', fill='both', expand=True)
+        
+        scrollbar = ttk.Scrollbar(frame_tabla, orient='vertical', command=self.tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.tree.bind('<Double-1>', self.on_doble_click)
+        
+        # ---------- ESTADO ----------
+        self.label_estado = tk.Label(
+            self.frame_principal,
+            text="✅ OpenHIS-UNLaM",
+            font=('Arial', 9),
+            bg='#f0f0f0',
+            fg='#666666'
+        )
+        self.label_estado.pack(side='bottom', pady=5)
+        
+        # Cargar profesionales activos al iniciar
+        self.ver_profesionales(activos=True)
+    
+    # ============================================================
+    # MÉTODOS
+    # ============================================================
+    
+    def ver_profesionales(self, activos=True):
+        """Carga profesionales según su estado"""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        profesionales = listar_profesionales(activos=activos)
+        
+        for p in profesionales:
+            # p = (id, dni, nombre, apellido, especialidad, matricula, activo)
+            estado = "✅ Activo" if p[6] == 1 else "🚫 Inactivo"
+            self.tree.insert('', 'end', values=(
+                p[0], p[1], p[2], p[3], p[4], p[5], estado
+            ))
+        
+        tipo = "activos" if activos else "inactivos"
+        self.label_resultados.config(text=f"📊 Total de profesionales {tipo}: {len(profesionales)}")
+    
+    def on_doble_click(self, event):
+        """Doble clic en la tabla"""
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+        item = self.tree.item(seleccion[0])
+        profesional_id = item['values'][0]
+        profesional = buscar_profesional_por_id(profesional_id)
+        if profesional:
+            self.ver_detalle(profesional)
+    
+    def ver_detalle(self, profesional):
+        """Muestra el detalle completo de un profesional"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Detalle - {profesional['nombre']} {profesional['apellido']}")
+        ventana.geometry("520x550")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        
+        estado = "✅ Activo" if profesional['activo'] == 1 else "🚫 Inactivo"
+        
+        tk.Label(
+            ventana,
+            text=f"👨‍⚕️ DATOS DEL PROFESIONAL",
+            font=('Arial', 14, 'bold'),
+            bg='#f0f0f0',
+            fg='#003366'
+        ).pack(pady=10)
+        
+        frame_detalle = tk.Frame(ventana, bg='#f0f0f0')
+        frame_detalle.pack(padx=30, pady=10, fill='both', expand=True)
+        
+        # Contar registros relacionados
+        total_prescripciones = contar_prescripciones_profesional(profesional['id'])
+        total_signos = contar_signos_profesional(profesional['id'])
+        
+        detalles = [
+            ('👤 ID', profesional['id']),
+            ('📋 DNI', profesional['dni']),
+            ('👤 Nombre', profesional['nombre']),
+            ('👤 Apellido', profesional['apellido']),
+            ('📅 Fecha Nacimiento', profesional['fecha_nac']),
+            ('⚧️ Sexo', profesional['sexo']),
+            ('📜 Matrícula', profesional['matricula']),
+            ('🏥 Especialidad', profesional['especialidad_nombre']),
+            ('📞 Teléfono', profesional['telefono'] or 'No registrado'),
+            ('✉️ Email', profesional['email'] or 'No registrado'),
+            ('📅 Fecha Registro', profesional['fecha_registro']),
+            ('📊 Estado', estado),
+            ('💊 Prescripciones', f"{total_prescripciones} prescripciones"),
+            ('❤️ Signos Vitales', f"{total_signos} registros")
+        ]
+        
+        for label, value in detalles:
+            frame = tk.Frame(frame_detalle, bg='#f0f0f0')
+            frame.pack(fill='x', pady=2)
+            tk.Label(
+                frame,
+                text=f"{label}:",
+                width=20,
+                anchor='w',
+                bg='#f0f0f0',
+                font=('Arial', 10, 'bold')
+            ).pack(side='left')
+            tk.Label(
+                frame,
+                text=str(value),
+                anchor='w',
+                bg='#f0f0f0',
+                font=('Arial', 10),
+                wraplength=300,
+                justify='left'
+            ).pack(side='left', padx=5)
+        
+        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones.pack(pady=15)
+        
+        if profesional['activo'] == 1:
+            tk.Button(
+                frame_botones,
+                text="✏️ Modificar",
+                bg='#FF9800',
+                fg='white',
+                font=('Arial', 10, 'bold'),
+                padx=15,
+                pady=5,
+                command=lambda: [ventana.destroy(), self.abrir_modificacion_con_id(profesional['id'])]
+            ).pack(side='left', padx=5)
+            
+            tk.Button(
+                frame_botones,
+                text="🗑️ Dar de Baja",
+                bg='#f44336',
+                fg='white',
+                font=('Arial', 10, 'bold'),
+                padx=15,
+                pady=5,
+                command=lambda: [ventana.destroy(), self.baja_con_id(profesional['id'])]
+            ).pack(side='left', padx=5)
+        else:
+            tk.Button(
+                frame_botones,
+                text="♻️ Reactivar",
+                bg='#4CAF50',
+                fg='white',
+                font=('Arial', 10, 'bold'),
+                padx=15,
+                pady=5,
+                command=lambda: [ventana.destroy(), self.reactivar_con_id(profesional['id'])]
+            ).pack(side='left', padx=5)
+        
+        tk.Button(
+            frame_botones,
+            text="❌ Cerrar",
+            bg='#9E9E9E',
+            fg='white',
+            font=('Arial', 10, 'bold'),
+            padx=15,
+            pady=5,
+            command=ventana.destroy
+        ).pack(side='left', padx=5)
+    
+    # ---------- REGISTRAR ----------
+    def abrir_registro(self):
+        """Abre ventana para registrar nuevo profesional"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Registrar Nuevo Profesional")
+        ventana.geometry("550x650")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        ventana.resizable(False, False)
+        
+        tk.Label(
+            ventana,
+            text="📋 REGISTRO DE PROFESIONAL",
+            font=('Arial', 14, 'bold'),
+            bg='#f0f0f0',
+            fg='#003366'
+        ).pack(pady=10)
+        
+        tk.Label(
+            ventana,
+            text="Los campos con * son obligatorios",
+            font=('Arial', 9),
+            bg='#f0f0f0',
+            fg='#666666'
+        ).pack(pady=2)
+        
+        especialidades = obtener_especialidades_selector()
+        if not especialidades:
+            messagebox.showwarning("Advertencia",
+                "No hay especialidades cargadas.\n"
+                "Cargue especialidades primero en Tablas Maestras.")
+            ventana.destroy()
+            return
+        
+        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
+        frame_campos.pack(padx=30, pady=10)
+        
+        campos = [
+            ('DNI *', 'dni', True),
+            ('Nombre *', 'nombre', True),
+            ('Apellido *', 'apellido', True),
+            ('Fecha Nac. (YYYY-MM-DD) *', 'fecha_nac', True),
+            ('Sexo (M/F) *', 'sexo', True),
+            ('Matrícula *', 'matricula', True),
+            ('Especialidad *', 'especialidad', True),
+            ('Teléfono', 'telefono', False),
+            ('Email', 'email', False)
+        ]
+        
+        self.entries = {}
+        for label_text, key, obligatorio in campos:
+            frame = tk.Frame(frame_campos, bg='#f0f0f0')
+            frame.pack(fill='x', pady=3)
+            
+            texto = label_text + ' *' if obligatorio else label_text
+            tk.Label(
+                frame,
+                text=texto,
+                width=22,
+                anchor='w',
+                bg='#f0f0f0',
+                font=('Arial', 10)
+            ).pack(side='left')
+            
+            if key == 'especialidad':
+                combo = ttk.Combobox(frame, width=28, font=('Arial', 10), state='readonly')
+                combo['values'] = [f"{esp[1]} - {esp[2]}" for esp in especialidades]
+                if combo['values']:
+                    combo.current(0)
+                combo.pack(side='right')
+                self.entries[key] = combo
+            else:
+                entry = tk.Entry(frame, width=28, font=('Arial', 10))
+                entry.pack(side='right')
+                self.entries[key] = entry
+        
+        def guardar():
+            obligatorios = ['dni', 'nombre', 'apellido', 'fecha_nac', 'sexo', 'matricula']
+            for campo in obligatorios:
+                if not self.entries[campo].get().strip():
+                    messagebox.showerror("Error", f"El campo '{campo}' es obligatorio.")
+                    return
+            
+            especialidad_seleccionada = self.entries['especialidad'].get()
+            if not especialidad_seleccionada:
+                messagebox.showerror("Error", "Debe seleccionar una especialidad.")
+                return
+            
+            especialidad_id = None
+            for esp in especialidades:
+                if f"{esp[1]} - {esp[2]}" == especialidad_seleccionada:
+                    especialidad_id = esp[0]
+                    break
+            
+            sexo = self.entries['sexo'].get().strip().upper()
+            if sexo not in ['M', 'F']:
+                messagebox.showerror("Error", "El sexo debe ser 'M' o 'F'.")
+                return
+            
+            datos = {
+                'dni': self.entries['dni'].get().strip(),
+                'nombre': self.entries['nombre'].get().strip(),
+                'apellido': self.entries['apellido'].get().strip(),
+                'fecha_nac': self.entries['fecha_nac'].get().strip(),
+                'sexo': sexo,
+                'matricula': self.entries['matricula'].get().strip(),
+                'especialidad_id': especialidad_id,
+                'telefono': self.entries['telefono'].get().strip(),
+                'email': self.entries['email'].get().strip()
+            }
+            
+            resultado, info = registrar_profesional(datos)
+            if resultado:
+                messagebox.showinfo("Éxito", f"✅ Profesional registrado.\nID: {info}")
+                ventana.destroy()
+                self.ver_profesionales(activos=True)
+            else:
+                messagebox.showerror("Error", f"❌ {info}")
+        
+        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones.pack(pady=20)
+        
+        tk.Button(frame_botones, text="💾 Guardar", bg='#4CAF50', fg='white',
+                 font=('Arial', 11, 'bold'), padx=25, pady=8,
+                 command=guardar).pack(side='left', padx=10)
+        tk.Button(frame_botones, text="❌ Cancelar", bg='#f44336', fg='white',
+                 font=('Arial', 11, 'bold'), padx=25, pady=8,
+                 command=ventana.destroy).pack(side='left', padx=10)
+    
+    # ---------- BUSCAR ----------
+    def abrir_busqueda(self):
+        """Abre ventana para buscar profesional por DNI"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Buscar Profesional")
+        ventana.geometry("500x450")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        ventana.resizable(False, False)
+        
+        tk.Label(ventana, text="🔍 BUSCAR PROFESIONAL POR DNI",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=15)
+        
+        frame_busqueda = tk.Frame(ventana, bg='#f0f0f0')
+        frame_busqueda.pack(pady=10)
+        
+        tk.Label(frame_busqueda, text="DNI:", font=('Arial', 12, 'bold'), bg='#f0f0f0').pack(side='left', padx=10)
+        
+        entry_dni = tk.Entry(frame_busqueda, font=('Arial', 12), width=20)
+        entry_dni.pack(side='left', padx=10)
+        entry_dni.focus()
+        
+        frame_resultado = tk.Frame(ventana, bg='#f0f0f0')
+        frame_resultado.pack(pady=10, fill='both', expand=True, padx=20)
+        
+        label_datos = tk.Label(frame_resultado, text="Ingrese un DNI y presione Buscar",
+                              font=('Arial', 10), bg='#f0f0f0', fg='#666666', justify='left')
+        label_datos.pack(pady=5)
+        
+        def buscar():
+            dni = entry_dni.get().strip()
+            if not dni:
+                messagebox.showerror("Error", "Ingrese un DNI.")
+                return
+            
+            r = buscar_profesional(dni)
+            if r:
+                estado = "✅ Activo" if r['activo'] == 1 else "🚫 Inactivo"
+                texto = (
+                    f"👨‍⚕️ ID: {r['id']}\n"
+                    f"📋 DNI: {r['dni']}\n"
+                    f"👤 Nombre: {r['nombre']} {r['apellido']}\n"
+                    f"📅 Fecha Nac.: {r['fecha_nac']}\n"
+                    f"⚧️ Sexo: {r['sexo']}\n"
+                    f"📜 Matrícula: {r['matricula']}\n"
+                    f"🏥 Especialidad: {r['especialidad_nombre']}\n"
+                    f"📞 Teléfono: {r['telefono'] or 'No registrado'}\n"
+                    f"✉️ Email: {r['email'] or 'No registrado'}\n"
+                    f"📅 Registro: {r['fecha_registro']}\n"
+                    f"📊 Estado: {estado}"
+                )
+                label_datos.config(text=texto, fg='#333333')
+            else:
+                label_datos.config(text="❌ Profesional no encontrado.", fg='#f44336')
+        
+        entry_dni.bind('<Return>', lambda e: buscar())
+        
+        tk.Button(ventana, text="🔍 Buscar", bg='#2196F3', fg='white',
+                 font=('Arial', 11, 'bold'), padx=20, pady=8,
+                 command=buscar).pack(pady=10)
+    
+    # ---------- MODIFICAR ----------
+    def abrir_modificacion(self):
+        """Abre ventana para modificar profesional por DNI"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Modificar Profesional")
+        ventana.geometry("550x500")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        ventana.resizable(False, False)
+        
+        tk.Label(ventana, text="✏️ MODIFICAR PROFESIONAL",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#FF9800').pack(pady=10)
+        
+        frame_buscar = tk.Frame(ventana, bg='#f0f0f0')
+        frame_buscar.pack(pady=10)
+        
+        tk.Label(frame_buscar, text="DNI:", font=('Arial', 11), bg='#f0f0f0').pack(side='left', padx=10)
+        entry_dni = tk.Entry(frame_buscar, font=('Arial', 11), width=20)
+        entry_dni.pack(side='left', padx=10)
+        entry_dni.focus()
+        
+        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
+        frame_campos.pack(pady=10, padx=30, fill='both', expand=True)
+        
+        label_nombre = tk.Label(frame_campos, text="Ingrese un DNI y presione Buscar",
+                               font=('Arial', 11, 'bold'), bg='#f0f0f0', fg='#003366')
+        label_nombre.pack(pady=5)
+        
+        especialidades = obtener_especialidades_selector()
+        
+        campos_mod = [
+            ('Teléfono', 'telefono'),
+            ('Email', 'email'),
+            ('Especialidad *', 'especialidad')
+        ]
+        
+        entries_mod = {}
+        frame_entries = tk.Frame(frame_campos, bg='#f0f0f0')
+        
+        for label_text, key in campos_mod:
+            frame = tk.Frame(frame_entries, bg='#f0f0f0')
+            frame.pack(fill='x', pady=3)
+            
+            tk.Label(frame, text=label_text + ":", width=18, anchor='w',
+                    bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+            
+            if key == 'especialidad':
+                combo = ttk.Combobox(frame, width=28, font=('Arial', 10), state='readonly')
+                combo['values'] = [f"{esp[1]} - {esp[2]}" for esp in especialidades]
+                if combo['values']:
+                    combo.current(0)
+                combo.pack(side='right')
+                entries_mod[key] = combo
+            else:
+                entry = tk.Entry(frame, width=28, font=('Arial', 10))
+                entry.pack(side='right')
+                entries_mod[key] = entry
+        
+        profesional_id_actual = None
+        
+        def buscar_mod():
+            nonlocal profesional_id_actual
+            dni = entry_dni.get().strip()
+            if not dni:
+                messagebox.showerror("Error", "Ingrese un DNI.")
+                return
+            
+            r = buscar_profesional(dni)
+            if r:
+                profesional_id_actual = r['id']
+                label_nombre.config(
+                    text=f"{r['nombre']} {r['apellido']} (ID: {r['id']}) - {'Activo' if r['activo']==1 else 'INACTIVO'}",
+                    fg='#003366'
+                )
+                entries_mod['telefono'].delete(0, tk.END)
+                entries_mod['telefono'].insert(0, r['telefono'])
+                entries_mod['email'].delete(0, tk.END)
+                entries_mod['email'].insert(0, r['email'])
+                
+                # Seleccionar especialidad
+                for i, esp in enumerate(especialidades):
+                    if esp[0] == r['especialidad_id']:
+                        entries_mod['especialidad'].current(i)
+                        break
+                
+                frame_entries.pack(pady=10)
+            else:
+                messagebox.showerror("Error", "Profesional no encontrado.")
+        
+        entry_dni.bind('<Return>', lambda e: buscar_mod())
+        
+        tk.Button(ventana, text="🔍 Buscar", bg='#2196F3', fg='white',
+                 font=('Arial', 10, 'bold'), padx=15, pady=5,
+                 command=buscar_mod).pack(pady=5)
+        
+        def guardar_mod():
+            nonlocal profesional_id_actual
+            if not profesional_id_actual:
+                messagebox.showerror("Error", "Primero busque un profesional.")
+                return
+            
+            esp_sel = entries_mod['especialidad'].get()
+            esp_id = None
+            for esp in especialidades:
+                if f"{esp[1]} - {esp[2]}" == esp_sel:
+                    esp_id = esp[0]
+                    break
+            
+            if not esp_id:
+                messagebox.showerror("Error", "Seleccione especialidad válida.")
+                return
+            
+            datos = {
+                'telefono': entries_mod['telefono'].get().strip(),
+                'email': entries_mod['email'].get().strip(),
+                'especialidad_id': esp_id
+            }
+            
+            resultado, mensaje = modificar_profesional(profesional_id_actual, datos)
+            if resultado:
+                messagebox.showinfo("Éxito", f"✅ {mensaje}")
+                ventana.destroy()
+                self.ver_profesionales(activos=True)
+            else:
+                messagebox.showerror("Error", f"❌ {mensaje}")
+        
+        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones.pack(pady=15)
+        
+        tk.Button(frame_botones, text="💾 Guardar", bg='#FF9800', fg='white',
+                 font=('Arial', 11, 'bold'), padx=20, pady=8,
+                 command=guardar_mod).pack(side='left', padx=10)
+        tk.Button(frame_botones, text="❌ Cancelar", bg='#f44336', fg='white',
+                 font=('Arial', 11, 'bold'), padx=20, pady=8,
+                 command=ventana.destroy).pack(side='left', padx=10)
+    
+    def abrir_modificacion_con_id(self, profesional_id):
+        """Modificación directa por ID"""
+        profesional = buscar_profesional_por_id(profesional_id)
+        if not profesional:
+            return
+        
+        # Reutiliza la ventana de modificación
+        self.abrir_modificacion()
+        # (La ventana se abre vacía; el usuario ingresa el DNI)
+    
+    # ---------- BAJA LÓGICA ----------
+    def dar_baja_profesional(self):
+        """Abre ventana para dar de baja un profesional"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Dar de Baja Profesional")
+        ventana.geometry("520x320")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        ventana.resizable(False, False)
+        
+        tk.Label(ventana, text="🗑️ DAR DE BAJA PROFESIONAL",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#f44336').pack(pady=10)
+        
+        tk.Label(ventana,
+                text="ℹ️ La baja es LÓGICA: los datos se conservan.\n"
+                     "Las prescripciones y signos vitales NO se eliminan.",
+                font=('Arial', 10), bg='#f0f0f0', fg='#666666', justify='center').pack(pady=10)
+        
+        frame = tk.Frame(ventana, bg='#f0f0f0')
+        frame.pack(pady=15)
+        
+        tk.Label(frame, text="DNI del profesional:", font=('Arial', 11), bg='#f0f0f0').pack(side='left', padx=10)
+        
+        entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        entry_dni.pack(side='left', padx=10)
+        entry_dni.focus()
+        
+        def confirmar():
+            dni = entry_dni.get().strip()
+            if not dni:
+                messagebox.showerror("Error", "Ingrese un DNI.")
+                return
+            
+            p = buscar_profesional(dni)
+            if not p:
+                messagebox.showerror("Error", "Profesional no encontrado.")
+                return
+            
+            if p['activo'] == 0:
+                messagebox.showwarning("Aviso", "El profesional ya está dado de baja.")
+                return
+            
+            total_presc = contar_prescripciones_profesional(p['id'])
+            total_signos = contar_signos_profesional(p['id'])
+            
+            if messagebox.askyesno(
+                "⚠️ Confirmar Baja",
+                f"¿Dar de baja a {p['nombre']} {p['apellido']}?\n\n"
+                f"📊 Registros asociados:\n"
+                f"   💊 Prescripciones: {total_presc}\n"
+                f"   ❤️ Signos Vitales: {total_signos}\n\n"
+                f"✅ Los datos SE CONSERVAN (baja lógica)"
+            ):
+                resultado, mensaje = dar_baja_profesional(p['id'])
+                if resultado:
+                    messagebox.showinfo("Éxito", f"✅ {mensaje}")
+                    ventana.destroy()
+                    self.ver_profesionales(activos=True)
+                else:
+                    messagebox.showerror("Error", f"❌ {mensaje}")
+        
+        entry_dni.bind('<Return>', lambda e: confirmar())
+        
+        tk.Button(ventana, text="🗑️ Confirmar Baja", bg='#f44336', fg='white',
+                 font=('Arial', 11, 'bold'), padx=25, pady=8,
+                 command=confirmar).pack(pady=10)
+    
+    def baja_con_id(self, profesional_id):
+        """Baja directa con ID"""
+        p = buscar_profesional_por_id(profesional_id)
+        if not p:
+            return
+        
+        total_presc = contar_prescripciones_profesional(profesional_id)
+        total_signos = contar_signos_profesional(profesional_id)
+        
+        if messagebox.askyesno(
+            "⚠️ Confirmar Baja",
+            f"¿Dar de baja a {p['nombre']} {p['apellido']}?\n\n"
+            f"💊 Prescripciones: {total_presc}\n"
+            f"❤️ Signos Vitales: {total_signos}\n\n"
+            f"Los datos SE CONSERVAN (baja lógica)"
+        ):
+            resultado, mensaje = dar_baja_profesional(profesional_id)
+            if resultado:
+                messagebox.showinfo("Éxito", f"✅ {mensaje}")
+                self.ver_profesionales(activos=True)
+            else:
+                messagebox.showerror("Error", f"❌ {mensaje}")
+    
+    def reactivar_con_id(self, profesional_id):
+        """Reactiva un profesional"""
+        if messagebox.askyesno("♻️ Reactivar", "¿Reactivar este profesional?"):
+            resultado, mensaje = reactivar_profesional(profesional_id)
+            if resultado:
+                messagebox.showinfo("Éxito", f"✅ {mensaje}")
+                self.ver_profesionales(activos=True)
+            else:
+                messagebox.showerror("Error", f"❌ {mensaje}")
+
+
+# ================================================================
+# PUNTO DE ENTRADA
+# ================================================================
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = AppProfesionales(root)
+    root.mainloop()
