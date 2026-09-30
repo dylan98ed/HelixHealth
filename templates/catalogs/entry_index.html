@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} · HelixHealth{% endblock %}
+{% block content %}
+<a class="quiet-link d-inline-block mb-4" href="{% url 'catalogs:home' %}">Back to Catalogs</a>
+<header class="page-heading"><div><p class="eyebrow">Reference data</p><h1>{{ heading }}</h1><p>{{ description }}</p></div><div class="d-flex gap-2"><a class="btn btn-outline-primary" href="{% url import_url %}">Import JSON</a><a class="btn btn-primary" href="{% url create_url %}">Add entry</a></div></header>
+<form method="get" class="search-panel mb-4" aria-label="Search {{ heading|lower }}"><label class="form-label" for="catalog-search">Code or name</label><div class="d-flex gap-2"><input class="form-control" id="catalog-search" name="search" value="{{ query }}"><button class="btn btn-outline-secondary" type="submit">Search</button></div></form>
+<section aria-label="{{ heading }} records">{% for entry in page_obj %}<article class="form-panel mb-3"><h2 class="h5 mb-1">{% if kind == 'terminology' %}{{ entry.display }}{% else %}{{ entry.name }}{% endif %}</h2><p class="mb-0">Code: {{ entry.code }} · System: {{ entry.system }} · Version: {{ entry.version }} · Source: {{ entry.source_label }}{% if kind == 'medication' %} · Presentation: {{ entry.presentation }}{% endif %}</p></article>{% empty %}<div class="form-panel"><p class="mb-0">No entries match this search.</p></div>{% endfor %}</section>
+{% if page_obj.has_other_pages %}<nav class="d-flex justify-content-between mt-4" aria-label="{{ heading }} pagination">{% if page_obj.has_previous %}<a href="?search={{ query|urlencode }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="?search={{ query|urlencode }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
+{% endblock %}

@@ -5,7 +5,7 @@ from typing import Any
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseBase
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema
@@ -37,12 +37,12 @@ from patients.models import Patient
 ADMISSIONS_PER_PAGE = 20
 
 
-def medical_professional_required(
-    view_function: Callable[..., HttpResponse],
-) -> Callable[..., HttpResponse]:
+def medical_professional_required[ResponseT: HttpResponseBase](
+    view_function: Callable[..., ResponseT],
+) -> Callable[..., ResponseT]:
     @wraps(view_function)
     @login_required
-    def wrapped(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def wrapped(request: HttpRequest, *args: Any, **kwargs: Any) -> ResponseT:
         actor = actor_context_from_user(request.user)
         if not MEDICAL_PROFESSIONAL_POLICY.allows(actor):
             raise PermissionDenied(

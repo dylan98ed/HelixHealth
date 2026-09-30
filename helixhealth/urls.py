@@ -42,6 +42,9 @@ urlpatterns = [
     path("patients/", include("patients.urls")),
     path("professionals/", include("professionals.urls")),
     path("clinical-records/", include("clinical_records.urls")),
+    path("clinical-records/", include("prescriptions.urls")),
+    path("clinical-records/", include("interoperability.urls")),
+    path("catalogs/", include("catalogs.urls")),
     path(
         "api/schema/",
         SpectacularAPIView.as_view(**protected_api_view),

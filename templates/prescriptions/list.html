@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Prescriptions · HelixHealth{% endblock %}
+{% block content %}
+  <header class="mb-4">
+    <h1>Prescriptions</h1>
+    <p class="lead">{{ patient.first_name }} {{ patient.last_name }} · {{ patient.clinical_record_number }}</p>
+    <a class="btn btn-primary" href="{% url 'prescriptions:issue' patient.pk %}">New prescription</a>
+    <a class="btn btn-outline-secondary" href="{% url 'clinical_records:patient-admissions' patient.pk %}">Patient record</a>
+  </header>
+  <section aria-label="Prescription history">
+    {% for prescription in prescriptions %}
+      <article class="card mb-3"><div class="card-body">
+        <h2 class="h5">Prescription {{ prescription.identifier }}</h2>
+        <p class="mb-2">Issued {{ prescription.issued_at }} · {{ prescription.items.count }} medication{{ prescription.items.count|pluralize }}</p>
+        <a href="{% url 'prescriptions:detail' patient.pk prescription.identifier %}">Open prescription</a>
+      </div></article>
+    {% empty %}<p>No prescriptions have been issued.</p>{% endfor %}
+    {% include "_pagination.html" with page_obj=prescriptions page_parameter="page" label="Prescription history" %}
+  </section>
+{% endblock %}

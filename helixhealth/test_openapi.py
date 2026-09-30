@@ -31,6 +31,50 @@ def test_openapi_endpoints_require_authentication(client, django_user_model):
         "version": "0.1.0",
         "description": "API contracts for the HelixHealth hospital information system.",
     }
+    medication_import = schema["paths"]["/catalogs/api/medications/import/"]["post"]
+    assert medication_import["operationId"] == "catalogs_medications_import"
+    assert (
+        medication_import["requestBody"]["content"]["application/json"]["examples"][
+            "MedicationIngestionRequest"
+        ]["value"]["entries"][0]["code"]
+        == "ACET-500"
+    )
+    assert set(medication_import["responses"]) >= {"200", "400", "409", "413", "415"}
+
+    prescription_issue = schema["paths"][
+        "/clinical-records/api/patients/{patient_pk}/prescriptions/"
+    ]["post"]
+    assert prescription_issue["operationId"] == "prescription_issue"
+    assert (
+        prescription_issue["requestBody"]["content"]["application/json"]["examples"][
+            "PrescriptionIssuanceRequest"
+        ]["value"]["items"][0]["duration_days"]
+        == 5
+    )
+    assert (
+        "/clinical-records/api/patients/{patient_pk}/prescriptions/{identifier}/report/"
+        in schema["paths"]
+    )
+    assert schema["paths"][
+        "/clinical-records/api/patients/{patient_pk}/prescriptions/{identifier}/xml/"
+    ]["get"]["responses"]["200"]["content"]["application/fhir+xml"]["schema"] == {
+        "type": "string",
+        "format": "binary",
+    }
+
+    import_issue = schema["paths"][
+        "/clinical-records/api/patients/{patient_pk}/exchange/imports/"
+    ]["post"]
+    assert import_issue["operationId"] == "external_import_issue"
+    assert import_issue["responses"]["201"]["content"]["application/json"]["examples"][
+        "FHIRImportResult"
+    ]["value"]["summary"] == {"record_count": 1}
+    assert (
+        schema["paths"]["/clinical-records/api/patients/{patient_pk}/exchange/export/"][
+            "post"
+        ]["responses"]["200"]["content"]["application/fhir+xml"]["schema"]["format"]
+        == "binary"
+    )
 
     docs_response = client.get(reverse("api-docs"))
     assert docs_response.status_code == status.HTTP_200_OK

@@ -15,6 +15,8 @@ repository_root = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(repository_root))
 personas = importlib.import_module("access_control.acceptance_personas")
 professional_journeys = importlib.import_module("tests.professional_journeys")
+catalog_journeys = importlib.import_module("tests.catalog_journeys")
+fhir_validation = importlib.import_module("interoperability.fhir_validation")
 
 ACCEPTANCE_PASSWORD_ENV = personas.ACCEPTANCE_PASSWORD_ENV
 ACTIVE_PATIENT_DNI = personas.ACTIVE_PATIENT_DNI
@@ -22,6 +24,13 @@ ADMINISTRATIVE_UPDATED_PHONE = personas.ADMINISTRATIVE_UPDATED_PHONE
 ADMINISTRATOR_USERNAME = personas.ADMINISTRATOR_USERNAME
 ADMISSION_REASON = personas.ADMISSION_REASON
 BROWSER_CREATED_USERNAME = personas.BROWSER_CREATED_USERNAME
+CATALOG_MEDICATION_CODE = personas.CATALOG_MEDICATION_CODE
+CATALOG_MEDICATION_SYSTEM = personas.CATALOG_MEDICATION_SYSTEM
+CATALOG_MEDICATION_VERSION = personas.CATALOG_MEDICATION_VERSION
+CATALOG_SPECIALTY_CODE = personas.CATALOG_SPECIALTY_CODE
+CATALOG_TERMINOLOGY_CODE = personas.CATALOG_TERMINOLOGY_CODE
+EXTERNAL_IMPORT_SOURCE_SYSTEM = personas.EXTERNAL_IMPORT_SOURCE_SYSTEM
+PRESCRIPTION_ROUTE = personas.PRESCRIPTION_ROUTE
 DJANGO_ADMIN_USERNAME = personas.DJANGO_ADMIN_USERNAME
 INACTIVE_PATIENT_DNI = personas.INACTIVE_PATIENT_DNI
 MEDICAL_ACTIVE_USERNAME = personas.MEDICAL_ACTIVE_USERNAME
@@ -71,7 +80,17 @@ def run_journey(
     artifact_dir: Path,
     journey: Journey,
 ) -> dict[str, str]:
-    context = browser.new_context()
+    context = browser.new_context(
+        accept_downloads=True,
+        java_script_enabled=name
+        not in {
+            "administrative-catalog-management",
+            "medical-prescription-issue",
+            "medical-admission-fhir-export",
+            "medical-wrong-patient-fhir-import",
+            "medical-external-fhir-import",
+        },
+    )
     page = context.new_page()
     try:
         journey(page)
@@ -272,6 +291,253 @@ def main() -> int:
         ).first.click()
         expect(page.get_by_role("button", name="Save", exact=True)).to_have_count(0)
         expect(page.get_by_role("link", name="Delete", exact=True)).to_have_count(0)
+
+    def manage_catalogs(page: Page) -> None:
+        """B1: an application administrator creates every catalog prerequisite."""
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        page.get_by_role("link", name="Catalogs", exact=True).click()
+        expect(page.get_by_role("heading", name="Catalogs", exact=True)).to_be_visible()
+
+        page.get_by_role("link", name="Open specialties", exact=True).click()
+        page.get_by_role("link", name="Add specialty", exact=True).click()
+        page.get_by_label("Code", exact=True).fill(CATALOG_SPECIALTY_CODE)
+        page.get_by_label("Name", exact=True).fill("Compose catalog specialty")
+        page.get_by_role("button", name="Save specialty", exact=True).click()
+        specialty = page.locator("article").filter(has_text="Compose catalog specialty")
+        specialty.get_by_role("link", name="Edit specialty", exact=True).click()
+        page.get_by_label("Name", exact=True).fill("Edited Compose catalog specialty")
+        page.get_by_role("button", name="Save specialty", exact=True).click()
+        page.locator("article").filter(
+            has_text="Edited Compose catalog specialty"
+        ).get_by_role("link", name="Delete specialty", exact=True).click()
+        page.get_by_label(
+            "I confirm I want to remove this unreferenced specialty."
+        ).check()
+        page.get_by_role("button", name="Delete specialty", exact=True).click()
+        expect(
+            page.get_by_text("Edited Compose catalog specialty", exact=True)
+        ).to_have_count(0)
+
+        page.get_by_role("link", name="Back to Catalogs", exact=True).click()
+        page.get_by_role("link", name="Open nomenclature", exact=True).click()
+        page.get_by_role("link", name="Add entry", exact=True).click()
+        page.get_by_label("System URI", exact=True).fill(
+            "https://acceptance.example.test/terminology"
+        )
+        page.get_by_label("Version", exact=True).fill(CATALOG_MEDICATION_VERSION)
+        page.get_by_label("Code", exact=True).fill(CATALOG_TERMINOLOGY_CODE)
+        page.get_by_label("Display", exact=True).fill("Compose terminology")
+        page.get_by_label("Source label", exact=True).fill("Compose acceptance source")
+        page.get_by_role("button", name="Save entry", exact=True).click()
+        expect(page.get_by_text("Compose terminology", exact=True)).to_be_visible()
+
+        page.get_by_role("link", name="Back to Catalogs", exact=True).click()
+        page.get_by_role("link", name="Open medications", exact=True).click()
+        page.get_by_role("link", name="Add entry", exact=True).click()
+        page.get_by_label("System URI", exact=True).fill(CATALOG_MEDICATION_SYSTEM)
+        page.get_by_label("Version", exact=True).fill(CATALOG_MEDICATION_VERSION)
+        page.get_by_label("Code", exact=True).fill(CATALOG_MEDICATION_CODE)
+        page.get_by_label("Name", exact=True).fill("Compose prescription medication")
+        page.get_by_label("Presentation", exact=True).fill("500 mg tablet")
+        page.get_by_label("Source label", exact=True).fill("Compose acceptance source")
+        page.get_by_role("button", name="Save entry", exact=True).click()
+        expect(
+            page.get_by_text("Compose prescription medication", exact=True)
+        ).to_be_visible()
+
+        catalog_journeys.import_catalog_and_verify_retries(page)
+
+    def issue_prescription(page: Page) -> None:
+        """B2: the active doctor corrects an input and issues one prescription."""
+        application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
+        expect(page).to_have_url(f"{base_url}/clinical-records/")
+        page.get_by_label("Name or surname").fill("patient acceptance")
+        page.get_by_role("button", name="Search names", exact=True).click()
+        patient_card = page.locator("article").filter(has_text="Acceptance Patient")
+        patient_card.get_by_role(
+            "link", name="Record admission for Acceptance Patient"
+        ).click()
+        page.get_by_role("link", name="Prescriptions", exact=True).click()
+        page.get_by_role("link", name="New prescription", exact=True).click()
+        medication = page.get_by_label("Medication").nth(0)
+        option = medication.get_by_role("option").filter(
+            has_text="Compose prescription medication"
+        )
+        medication.select_option(label=option.inner_text())
+        page.get_by_label("Dose value").nth(0).fill("0")
+        page.get_by_label("Dose unit").nth(0).fill("mg")
+        page.get_by_label("Route").nth(0).fill(PRESCRIPTION_ROUTE)
+        page.get_by_label("Frequency").nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days").nth(0).fill("5")
+        page.get_by_label("Medication").nth(1).select_option(
+            page.get_by_label("Medication").nth(0).input_value()
+        )
+        page.get_by_label("Dose value").nth(1).fill("250")
+        page.get_by_label("Dose unit").nth(1).fill("mg")
+        page.get_by_label("Route").nth(1).fill(PRESCRIPTION_ROUTE)
+        page.get_by_label("Frequency").nth(1).fill("at night")
+        page.get_by_label("Duration days").nth(1).fill("3")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_text("Enter a positive dose.")).to_be_visible()
+        page.get_by_label("Dose value").nth(0).fill("500")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
+        issued_url = page.url
+        page.go_back()
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page).to_have_url(issued_url)
+        page.get_by_role("link", name="Printable report", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="Medication prescription")
+        ).to_be_visible()
+        page.go_back()
+        with page.expect_download() as download_info:
+            page.get_by_role("link", name="Download FHIR XML", exact=True).click()
+        assert download_info.value.suggested_filename.startswith("prescription-")
+        fhir_validation.validate_fhir_r4_bundle(
+            Path(download_info.value.path()).read_bytes()
+        )
+
+    def export_recorded_admission(page: Page) -> None:
+        """B3: export the admission created by the visible medical-admission journey."""
+        application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
+        page.get_by_label("Name or surname").fill("patient acceptance")
+        page.get_by_role("button", name="Search names", exact=True).click()
+        patient_card = page.locator("article").filter(has_text="Acceptance Patient")
+        patient_card.get_by_role(
+            "link", name="Record admission for Acceptance Patient"
+        ).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.get_by_label(re.compile(f"Admission .*{ADMISSION_REASON}")).check()
+        page.get_by_label(re.compile("Prescription ")).check()
+        page.get_by_role("button", name="Export selected XML", exact=True).click()
+        expect(page.get_by_role("alert")).to_contain_text(
+            "Export admissions or one prescription in a separate file."
+        )
+        page.get_by_label(re.compile("Prescription ")).uncheck()
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Export selected XML", exact=True).click()
+        assert download_info.value.suggested_filename.startswith("clinical-export-")
+        fhir_validation.validate_fhir_r4_bundle(
+            Path(download_info.value.path()).read_bytes()
+        )
+
+    def _matching_external_xml() -> bytes:
+        return (
+            (
+                repository_root
+                / "docs"
+                / "interoperability"
+                / "fhir-r4"
+                / "fixtures"
+                / "independent-valid-observation.xml"
+            )
+            .read_bytes()
+            .replace(b"12345678", ACTIVE_PATIENT_DNI.encode())
+            .replace(b"1980-04-20", b"1990-01-01")
+        )
+
+    def reject_wrong_patient_import(page: Page) -> None:
+        """B6: a wrong-patient file produces a visible error and no import."""
+        application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
+        page.get_by_label("Name or surname").fill("patient acceptance")
+        page.get_by_role("button", name="Search names", exact=True).click()
+        page.locator("article").filter(has_text="Acceptance Patient").get_by_role(
+            "link", name="Record admission for Acceptance Patient"
+        ).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.get_by_role("link", name="Import FHIR XML", exact=True).click()
+        page.get_by_label("Source organization system").fill(
+            EXTERNAL_IMPORT_SOURCE_SYSTEM
+        )
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "wrong-patient.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": (
+                    repository_root
+                    / "docs"
+                    / "interoperability"
+                    / "fhir-r4"
+                    / "fixtures"
+                    / "independent-valid-observation.xml"
+                ).read_bytes(),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_text(
+                "The Bundle Patient DNI and birth date must exactly match the selected patient."
+            )
+        ).to_be_visible()
+
+    def import_external_fhir(page: Page) -> None:
+        """B4: import an independently-authored matching file and retrieve it."""
+        application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
+        page.get_by_label("Name or surname").fill("patient acceptance")
+        page.get_by_role("button", name="Search names", exact=True).click()
+        page.locator("article").filter(has_text="Acceptance Patient").get_by_role(
+            "link", name="Record admission for Acceptance Patient"
+        ).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.get_by_role("link", name="Import FHIR XML", exact=True).click()
+        page.get_by_label("Source organization system").fill(
+            EXTERNAL_IMPORT_SOURCE_SYSTEM
+        )
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "wrong-identifier-system.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": _matching_external_xml().replace(
+                    b"https://helixhealth.local/interoperability/identifiers/dni",
+                    b"https://external.example/identifiers/hospital-record-number",
+                ),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_text(
+                "The Bundle Patient must contain exactly one DNI identifier",
+                exact=False,
+            )
+        ).to_be_visible()
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "matching-external-observation.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": _matching_external_xml(),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="External clinical import")
+        ).to_be_visible()
+        with page.expect_download() as download_info:
+            page.get_by_role("link", name="Download original XML", exact=True).click()
+        download = download_info.value
+        assert download.suggested_filename.startswith("import-")
+        assert Path(download.path()).read_bytes() == _matching_external_xml()
+        page.get_by_role("link", name="Retry this import", exact=True).click()
+        expect(page.get_by_label("Source organization system")).to_have_value(
+            EXTERNAL_IMPORT_SOURCE_SYSTEM
+        )
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "matching-external-observation-retry.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": _matching_external_xml(),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="External clinical import")
+        ).to_be_visible()
+
+    def medical_catalog_navigation_is_hidden(page: Page) -> None:
+        """B5: the least-privileged doctor sees clinical, not admin, navigation."""
+        application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
+        expect(page.get_by_role("link", name="Clinical workspace")).to_be_visible()
+        expect(page.get_by_role("link", name="Catalogs")).to_have_count(0)
 
     journeys: list[tuple[str, Journey]] = [
         ("medical-missing-profile-denied", missing_profile_medical_is_denied),
@@ -594,6 +860,12 @@ def main() -> int:
                 ),
             ),
             ("medical-admission", record_admission),
+            ("administrative-catalog-management", manage_catalogs),
+            ("medical-prescription-issue", issue_prescription),
+            ("medical-admission-fhir-export", export_recorded_admission),
+            ("medical-catalog-navigation-hidden", medical_catalog_navigation_is_hidden),
+            ("medical-wrong-patient-fhir-import", reject_wrong_patient_import),
+            ("medical-external-fhir-import", import_external_fhir),
             ("administrative-patient-management", manage_patient),
             ("medical-workspace", paginated_workspace),
             (

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HelixHealth FHIR R4 Clinical Exchange v1 constraints",
+  "fhirVersion": "4.0.1",
+  "bundle": {
+    "type": "collection",
+    "entryFullUrl": "unique urn:uuid",
+    "requiredResourceCounts": {"Patient": 1, "Organization": 1, "Practitioner": 1},
+    "allowedResources": ["Patient", "Organization", "Practitioner", "Observation", "MedicationRequest"],
+    "requiresClinicalResource": ["Observation", "MedicationRequest"],
+    "references": "in-bundle fullUrl only"
+  },
+  "observation": {
+    "status": "final",
+    "categoryCode": "vital-signs",
+    "codes": {
+      "85354-9": {"unit": "mm[Hg]", "components": ["8480-6", "8462-4"]},
+      "8867-4": {"unit": "/min", "components": []},
+      "8310-5": {"unit": "Cel", "components": []}
+    }
+  },
+  "medicationRequest": {
+    "status": "active",
+    "intent": "order",
+    "durationUnit": "d",
+    "required": ["medication coding", "subject", "requester", "authoredOn", "groupIdentifier", "dosage"]
+  }
+}

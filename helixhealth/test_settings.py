@@ -16,7 +16,7 @@ print(json.dumps({
 """
 
 
-def run_settings_probe(**environment):
+def run_settings_probe(*, include_interoperability=True, **environment):
     process_environment = os.environ.copy()
     for name in (
         "DJANGO_ENVIRONMENT",
@@ -28,6 +28,11 @@ def run_settings_probe(**environment):
         "DB_NAME",
         "DB_USER",
         "DB_PASSWORD",
+        "INTEROPERABILITY_BASE_URI",
+        "INTEROPERABILITY_PATIENT_DNI_SYSTEM",
+        "INTEROPERABILITY_INSTITUTION_SYSTEM",
+        "INTEROPERABILITY_INSTITUTION_CODE",
+        "INTEROPERABILITY_INSTITUTION_NAME",
     ):
         process_environment.pop(name, None)
     process_environment.update(
@@ -40,6 +45,16 @@ def run_settings_probe(**environment):
             "DJANGO_ALLOWED_HOSTS": "probe.example.test",
         }
     )
+    if include_interoperability:
+        process_environment.update(
+            {
+                "INTEROPERABILITY_BASE_URI": "https://hospital.example/interoperability",
+                "INTEROPERABILITY_PATIENT_DNI_SYSTEM": "https://hospital.example/identifiers/dni",
+                "INTEROPERABILITY_INSTITUTION_SYSTEM": "https://hospital.example/identifiers/institution",
+                "INTEROPERABILITY_INSTITUTION_CODE": "hospital-example",
+                "INTEROPERABILITY_INSTITUTION_NAME": "Hospital Example",
+            }
+        )
     process_environment.update(environment)
 
     return subprocess.run(
@@ -129,6 +144,17 @@ def test_production_requires_allowed_hosts():
 
     assert result.returncode != 0
     assert "DJANGO_ALLOWED_HOSTS must list" in result.stderr
+
+
+def test_production_requires_persistent_interoperability_identity():
+    result = run_settings_probe(
+        include_interoperability=False,
+        DJANGO_ENVIRONMENT="production",
+        DJANGO_SECRET_KEY="production-secret-from-environment",
+    )
+
+    assert result.returncode != 0
+    assert "INTEROPERABILITY_BASE_URI must be set" in result.stderr
 
 
 def test_local_environment_loader_accepts_utf8_bom(tmp_path, monkeypatch):
