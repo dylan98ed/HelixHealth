@@ -7,9 +7,12 @@ import os
 import re
 import sys
 from collections.abc import Callable
+from io import BytesIO
 from pathlib import Path
 
+from PIL import Image
 from playwright.sync_api import Browser, Page, expect, sync_playwright
+from pydicom import dcmread
 
 repository_root = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(repository_root))
@@ -163,6 +166,38 @@ def main() -> int:
         history = page.get_by_role("region", name="Admission history")
         expect(history.get_by_text(ADMISSION_REASON, exact=True)).to_be_visible()
         expect(history.get_by_text(MEDICAL_ACTIVE_USERNAME, exact=True)).to_be_visible()
+
+    def save_medical_image(page: Page) -> None:
+        application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
+        page.get_by_label("Name or surname").fill("Acceptance Patient")
+        page.get_by_role("link", name="Record admission for Acceptance Patient").click()
+        page.get_by_role("link", name="Medical images").click()
+        expect(page.get_by_role("heading", name="Medical images")).to_be_visible()
+        buffer = BytesIO()
+        Image.new("RGB", (2, 2), (10, 20, 30)).save(buffer, format="PNG")
+        page.get_by_label("JPG, PNG or DICOM file").set_input_files(
+            {
+                "name": "practice.png",
+                "mimeType": "image/png",
+                "buffer": buffer.getvalue(),
+            }
+        )
+        page.get_by_label("Birth year").fill("1990")
+        page.get_by_label("Study year").fill("2025")
+        page.get_by_label("Sex").select_option("F")
+        page.get_by_role("button", name="Save anonymized DICOM").click()
+        expect(page.get_by_role("status")).to_contain_text("DICOM saved")
+        page.reload(wait_until="networkidle")
+        expect(page.get_by_text("PNG · Study year: 2025")).to_be_visible()
+        with page.expect_download() as download_info:
+            page.get_by_role("link", name="Download anonymized DICOM").click()
+        destination = artifact_dir / "accepted-anonymized-image.dcm"
+        download_info.value.save_as(destination)
+        dataset = dcmread(destination)
+        assert dataset.SOPClassUID.name == "Secondary Capture Image Storage"
+        assert dataset.PatientBirthDate == "19900101"
+        assert dataset.StudyDate == "20250101"
+        assert not dataset.PatientName and not dataset.PatientID
 
     def register_patient(page: Page) -> None:
         application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
@@ -594,6 +629,7 @@ def main() -> int:
                 ),
             ),
             ("medical-admission", record_admission),
+            ("medical-image-conversion", save_medical_image),
             ("administrative-patient-management", manage_patient),
             ("medical-workspace", paginated_workspace),
             (

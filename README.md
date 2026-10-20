@@ -233,6 +233,17 @@ Open a patient's record to review details or, in the clinical workspace, choose
 **Record admission**. Administrative users can create a patient with **New patient**
 and edit existing records. These screens also support narrow mobile layouts.
 
+From a patient's admission page, active medical professionals can open **Medical
+images**. Upload a JPG or PNG with birth year, study year, and sex to create a
+DICOM Secondary Capture image, or upload a single-frame DICOM image to remove
+identifying metadata. The result is stored with the patient's clinical record
+and can be downloaded from that page. The source file is not retained. Only
+active medical professionals can access stored images; administrators and
+inactive or unregistered medical accounts cannot. Each upload is limited to
+32 MB, and raster images to 24 megapixels. The displayed year is encoded as
+January 1 in DICOM date fields. Pixel text is not automatically removed, so
+inspect images before sharing them outside the clinical system.
+
 ## Tests
 
 Start PostgreSQL before running the test suite. Tests use PostgreSQL, never

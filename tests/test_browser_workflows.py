@@ -1,6 +1,7 @@
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from io import BytesIO
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -8,16 +9,202 @@ from django.contrib.auth.models import Group
 from django.db import connections
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 from playwright.sync_api import Page, expect
+from pydicom import dcmread
 
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from clinical_records.models import Admission
+from imaging.models import AnonymizedImage
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
 from professionals.models import HospitalService, Professional, Specialty
 from tests.professional_journeys import fill_professional_registration
 
 TEST_PASSWORD = "Browser-test-password-2026!"
+
+
+def read_image_records(patient_id):
+    def load():
+        try:
+            return [
+                {**record, "dicom_bytes": bytes(record["dicom_bytes"])}
+                for record in AnonymizedImage.objects.filter(
+                    patient_id=patient_id
+                ).values(
+                    "id",
+                    "source_format",
+                    "birth_year",
+                    "study_year",
+                    "sex",
+                    "created_by__user_id",
+                    "dicom_bytes",
+                )
+            ]
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(load).result()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_professional_converts_and_saves_image_from_patient_record(
+    browser_medical_professional,
+    browser_admission_patient,
+    live_server,
+    browser_page,
+    tmp_path,
+):
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_medical_professional.username,
+        password=TEST_PASSWORD,
+    )
+    expect(browser_page).to_have_url(
+        f"{live_server.url}{reverse('clinical_records:dashboard')}"
+    )
+    browser_page.get_by_label("Name or surname").fill("Admission Patient")
+    browser_page.get_by_role(
+        "link", name="Record admission for Admission Patient"
+    ).click()
+    browser_page.get_by_role("link", name="Medical images").click()
+    expect(browser_page).to_have_url(
+        f"{live_server.url}{reverse('imaging:list', args=[browser_admission_patient.pk])}"
+    )
+    assert read_image_records(browser_admission_patient.pk) == []
+    image_buffer = BytesIO()
+    Image.new("RGB", (2, 2), (15, 30, 45)).save(image_buffer, format="PNG")
+    browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
+        {
+            "name": "practice.png",
+            "mimeType": "image/png",
+            "buffer": image_buffer.getvalue(),
+        }
+    )
+    browser_page.get_by_role("button", name="Save anonymized DICOM").click()
+    expect(
+        browser_page.get_by_text("This field is required for JPG and PNG images.")
+    ).to_have_count(3)
+    assert read_image_records(browser_admission_patient.pk) == []
+    browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
+        {
+            "name": "practice.png",
+            "mimeType": "image/png",
+            "buffer": image_buffer.getvalue(),
+        }
+    )
+    browser_page.get_by_label("Birth year").fill("1990")
+    browser_page.get_by_label("Study year").fill("2025")
+    browser_page.get_by_label("Sex").select_option("F")
+    browser_page.get_by_role("button", name="Save anonymized DICOM").click()
+    expect(browser_page).to_have_url(
+        re.compile(r"/clinical-records/patients/\d+/images/\?created=\d+$")
+    )
+    expect(browser_page.get_by_role("status")).to_contain_text("DICOM saved")
+    record = read_image_records(browser_admission_patient.pk)[0]
+    assert record["created_by__user_id"] == browser_medical_professional.pk
+    assert (record["birth_year"], record["study_year"], record["sex"]) == (
+        1990,
+        2025,
+        "F",
+    )
+    dataset = dcmread(BytesIO(record["dicom_bytes"]))
+    assert dataset.SOPClassUID.name == "Secondary Capture Image Storage"
+    assert dataset.PatientBirthDate == "19900101"
+    assert dataset.StudyDate == "20250101"
+    assert not dataset.PatientName and not dataset.PatientID
+    with browser_page.expect_download() as download_info:
+        browser_page.get_by_role("link", name="Download anonymized DICOM").click()
+    download = download_info.value
+    destination = tmp_path / download.suggested_filename
+    download.save_as(destination)
+    assert destination.read_bytes() == record["dicom_bytes"]
+
+    dataset.PatientName = "Identifying^Patient"
+    dataset.PatientID = "11223344"
+    dataset.StudyDate = "20250418"
+    dicom_buffer = BytesIO()
+    dataset.save_as(dicom_buffer, enforce_file_format=True)
+    browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
+        {
+            "name": "source.dcm",
+            "mimeType": "application/dicom",
+            "buffer": dicom_buffer.getvalue(),
+        }
+    )
+    browser_page.get_by_role("button", name="Save anonymized DICOM").click()
+    expect(browser_page.get_by_role("status")).to_contain_text("DICOM saved")
+    dicom_record = next(
+        record
+        for record in read_image_records(browser_admission_patient.pk)
+        if record["source_format"] == "DICOM"
+    )
+    sanitized = dcmread(BytesIO(dicom_record["dicom_bytes"]))
+    assert sanitized.PixelData == dataset.PixelData
+    assert sanitized.StudyDate == "20250101"
+    assert sanitized.SOPInstanceUID != dataset.SOPInstanceUID
+    assert not sanitized.PatientName and not sanitized.PatientID
+    assert b"Identifying^Patient" not in dicom_record["dicom_bytes"]
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_medical_images_redirect_signed_out_browser_to_login(
+    browser_admission_patient, live_server, browser_page
+):
+    browser_page.goto(f"{live_server.url}/")
+    image_url = reverse("imaging:list", args=[browser_admission_patient.pk])
+    browser_page.goto(f"{live_server.url}{image_url}")
+    expect(browser_page).to_have_url(re.compile(r"/login/\?next="))
+
+
+@pytest.fixture
+def denied_imaging_user(
+    request,
+    browser_medical_professional,
+    browser_patient_administrator,
+    user_factory,
+):
+    if request.param == "administrative":
+        return browser_patient_administrator
+    if request.param == "missing_profile":
+        user = user_factory(username="image-no-profile", password=TEST_PASSWORD)
+        medical_group, _ = Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)
+        user.groups.add(medical_group)
+        return user
+    Professional.objects.filter(user=browser_medical_professional).update(
+        is_active=False
+    )
+    return browser_medical_professional
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "denied_imaging_user",
+    ["administrative", "missing_profile", "inactive_profile"],
+    indirect=True,
+)
+def test_medical_images_deny_accounts_without_active_medical_profile(
+    denied_imaging_user,
+    browser_admission_patient,
+    live_server,
+    browser_page,
+):
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=denied_imaging_user.username,
+        password=TEST_PASSWORD,
+    )
+    expect(browser_page.get_by_role("link", name="Medical images")).to_have_count(0)
+    image_url = reverse("imaging:list", args=[browser_admission_patient.pk])
+    response = browser_page.goto(f"{live_server.url}{image_url}")
+    assert response is not None and response.status == 403
+    assert read_image_records(browser_admission_patient.pk) == []
 
 
 @pytest.fixture

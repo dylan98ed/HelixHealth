@@ -11,6 +11,8 @@ dependencies = [
     "drf-spectacular>=0.28,<1",
     "gunicorn>=23,<24",
     "psycopg[binary]>=3.2,<4",
+    "pydicom>=3.0,<4",
+    "pillow>=11,<13",
     "whitenoise>=6.9,<7",
 ]
 
@@ -41,6 +43,7 @@ testpaths = [
     "access_control",
     "audit",
     "clinical_records",
+    "imaging",
     "helixhealth",
     "patients",
     "professionals",
@@ -66,6 +69,7 @@ files = [
     "access_control",
     "audit",
     "clinical_records",
+    "imaging",
     "patients",
     "professionals",
 ]
