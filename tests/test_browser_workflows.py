@@ -1,6 +1,7 @@
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -10,11 +11,18 @@ from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import Page, expect
 
+from access_control.actors import actor_context_from_user
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
+from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission
+from interoperability.fhir_validation import validate_fhir_r4_bundle
+from interoperability.models import ExternalClinicalRecord, ImportBatch
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
+from prescriptions.models import Prescription, PrescriptionItem
 from professionals.models import HospitalService, Professional, Specialty
+from professionals.services import register_professional
+from tests.catalog_journeys import import_catalog_and_verify_retries
 from tests.professional_journeys import fill_professional_registration
 
 TEST_PASSWORD = "Browser-test-password-2026!"
@@ -199,19 +207,24 @@ def browser_patient_administrator(user_factory):
 
 
 @pytest.fixture
-def browser_medical_professional(user_factory, browser_professional_references):
+def browser_medical_professional(
+    user_factory, browser_professional_references, browser_patient_administrator
+):
     user = user_factory(
         username="browser-medical-professional",
         password=TEST_PASSWORD,
         is_staff=False,
     )
-    medical_group, _ = Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)
-    user.groups.add(medical_group)
-    create_completed_browser_profile(
-        user,
+    register_professional(
+        actor=actor_context_from_user(browser_patient_administrator),
+        username=user.username,
         dni="06789012",
-        registration_number="PR-BROWSER-MEDICAL",
         license_number="MN 670012",
+        first_name="Browser",
+        last_name="Professional",
+        date_of_birth=date(1990, 1, 1),
+        specialty_code="general-medicine",
+        hospital_service_code="inpatient-ward",
     )
     return user
 
@@ -499,9 +512,11 @@ def test_superuser_creates_user_through_admin(
 @pytest.mark.django_db(transaction=True)
 def test_administrative_user_registers_patient_through_ui(
     browser_patient_administrator,
+    browser_superuser,
     next_clinical_record_number,
     live_server,
     browser_page,
+    browser,
 ):
     login_through_application(
         browser_page,
@@ -567,6 +582,27 @@ def test_administrative_user_registers_patient_through_ui(
     expect(browser_page.get_by_text("Inactive", exact=True)).to_be_visible()
     expect(browser_page.get_by_role("link", name="Edit patient")).to_have_count(0)
     expect(browser_page.get_by_role("link", name="Deactivate patient")).to_have_count(0)
+
+    with browser.new_context() as admin_context:
+        admin_page = admin_context.new_page()
+        login_through_admin(
+            admin_page,
+            live_server.url,
+            username=browser_superuser.username,
+            password=TEST_PASSWORD,
+        )
+        admin_page.locator("#patients-patient").get_by_role(
+            "link", name="Patients", exact=True
+        ).click()
+        admin_page.locator("#changelist-filter").get_by_role(
+            "link", name="No", exact=True
+        ).click()
+        expect(
+            admin_page.get_by_role(
+                "row",
+                name=re.compile(r"HC-\d+ 24681357 Patient Browser False"),
+            )
+        ).to_be_visible()
 
 
 @pytest.mark.browser
@@ -654,6 +690,18 @@ def test_medical_professional_records_admission_through_ui(
     expect(
         browser_page.get_by_role("heading", name="Patient admission")
     ).to_be_visible()
+    patient_summary = browser_page.get_by_role("complementary", name="Patient details")
+    for value in (
+        browser_admission_patient.clinical_record_number,
+        browser_admission_patient.dni,
+        browser_admission_patient.date_of_birth.strftime("%d %b %Y"),
+        browser_admission_patient.sex,
+        browser_admission_patient.phone,
+        browser_admission_patient.email,
+        browser_admission_patient.address,
+        browser_admission_patient.health_insurer,
+    ):
+        expect(patient_summary.get_by_text(value, exact=True)).to_be_visible()
     browser_page.get_by_label("Consultation reason").fill("Browser headache")
     browser_page.get_by_label("Systolic blood pressure").fill("251")
     browser_page.get_by_label("Heart rate").fill("72")
@@ -1355,3 +1403,625 @@ def test_admin_paginates_each_professional_status_list_with_visible_controls(
                 "navigation", name="Professionals pagination"
             ).get_by_role("link", name="Previous", exact=True)
         ).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_non_staff_administrator_manages_catalogs_through_visible_no_javascript_forms(
+    browser_patient_administrator,
+    browser,
+    live_server,
+):
+    """B1: each catalog mutation originates in the signed-out product UI."""
+
+    with browser.new_context(java_script_enabled=False) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_patient_administrator.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+
+        page.get_by_role("link", name="Catalogs", exact=True).click()
+        expect(page.get_by_role("heading", name="Catalogs", exact=True)).to_be_visible()
+
+        page.get_by_role("link", name="Open specialties", exact=True).click()
+        page.get_by_role("link", name="Add specialty", exact=True).click()
+        page.get_by_label("Code", exact=True).fill("browser-catalog-specialty")
+        page.get_by_label("Name", exact=True).fill("Browser catalog specialty")
+        page.get_by_role("button", name="Save specialty", exact=True).click()
+        expect(
+            page.get_by_text("Browser catalog specialty", exact=True)
+        ).to_be_visible()
+
+        specialty_card = page.locator("article").filter(
+            has_text="Browser catalog specialty"
+        )
+        specialty_card.get_by_role("link", name="Edit specialty", exact=True).click()
+        page.get_by_label("Name", exact=True).fill("Edited browser specialty")
+        page.get_by_role("button", name="Save specialty", exact=True).click()
+        expect(page.get_by_text("Edited browser specialty", exact=True)).to_be_visible()
+        page.locator("article").filter(has_text="Edited browser specialty").get_by_role(
+            "link", name="Delete specialty", exact=True
+        ).click()
+        page.get_by_label(
+            "I confirm I want to remove this unreferenced specialty."
+        ).check()
+        page.get_by_role("button", name="Delete specialty", exact=True).click()
+        expect(page.get_by_text("Edited browser specialty", exact=True)).to_have_count(
+            0
+        )
+
+        page.get_by_role("link", name="Back to Catalogs", exact=True).click()
+        page.get_by_role("link", name="Open nomenclature", exact=True).click()
+        page.get_by_role("link", name="Add entry", exact=True).click()
+        page.get_by_label("System URI", exact=True).fill("https://snomed.example.test")
+        page.get_by_label("Version", exact=True).fill("2026-09")
+        page.get_by_label("Code", exact=True).fill("BROWSER-TERM")
+        page.get_by_label("Display", exact=True).fill("Browser terminology")
+        page.get_by_label("Source label", exact=True).fill("Browser manual source")
+        page.get_by_role("button", name="Save entry", exact=True).click()
+        expect(page.get_by_text("Browser terminology", exact=True)).to_be_visible()
+
+        page.get_by_role("link", name="Back to Catalogs", exact=True).click()
+        page.get_by_role("link", name="Open medications", exact=True).click()
+        page.get_by_role("link", name="Add entry", exact=True).click()
+        page.get_by_label("System URI", exact=True).fill(
+            "https://medications.example.test"
+        )
+        page.get_by_label("Version", exact=True).fill("2026-09")
+        page.get_by_label("Code", exact=True).fill("BROWSER-MED")
+        page.get_by_label("Name", exact=True).fill("Browser medication")
+        page.get_by_label("Presentation", exact=True).fill("10 mg tablet")
+        page.get_by_label("Related terminology entry", exact=True).select_option(
+            label="BROWSER-TERM — Browser terminology (2026-09)"
+        )
+        page.get_by_label("Source label", exact=True).fill("Browser manual source")
+        page.get_by_role("button", name="Save entry", exact=True).click()
+        expect(page.get_by_text("Browser medication", exact=True)).to_be_visible()
+
+        import_catalog_and_verify_retries(page)
+
+    def persisted_counts() -> tuple[int, int, int]:
+        try:
+            return (
+                Specialty.objects.filter(code="browser-catalog-specialty").count(),
+                TerminologyEntry.objects.filter(code="BROWSER-TERM").count(),
+                MedicationEntry.objects.count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        specialty_count, terminology_count, medication_count = executor.submit(
+            persisted_counts
+        ).result()
+    assert (specialty_count, terminology_count, medication_count) == (0, 1, 22)
+
+
+@pytest.fixture
+def browser_prescription_medication(browser_medical_professional):
+    return MedicationEntry.objects.create(
+        system="https://catalog.example.test/medications",
+        version="2026-09",
+        code="BROWSER-RX-1",
+        name="Browser prescription medication",
+        presentation="400 mg tablet",
+        source_label="Browser prerequisite catalog",
+        created_by=browser_medical_professional,
+    )
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
+    browser_medical_professional,
+    browser_admission_patient,
+    browser_prescription_medication,
+    browser,
+    live_server,
+):
+    """B2: signed-out doctor corrects input and issues one persisted prescription."""
+
+    medication_id = browser_prescription_medication.pk
+    patient_id = browser_admission_patient.pk
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_role("link", name="Prescriptions", exact=True).click()
+        page.get_by_role("link", name="New prescription", exact=True).click()
+        page.get_by_label("Medication").nth(0).select_option(str(medication_id))
+        page.get_by_label("Dose value").nth(0).fill("0")
+        page.get_by_label("Dose unit").nth(0).fill("mg")
+        page.get_by_label("Route").nth(0).fill("oral")
+        page.get_by_label("Frequency").nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days").nth(0).fill("5")
+        page.get_by_label("Medication").nth(1).select_option(str(medication_id))
+        page.get_by_label("Dose value").nth(1).fill("200")
+        page.get_by_label("Dose unit").nth(1).fill("mg")
+        page.get_by_label("Route").nth(1).fill("oral")
+        page.get_by_label("Frequency").nth(1).fill("at night")
+        page.get_by_label("Duration days").nth(1).fill("3")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_text("Enter a positive dose.")).to_be_visible()
+        page.get_by_label("Dose value").nth(0).fill("400")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
+        expect(page).to_have_url(re.compile(r"/prescriptions/[0-9a-f-]+/$"))
+        issued_url = page.url
+        page.go_back()
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page).to_have_url(issued_url)
+        page.get_by_role("link", name="Printable report", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="Medication prescription")
+        ).to_be_visible()
+        page.go_back()
+        with page.expect_download() as download_info:
+            page.get_by_role("link", name="Download FHIR XML", exact=True).click()
+        assert download_info.value.suggested_filename.startswith("prescription-")
+        bundle = validate_fhir_r4_bundle(Path(download_info.value.path()).read_bytes())
+        assert (
+            sum(
+                entry.resource.resource_type == "MedicationRequest"
+                for entry in bundle.entry
+            )
+            == 2
+        )
+
+    def saved_state() -> tuple[int, int]:
+        try:
+            return (
+                Prescription.objects.filter(patient_id=patient_id).count(),
+                PrescriptionItem.objects.filter(
+                    prescription__patient_id=patient_id,
+                    medication_id=medication_id,
+                ).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(saved_state).result() == (1, 2)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_issues_a_single_medication_prescription_through_visible_workflow(
+    browser_medical_professional,
+    browser_admission_patient,
+    browser_prescription_medication,
+    browser,
+    live_server,
+):
+    """B2 regression: blank optional medication sections do not block issuance."""
+
+    patient_id = browser_admission_patient.pk
+    medication_id = browser_prescription_medication.pk
+    with browser.new_context(java_script_enabled=False) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_role("link", name="Prescriptions", exact=True).click()
+        page.get_by_role("link", name="New prescription", exact=True).click()
+        expect(page.get_by_text("Medication 2 (optional)", exact=True)).to_be_visible()
+        page.get_by_label("Medication").nth(0).select_option(str(medication_id))
+        page.get_by_label("Dose value").nth(0).fill("400")
+        page.get_by_label("Dose unit").nth(0).fill("mg")
+        page.get_by_label("Route").nth(0).fill("oral")
+        page.get_by_label("Frequency").nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days").nth(0).fill("5")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
+        expect(page.get_by_text("Medication 2 (optional)", exact=True)).to_have_count(0)
+
+    def saved_item_count() -> int:
+        try:
+            return PrescriptionItem.objects.filter(
+                prescription__patient_id=patient_id,
+                medication_id=medication_id,
+            ).count()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(saved_item_count).result() == 1
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_exports_a_visible_admission_through_no_javascript_workflow(
+    browser_medical_professional,
+    browser_admission_patient,
+    browser,
+    live_server,
+    tmp_path,
+):
+    """B3: a signed-out doctor records and exports an admission from visible controls."""
+
+    patient_id = browser_admission_patient.pk
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_label("Consultation reason").fill("Browser FHIR export")
+        page.get_by_label("Systolic blood pressure").fill("120")
+        page.get_by_label("Diastolic blood pressure").fill("80")
+        page.get_by_label("Heart rate").fill("72")
+        page.get_by_label("Temperature").fill("36.7")
+        page.get_by_role("button", name="Record admission", exact=True).click()
+        expect(page.get_by_text("Browser FHIR export", exact=True)).to_be_visible()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.locator('input[name="admission_ids"]').check()
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Export selected XML", exact=True).click()
+        download = download_info.value
+        assert download.suggested_filename.startswith("clinical-export-")
+        export_path = tmp_path / download.suggested_filename
+        download.save_as(export_path)
+        bundle = validate_fhir_r4_bundle(export_path.read_bytes())
+        assert (
+            sum(entry.resource.resource_type == "Observation" for entry in bundle.entry)
+            == 3
+        )
+
+    def persisted_admission_count() -> int:
+        try:
+            return Admission.objects.filter(
+                patient_id=patient_id,
+                consultation_reason="Browser FHIR export",
+            ).count()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_admission_count).result() == 1
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_sees_an_inline_error_for_mixed_fhir_export_selection(
+    browser_medical_professional,
+    browser_admission_patient,
+    browser_prescription_medication,
+    browser,
+    live_server,
+):
+    """A clinician corrects a mixed export selection through visible controls."""
+
+    patient_id = browser_admission_patient.pk
+    with browser.new_context(java_script_enabled=False) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_label("Consultation reason").fill("Mixed export validation")
+        page.get_by_label("Systolic blood pressure").fill("120")
+        page.get_by_label("Diastolic blood pressure").fill("80")
+        page.get_by_label("Heart rate").fill("72")
+        page.get_by_label("Temperature").fill("36.7")
+        page.get_by_role("button", name="Record admission", exact=True).click()
+        page.get_by_role("link", name="Prescriptions", exact=True).click()
+        page.get_by_role("link", name="New prescription", exact=True).click()
+        page.get_by_label("Medication").nth(0).select_option(
+            str(browser_prescription_medication.pk)
+        )
+        page.get_by_label("Dose value").nth(0).fill("400")
+        page.get_by_label("Dose unit").nth(0).fill("mg")
+        page.get_by_label("Route").nth(0).fill("oral")
+        page.get_by_label("Frequency").nth(0).fill("every 8 hours")
+        page.get_by_label("Duration days").nth(0).fill("5")
+        page.get_by_role("button", name="Issue prescription", exact=True).click()
+        expect(page.get_by_role("heading", name="Prescription issued")).to_be_visible()
+        page.get_by_role("link", name="Prescription history", exact=True).click()
+        page.get_by_role("link", name="Patient record", exact=True).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.locator('input[name="admission_ids"]').check()
+        page.locator('input[name="prescription_ids"]').check()
+        page.get_by_role("button", name="Export selected XML", exact=True).click()
+
+        expect(page.get_by_role("alert")).to_have_text(
+            "Export admissions or one prescription in a separate file."
+        )
+        expect(page).to_have_url(
+            re.compile(r"/clinical-records/patients/\d+/interoperability/export/$")
+        )
+        expect(page.locator('input[name="admission_ids"]')).to_be_checked()
+        expect(page.locator('input[name="prescription_ids"]')).to_be_checked()
+
+    def persisted_records() -> tuple[int, int]:
+        try:
+            return (
+                Admission.objects.filter(
+                    patient_id=patient_id,
+                    consultation_reason="Mixed export validation",
+                ).count(),
+                Prescription.objects.filter(patient_id=patient_id).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_records).result() == (1, 1)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_medical_professional_sees_only_clinical_navigation_after_sign_in(
+    browser_medical_professional,
+    browser,
+    live_server,
+):
+    """B5: an active doctor reaches Clinical workspace but not administrator catalogs."""
+
+    with browser.new_context(java_script_enabled=False) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
+        expect(page.get_by_role("link", name="Clinical workspace")).to_be_visible()
+        expect(page.get_by_role("link", name="Catalogs")).to_have_count(0)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
+    browser_medical_professional, browser_admission_patient, browser, live_server
+):
+    """B4: a signed-out doctor imports and downloads one external file."""
+
+    patient_id = browser_admission_patient.pk
+    xml = (
+        Path("docs/interoperability/fhir-r4/fixtures/independent-valid-observation.xml")
+        .read_bytes()
+        .replace(b"12345678", browser_admission_patient.dni.encode())
+        .replace(
+            b"1980-04-20", browser_admission_patient.date_of_birth.isoformat().encode()
+        )
+    )
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}{reverse('home')}")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link",
+            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+        ).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        page.get_by_role("link", name="Import FHIR XML", exact=True).click()
+        page.get_by_label("Source organization system").fill(
+            "https://external.example/identifiers/institution"
+        )
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "wrong-patient.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": (
+                    Path(
+                        "docs/interoperability/fhir-r4/fixtures/independent-valid-observation.xml"
+                    ).read_bytes()
+                ),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_text(
+                "The Bundle Patient DNI and birth date must exactly match the selected patient."
+            )
+        ).to_be_visible()
+
+        def no_partial_import() -> tuple[int, int]:
+            try:
+                return (
+                    ImportBatch.objects.filter(patient_id=patient_id).count(),
+                    ExternalClinicalRecord.objects.filter(
+                        patient_id=patient_id
+                    ).count(),
+                )
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(no_partial_import).result() == (0, 0)
+
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "wrong-identifier-system.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": xml.replace(
+                    b"https://helixhealth.local/interoperability/identifiers/dni",
+                    b"https://external.example/identifiers/hospital-record-number",
+                ),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_text(
+                "The Bundle Patient must contain exactly one DNI identifier",
+                exact=False,
+            )
+        ).to_be_visible()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(no_partial_import).result() == (0, 0)
+
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "external-observation.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": xml,
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="External clinical import")
+        ).to_be_visible()
+        with page.expect_download() as download_info:
+            page.get_by_role("link", name="Download original XML", exact=True).click()
+        assert download_info.value.suggested_filename.startswith("import-")
+        assert Path(download_info.value.path()).read_bytes() == xml
+        page.get_by_role("link", name="Retry this import", exact=True).click()
+        expect(page.get_by_label("Source organization system")).to_have_value(
+            "https://external.example/identifiers/institution"
+        )
+        page.get_by_label("FHIR XML file").set_input_files(
+            {
+                "name": "external-observation-retry.xml",
+                "mimeType": "application/fhir+xml",
+                "buffer": xml,
+            }
+        )
+        page.get_by_role("button", name="Import FHIR XML", exact=True).click()
+        expect(
+            page.get_by_role("heading", name="External clinical import")
+        ).to_be_visible()
+
+    def persisted_counts() -> tuple[int, int, int, int]:
+        try:
+            return (
+                ImportBatch.objects.filter(patient_id=patient_id).count(),
+                ExternalClinicalRecord.objects.filter(patient_id=patient_id).count(),
+                Admission.objects.filter(patient_id=patient_id).count(),
+                Prescription.objects.filter(patient_id=patient_id).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_counts).result() == (1, 1, 0, 0)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("selection_case", ["different-authors", "too-many-admissions"])
+def test_existing_admission_export_selection_errors_are_recoverable(
+    browser_medical_professional,
+    browser_patient_administrator,
+    browser_admission_patient,
+    user_factory,
+    browser,
+    live_server,
+    selection_case,
+):
+    """Export existing history from a cold session; correct selection without writes."""
+    patient_id = browser_admission_patient.pk
+    expected_error = "Select at most 165 admissions per FHIR file."
+    if selection_case == "different-authors":
+        expected_error = "Admissions with different authors require separate exports."
+
+    def create_history() -> int:
+        try:
+            profile = Professional.objects.get(user=browser_medical_professional)
+            profiles = [profile] * 166
+            if selection_case == "different-authors":
+                other = user_factory(username="browser-other-export-author")
+                other_profile = register_professional(
+                    actor=actor_context_from_user(browser_patient_administrator),
+                    username=other.username,
+                    dni="07890123",
+                    license_number="MN 789012",
+                    first_name="Other",
+                    last_name="Author",
+                    date_of_birth=date(1990, 1, 1),
+                    specialty_code="general-medicine",
+                    hospital_service_code="inpatient-ward",
+                )
+                profiles = [profile, other_profile]
+            Admission.objects.bulk_create(
+                [
+                    Admission(
+                        patient=browser_admission_patient,
+                        professional=author,
+                        consultation_reason=f"Existing export history {index}",
+                        systolic_blood_pressure=120,
+                        diastolic_blood_pressure=80,
+                        heart_rate=72,
+                        temperature="36.7",
+                    )
+                    for index, author in enumerate(profiles)
+                ]
+            )
+            return len(profiles)
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        history_count = executor.submit(create_history).result()
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        page.goto(f"{live_server.url}/")
+        page.get_by_role("link", name="Open your workspace").click()
+        page.get_by_label("Username").fill(browser_medical_professional.username)
+        page.get_by_label("Password").fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign in").click()
+        page.get_by_role(
+            "link", name="Record admission for Admission Patient", exact=True
+        ).click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        selection = page.get_by_role("checkbox")
+        for checkbox in selection.all():
+            checkbox.check()
+        page.get_by_role("button", name="Export selected XML", exact=True).click()
+        expect(page.get_by_role("alert")).to_have_text(expected_error)
+        expect(page).to_have_url(re.compile(r"/interoperability/export/$"))
+        for checkbox in selection.all():
+            expect(checkbox).to_be_checked()
+            checkbox.uncheck()
+        selection.first.check()
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Export selected XML", exact=True).click()
+        validate_fhir_r4_bundle(Path(download_info.value.path()).read_bytes())
+
+    def counts():
+        try:
+            return (
+                Admission.objects.filter(patient_id=patient_id).count(),
+                ImportBatch.objects.filter(patient_id=patient_id).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(counts).result() == (history_count, 0)

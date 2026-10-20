@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Lower
 
 from professionals.validators import (
     validate_license_number,
@@ -26,6 +27,11 @@ class ActiveReferenceData(models.Model):
 class Specialty(ActiveReferenceData):
     class Meta(ActiveReferenceData.Meta):
         verbose_name_plural = "specialties"
+        constraints = (
+            models.UniqueConstraint(
+                Lower("name"), name="unique_specialty_name_case_insensitive"
+            ),
+        )
 
 
 class HospitalService(ActiveReferenceData):
