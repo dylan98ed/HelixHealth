@@ -11,4 +11,9 @@ urlpatterns = [
         views.download_image,
         name="download",
     ),
+    path(
+        "patients/<int:patient_pk>/images/<int:image_pk>/preview/",
+        views.preview_image,
+        name="preview",
+    ),
 ]

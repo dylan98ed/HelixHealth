@@ -7,6 +7,8 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import connections
+from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
@@ -39,6 +41,7 @@ def read_image_records(patient_id):
                     "sex",
                     "created_by__user_id",
                     "dicom_bytes",
+                    "preview_png",
                 )
             ]
         finally:
@@ -104,6 +107,14 @@ def test_professional_converts_and_saves_image_from_patient_record(
         re.compile(r"/clinical-records/patients/\d+/images/\?created=\d+$")
     )
     expect(browser_page.get_by_role("status")).to_contain_text("DICOM saved")
+    preview = browser_page.get_by_role("img", name="Preview of saved PNG image", exact=True)
+    expect(preview).to_be_visible()
+    preview.scroll_into_view_if_needed()
+    expect(preview).to_have_js_property("naturalWidth", 2)
+    browser_page.get_by_text("View larger").click()
+    enlarged = browser_page.get_by_role("img", name="Larger preview of saved PNG image")
+    expect(enlarged).to_be_visible()
+    expect(enlarged).to_have_js_property("naturalWidth", 2)
     record = read_image_records(browser_admission_patient.pk)[0]
     assert record["created_by__user_id"] == browser_medical_professional.pk
     assert (record["birth_year"], record["study_year"], record["sex"]) == (
@@ -116,6 +127,7 @@ def test_professional_converts_and_saves_image_from_patient_record(
     assert dataset.PatientBirthDate == "19900101"
     assert dataset.StudyDate == "20250101"
     assert not dataset.PatientName and not dataset.PatientID
+    assert bytes(record["preview_png"]).startswith(b"\x89PNG\r\n\x1a\n")
     with browser_page.expect_download() as download_info:
         browser_page.get_by_role("link", name="Download anonymized DICOM").click()
     download = download_info.value
@@ -126,8 +138,27 @@ def test_professional_converts_and_saves_image_from_patient_record(
     dataset.PatientName = "Identifying^Patient"
     dataset.PatientID = "11223344"
     dataset.StudyDate = "20250418"
+    dataset.add_new((0xFFFC, 0xFFFC), "OB", b"Patient 11223344 in padding")
     dicom_buffer = BytesIO()
     dataset.save_as(dicom_buffer, enforce_file_format=True)
+    dataset.NumberOfFrames = "1"
+    malformed_buffer = BytesIO()
+    dataset.save_as(malformed_buffer, enforce_file_format=True)
+    frame_tag = b"\x28\x00\x08\x00IS\x02\x00"
+    assert malformed_buffer.getvalue().count(frame_tag + b"1 ") == 1
+    malformed_dicom = malformed_buffer.getvalue().replace(
+        frame_tag + b"1 ", frame_tag + b"X "
+    )
+    browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
+        {
+            "name": "malformed.dcm",
+            "mimeType": "application/dicom",
+            "buffer": malformed_dicom,
+        }
+    )
+    browser_page.get_by_role("button", name="Save anonymized DICOM").click()
+    expect(browser_page.get_by_text("The DICOM frame count is invalid.")).to_be_visible()
+    assert len(read_image_records(browser_admission_patient.pk)) == 1
     browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
         {
             "name": "source.dcm",
@@ -143,11 +174,52 @@ def test_professional_converts_and_saves_image_from_patient_record(
         if record["source_format"] == "DICOM"
     )
     sanitized = dcmread(BytesIO(dicom_record["dicom_bytes"]))
+    dicom_preview = browser_page.get_by_role("img", name="Preview of saved DICOM image", exact=True)
+    expect(dicom_preview).to_be_visible()
+    dicom_preview.scroll_into_view_if_needed()
+    expect(dicom_preview).to_have_js_property("naturalWidth", 2)
+    assert bytes(dicom_record["preview_png"]).startswith(b"\x89PNG\r\n\x1a\n")
     assert sanitized.PixelData == dataset.PixelData
     assert sanitized.StudyDate == "20250101"
     assert sanitized.SOPInstanceUID != dataset.SOPInstanceUID
     assert not sanitized.PatientName and not sanitized.PatientID
     assert b"Identifying^Patient" not in dicom_record["dicom_bytes"]
+    assert b"Patient 11223344 in padding" not in dicom_record["dicom_bytes"]
+
+    for _ in range(19):
+        browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
+            {
+                "name": "practice.png",
+                "mimeType": "image/png",
+                "buffer": image_buffer.getvalue(),
+            }
+        )
+        browser_page.get_by_label("Birth year").fill("1990")
+        browser_page.get_by_label("Study year").fill("2025")
+        browser_page.get_by_label("Sex").select_option("F")
+        browser_page.get_by_role("button", name="Save anonymized DICOM").click()
+    browser_page.reload()
+    expect(browser_page.get_by_role("link", name="Download DICOM", exact=True)).to_have_count(20)
+    browser_page.get_by_role("link", name="Next images").click()
+    expect(browser_page).to_have_url(re.compile(r"/images/\?page=2$"))
+    expect(browser_page.get_by_role("link", name="Download DICOM", exact=True)).to_have_count(1)
+    def inspect_list_query():
+        try:
+            http_client = Client()
+            http_client.force_login(browser_medical_professional)
+            with CaptureQueriesContext(connections["default"]) as queries:
+                response = http_client.get(
+                    reverse("imaging:list", args=[browser_admission_patient.pk]),
+                    {"page": "2"},
+                )
+            return response.status_code, [query["sql"] for query in queries]
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        status_code, sql = executor.submit(inspect_list_query).result()
+    assert status_code == 200
+    assert all("dicom_bytes" not in query for query in sql)
 
 
 @pytest.mark.browser
@@ -158,6 +230,9 @@ def test_medical_images_redirect_signed_out_browser_to_login(
     browser_page.goto(f"{live_server.url}/")
     image_url = reverse("imaging:list", args=[browser_admission_patient.pk])
     browser_page.goto(f"{live_server.url}{image_url}")
+    expect(browser_page).to_have_url(re.compile(r"/login/\?next="))
+    preview_url = reverse("imaging:preview", args=[browser_admission_patient.pk, 1])
+    browser_page.goto(f"{live_server.url}{preview_url}")
     expect(browser_page).to_have_url(re.compile(r"/login/\?next="))
 
 
@@ -204,6 +279,9 @@ def test_medical_images_deny_accounts_without_active_medical_profile(
     image_url = reverse("imaging:list", args=[browser_admission_patient.pk])
     response = browser_page.goto(f"{live_server.url}{image_url}")
     assert response is not None and response.status == 403
+    preview_url = reverse("imaging:preview", args=[browser_admission_patient.pk, 1])
+    preview_response = browser_page.goto(f"{live_server.url}{preview_url}")
+    assert preview_response is not None and preview_response.status == 403
     assert read_image_records(browser_admission_patient.pk) == []
 
 

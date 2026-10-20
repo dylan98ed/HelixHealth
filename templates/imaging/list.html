@@ -31,10 +31,25 @@
   <section aria-labelledby="images-heading">
     <h2 id="images-heading">Saved images</h2>
     {% for image in images %}
-      <article class="patient-row">
-        <div><strong>{{ image.created_at|date:"d M Y H:i" }}</strong><br>{{ image.source_format }} · Study year: {{ image.study_year|default:"Unknown" }} · Birth year: {{ image.birth_year|default:"Unknown" }} · Sex: {{ image.sex|default:"Unknown" }}</div>
-        <a class="btn btn-outline-secondary" href="{% url 'imaging:download' patient.pk image.pk %}">Download DICOM</a>
+      <article class="saved-image">
+        <img class="saved-image-thumbnail" src="{% url 'imaging:preview' patient.pk image.pk %}" alt="Preview of saved {{ image.source_format }} image" loading="lazy">
+        <div class="saved-image-info">
+          <strong>{{ image.created_at|date:"d M Y H:i" }}</strong>
+          <p>{{ image.source_format }} · Study year: {{ image.study_year|default:"Unknown" }} · Birth year: {{ image.birth_year|default:"Unknown" }} · Sex: {{ image.sex|default:"Unknown" }}</p>
+          <a class="btn btn-outline-secondary" href="{% url 'imaging:download' patient.pk image.pk %}">Download DICOM</a>
+        </div>
+        <details class="saved-image-expanded">
+          <summary>View larger</summary>
+          <img src="{% url 'imaging:preview' patient.pk image.pk %}" alt="Larger preview of saved {{ image.source_format }} image" loading="lazy">
+        </details>
       </article>
     {% empty %}<p>No images have been saved for this patient.</p>{% endfor %}
+    {% if images.paginator.num_pages > 1 %}
+      <nav aria-label="Image pages">
+        {% if images.has_previous %}<a href="?page={{ images.previous_page_number }}">Previous images</a>{% endif %}
+        <span>Page {{ images.number }} of {{ images.paginator.num_pages }}</span>
+        {% if images.has_next %}<a href="?page={{ images.next_page_number }}">Next images</a>{% endif %}
+      </nav>
+    {% endif %}
   </section>
 {% endblock %}

@@ -189,6 +189,9 @@ def main() -> int:
         expect(page.get_by_role("status")).to_contain_text("DICOM saved")
         page.reload(wait_until="networkidle")
         expect(page.get_by_text("PNG · Study year: 2025")).to_be_visible()
+        preview = page.get_by_role("img", name="Preview of saved PNG image", exact=True)
+        preview.scroll_into_view_if_needed()
+        expect(preview).to_have_js_property("naturalWidth", 2)
         with page.expect_download() as download_info:
             page.get_by_role("link", name="Download anonymized DICOM").click()
         destination = artifact_dir / "accepted-anonymized-image.dcm"

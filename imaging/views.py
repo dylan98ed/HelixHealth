@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from django.contrib import messages
-from django.http import HttpRequest, HttpResponse
+from django.core.paginator import Paginator
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
@@ -11,8 +12,15 @@ from clinical_records.services import active_professional_for_actor
 from clinical_records.views import medical_professional_required
 from imaging.forms import ImageUploadForm
 from imaging.models import AnonymizedImage
-from imaging.services import ImageProcessingError, anonymize_dicom, convert_raster
+from imaging.services import (
+    ImageProcessingError,
+    anonymize_dicom,
+    convert_raster,
+    render_preview,
+)
 from patients.models import Patient
+
+IMAGES_PER_PAGE = 20
 
 
 @medical_professional_required
@@ -45,6 +53,7 @@ def image_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
                     study_year=study_year,
                     sex=sex,
                 )
+            preview = render_preview(output)
         except ImageProcessingError as error:
             form.add_error("file", str(error))
         else:
@@ -58,20 +67,27 @@ def image_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
                 study_year=study_year,
                 sex=sex,
                 dicom_bytes=output,
+                preview_png=preview,
             )
             messages.success(request, "DICOM saved to this patient record.")
             return redirect(
                 f"{reverse('imaging:list', args=[patient.pk])}?created={record.pk}"
             )
-    images = AnonymizedImage.objects.filter(patient=patient).select_related(
-        "created_by"
+    images = AnonymizedImage.objects.filter(patient=patient).defer(
+        "dicom_bytes", "preview_png"
     )
     created_pk = request.GET.get("created", "")
     created = images.filter(pk=created_pk).first() if created_pk.isdecimal() else None
+    images_page = Paginator(images, IMAGES_PER_PAGE).get_page(request.GET.get("page"))
     response = render(
         request,
         "imaging/list.html",
-        {"patient": patient, "form": form, "images": images, "created": created},
+        {
+            "patient": patient,
+            "form": form,
+            "images": images_page,
+            "created": created,
+        },
         status=422 if request.method == "POST" else 200,
     )
     response.headers["Cache-Control"] = "no-store"
@@ -89,4 +105,25 @@ def download_image(
         f'attachment; filename="anonymized-image-{image.pk}.dcm"'
     )
     response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@require_http_methods(["GET"])
+@medical_professional_required
+def preview_image(
+    request: HttpRequest, patient_pk: int, image_pk: int
+) -> HttpResponse:
+    image = get_object_or_404(
+        AnonymizedImage.objects.defer("dicom_bytes"),
+        pk=image_pk,
+        patient_id=patient_pk,
+    )
+    preview = image.preview_png
+    if preview is None:
+        try:
+            preview = render_preview(bytes(image.dicom_bytes))
+        except ImageProcessingError as error:
+            raise Http404("Image preview unavailable.") from error
+    response = HttpResponse(preview, content_type="image/png")
+    response.headers["Cache-Control"] = "private, no-store"
     return response

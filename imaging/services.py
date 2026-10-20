@@ -5,11 +5,14 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date
 from io import BytesIO
+from math import ceil
 
+import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydicom import dcmread
-from pydicom.dataset import FileDataset, FileMetaDataset
+from pydicom.dataset import Dataset, FileDataset, FileMetaDataset
 from pydicom.errors import InvalidDicomError
+from pydicom.pixels import apply_color_lut, apply_modality_lut, apply_voi_lut
 from pydicom.uid import (
     PYDICOM_IMPLEMENTATION_UID,
     UID,
@@ -20,6 +23,7 @@ from pydicom.uid import (
 
 MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 MAX_PIXELS = 24_000_000
+PREVIEW_MAX_EDGE = 1600
 
 
 class ImageProcessingError(ValueError):
@@ -150,9 +154,57 @@ _SAFE_CS = {
     "UltrasoundColorDataPresent",
     "VolumetricProperties",
     "FrameType",
+    "PixelPresentation",
+    "VolumeBasedCalculationTechnique",
+    "ComplexImageComponent",
+    "AcquisitionContrast",
 }
 _SAFE_TEXT = {"SpecificCharacterSet"}
 _FREE_TEXT_VR = {"AE", "AS", "LO", "LT", "PN", "SH", "ST", "UC", "UR", "UT"}
+_BINARY_VR = {"OB", "OD", "OF", "OL", "OV", "OW"}
+_IMAGE_BINARY = {
+    "PixelData",
+    "LUTData",
+    "RedPaletteColorLookupTableData",
+    "GreenPaletteColorLookupTableData",
+    "BluePaletteColorLookupTableData",
+    "AlphaPaletteColorLookupTableData",
+    "SegmentedRedPaletteColorLookupTableData",
+    "SegmentedGreenPaletteColorLookupTableData",
+    "SegmentedBluePaletteColorLookupTableData",
+    "SegmentedAlphaPaletteColorLookupTableData",
+}
+
+
+def _sanitize_dataset(dataset: Dataset, uid_map: dict[str, str]) -> None:
+    dataset.remove_private_tags()
+    for element in list(dataset):
+        tag = element.tag
+        if tag.group & 0xFF00 in {0x5000, 0x6000} or tag.group in {0x0070, 0x0042}:
+            del dataset[tag]  # Curves, overlays, presentation graphics and documents.
+        elif element.VR == "SQ":
+            for item in element.value:
+                _sanitize_dataset(item, uid_map)
+            if not any(item for item in element.value):
+                del dataset[tag]
+        elif element.VR in {"DA", "DT", "TM"}:
+            del dataset[tag]
+        elif element.VR == "UI" and element.keyword not in {
+            "SOPClassUID",
+            "TransferSyntaxUID",
+        }:
+            old_uid = str(element.value)
+            element.value = (
+                uid_map.setdefault(old_uid, generate_uid()) if old_uid else ""
+            )
+        elif element.VR in _FREE_TEXT_VR and element.keyword not in _SAFE_TEXT:
+            del dataset[tag]
+        elif element.VR == "CS" and element.keyword not in _SAFE_CS:
+            del dataset[tag]
+        elif element.VR in _BINARY_VR and element.keyword not in _IMAGE_BINARY:
+            del dataset[tag]
+        elif element.VR == "UN":
+            del dataset[tag]
 
 
 def anonymize_dicom(data: bytes) -> tuple[bytes, int | None, int | None, str]:
@@ -168,7 +220,11 @@ def anonymize_dicom(data: bytes) -> tuple[bytes, int | None, int | None, str]:
         raise ImageProcessingError("A DICOM image with pixel data is required.")
     if not original.get("SOPClassUID"):
         raise ImageProcessingError("The DICOM SOP class is missing.")
-    if int(original.get("NumberOfFrames", 1)) != 1:
+    try:
+        frame_count = int(original.get("NumberOfFrames", 1))
+    except (TypeError, ValueError) as error:
+        raise ImageProcessingError("The DICOM frame count is invalid.") from error
+    if frame_count != 1:
         raise ImageProcessingError("Only single-frame DICOM images are supported.")
     if not getattr(original, "file_meta", None) or not original.file_meta.get(
         "TransferSyntaxUID"
@@ -181,30 +237,8 @@ def anonymize_dicom(data: bytes) -> tuple[bytes, int | None, int | None, str]:
     )
     sex = _sex(original.get("PatientSex"))
     dataset = deepcopy(original)
-    dataset.remove_private_tags()
     uid_map: dict[str, str] = {}
-    for element in list(dataset):
-        tag = element.tag
-        if tag.group & 0xFF00 in {0x5000, 0x6000} or tag.group in {0x0070, 0x0042}:
-            del dataset[tag]  # Curves, overlays, presentation graphics and documents.
-        elif element.VR == "SQ":
-            del dataset[tag]  # Nested references can carry identifiers and free text.
-        elif element.VR in {"DA", "DT", "TM"}:
-            del dataset[tag]
-        elif element.VR == "UI" and element.keyword not in {
-            "SOPClassUID",
-            "TransferSyntaxUID",
-        }:
-            old_uid = str(element.value)
-            element.value = (
-                uid_map.setdefault(old_uid, generate_uid()) if old_uid else ""
-            )
-        elif element.VR in _FREE_TEXT_VR and element.keyword not in _SAFE_TEXT:
-            del dataset[tag]
-        elif element.VR == "CS" and element.keyword not in _SAFE_CS:
-            del dataset[tag]
-        elif element.VR == "UN":
-            del dataset[tag]
+    _sanitize_dataset(dataset, uid_map)
     for keyword in ("StudyInstanceUID", "SeriesInstanceUID", "SOPInstanceUID"):
         if not dataset.get(keyword):
             dataset.__setattr__(keyword, generate_uid())
@@ -218,3 +252,67 @@ def anonymize_dicom(data: bytes) -> tuple[bytes, int | None, int | None, str]:
     )
     _set_demographics(dataset, birth_year, study_year, sex)
     return _serialize(dataset), birth_year, study_year, sex
+
+
+def _display_grayscale(pixels: np.ndarray, dataset: Dataset) -> Image.Image:
+    values = apply_modality_lut(pixels, dataset)
+    values = np.asarray(apply_voi_lut(values, dataset), dtype=np.float64)
+    finite = np.isfinite(values)
+    if not finite.any():
+        raise ImageProcessingError("The DICOM pixels cannot be displayed.")
+    minimum = float(values[finite].min())
+    maximum = float(values[finite].max())
+    values = np.nan_to_num(values, nan=minimum, posinf=maximum, neginf=minimum)
+    if maximum > minimum:
+        values = (values - minimum) * (255.0 / (maximum - minimum))
+    else:
+        values = np.zeros_like(values)
+    if dataset.PhotometricInterpretation == "MONOCHROME1":
+        values = 255.0 - values
+    return Image.fromarray(np.clip(values, 0, 255).astype(np.uint8))
+
+
+def _display_color(pixels: np.ndarray) -> Image.Image:
+    values = np.asarray(pixels)
+    if values.ndim != 3 or values.shape[2] not in {3, 4}:
+        raise ImageProcessingError("The DICOM color pixels cannot be displayed.")
+    if values.dtype != np.uint8:
+        values = values.astype(np.float64)
+        minimum = float(values.min())
+        maximum = float(values.max())
+        if maximum > minimum:
+            values = (values - minimum) * (255.0 / (maximum - minimum))
+        else:
+            values = np.zeros_like(values)
+        values = np.clip(values, 0, 255).astype(np.uint8)
+    return Image.fromarray(values)
+
+
+def render_preview(data: bytes) -> bytes:
+    """Render a bounded, browser-friendly preview from the saved DICOM bytes."""
+    try:
+        dataset = dcmread(BytesIO(data))
+        rows = int(dataset.Rows)
+        columns = int(dataset.Columns)
+        if rows <= 0 or columns <= 0 or rows * columns > MAX_PIXELS:
+            raise ImageProcessingError("The DICOM exceeds the 24 megapixel preview limit.")
+        interpretation = str(dataset.PhotometricInterpretation)
+        pixels = dataset.pixel_array
+        stride = max(1, ceil(max(rows, columns) / PREVIEW_MAX_EDGE))
+        pixels = pixels[::stride, ::stride]
+        if interpretation in {"MONOCHROME1", "MONOCHROME2"}:
+            image = _display_grayscale(pixels, dataset)
+        elif interpretation == "PALETTE COLOR":
+            image = _display_color(apply_color_lut(pixels, dataset))
+        elif interpretation in {"RGB", "YBR_FULL", "YBR_FULL_422"}:
+            image = _display_color(pixels)
+        else:
+            raise ImageProcessingError("This DICOM image type cannot be previewed.")
+        image.thumbnail((PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE), Image.Resampling.LANCZOS)
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+    except ImageProcessingError:
+        raise
+    except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as error:
+        raise ImageProcessingError("The DICOM image could not be previewed.") from error

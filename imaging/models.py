@@ -16,6 +16,7 @@ class AnonymizedImage(models.Model):
     study_year = models.PositiveSmallIntegerField(null=True, blank=True)
     sex = models.CharField(max_length=1, blank=True)
     dicom_bytes = models.BinaryField()
+    preview_png = models.BinaryField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
