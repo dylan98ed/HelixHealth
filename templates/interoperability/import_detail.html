@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}External import · HelixHealth{% endblock %}
+{% block content %}
+  <header class="mb-4"><h1>External clinical import</h1><p>{{ batch.identifier }} · received {{ batch.received_at }}</p></header>
+  <p><a class="btn btn-outline-primary" href="{% url 'interoperability:import-xml' patient.pk batch.identifier %}">Download original XML</a> <a class="btn btn-outline-primary" href="{% url 'interoperability:import-upload' patient.pk %}?retry={{ batch.identifier }}">Retry this import</a> <a class="btn btn-outline-secondary" href="{% url 'interoperability:home' patient.pk %}">Import history</a></p>
+  <section aria-label="External clinical records">
+    {% for record in batch.records.all %}
+      <article class="card mb-3"><div class="card-body">
+        <h2 class="h5">{{ record.get_kind_display }} · {{ record.external_identifier }}</h2>
+        <p>Reported {{ record.source_recorded_at }} by {{ record.external_author.given }} {{ record.external_author.family }}</p>
+        <pre class="mb-0">{{ record.content }}</pre>
+      </div></article>
+    {% endfor %}
+  </section>
+{% endblock %}

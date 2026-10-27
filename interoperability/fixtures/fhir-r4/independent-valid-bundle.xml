@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Bundle xmlns="http://hl7.org/fhir">
+  <type value="collection"/>
+  <entry>
+    <fullUrl value="urn:uuid:11111111-1111-4111-8111-111111111111"/>
+    <resource>
+      <Patient>
+        <id value="external-patient-1"/>
+        <identifier>
+          <system value="https://external.example/identifiers/dni"/>
+          <value value="12345678"/>
+        </identifier>
+        <name>
+          <family value="García"/>
+          <given value="Ana"/>
+        </name>
+        <birthDate value="1980-04-20"/>
+      </Patient>
+    </resource>
+  </entry>
+</Bundle>

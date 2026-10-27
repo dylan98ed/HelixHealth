@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Delete specialty · HelixHealth{% endblock %}
+{% block content %}
+<a class="quiet-link d-inline-block mb-4" href="{% url 'catalogs:specialty-index' %}">Back to specialties</a>
+<header class="page-heading"><div><p class="eyebrow">Reference data</p><h1>Delete specialty</h1><p>Remove <strong>{{ specialty.name }}</strong> only when no professional is assigned to it.</p></div></header>
+{% if error_message %}<div class="alert alert-warning" role="alert">{{ error_message }} You can retire it instead, preserving existing professional links.</div>{% endif %}
+<section class="form-panel"><form method="post" novalidate>{% csrf_token %}<div class="mb-3">{{ form.confirm }}<label class="form-check-label ms-2" for="{{ form.confirm.id_for_label }}">{{ form.confirm.label }}</label>{% if form.confirm.errors %}<div class="text-danger" data-field-error="confirm">{{ form.confirm.errors }}</div>{% endif %}</div><button class="btn btn-danger" type="submit" name="action" value="delete">Delete specialty</button>{% if error_message %}<button class="btn btn-outline-primary ms-2" type="submit" name="action" value="retire">Retire specialty</button>{% endif %}</form></section>
+{% endblock %}

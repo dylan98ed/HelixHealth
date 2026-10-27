@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Catalogs · HelixHealth{% endblock %}
+{% block content %}
+<header class="page-heading"><div><p class="eyebrow">Reference data</p><h1>Catalogs</h1><p>Maintain the specialties, nomenclature, and medications used by clinical workflows.</p></div></header>
+<section class="row g-3" aria-label="Catalog collections">
+  <div class="col-md-4"><article class="form-panel h-100"><h2 class="h4">Specialties</h2><p>Create, edit, retire, or remove an unreferenced specialty.</p><a class="btn btn-outline-primary" href="{% url 'catalogs:specialty-index' %}">Open specialties</a></article></div>
+  <div class="col-md-4"><article class="form-panel h-100"><h2 class="h4">Nomenclature</h2><p>Add source-versioned terminology entries or import normalized JSON.</p><a class="btn btn-outline-primary" href="{% url 'catalogs:terminology-index' %}">Open nomenclature</a></article></div>
+  <div class="col-md-4"><article class="form-panel h-100"><h2 class="h4">Medications</h2><p>Add source-versioned medications or import normalized JSON.</p><a class="btn btn-outline-primary" href="{% url 'catalogs:medication-index' %}">Open medications</a></article></div>
+</section>
+{% endblock %}

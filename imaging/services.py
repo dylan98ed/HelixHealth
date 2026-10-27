@@ -295,7 +295,9 @@ def render_preview(data: bytes) -> bytes:
         rows = int(dataset.Rows)
         columns = int(dataset.Columns)
         if rows <= 0 or columns <= 0 or rows * columns > MAX_PIXELS:
-            raise ImageProcessingError("The DICOM exceeds the 24 megapixel preview limit.")
+            raise ImageProcessingError(
+                "The DICOM exceeds the 24 megapixel preview limit."
+            )
         interpretation = str(dataset.PhotometricInterpretation)
         pixels = dataset.pixel_array
         stride = max(1, ceil(max(rows, columns) / PREVIEW_MAX_EDGE))
@@ -314,5 +316,13 @@ def render_preview(data: bytes) -> bytes:
         return buffer.getvalue()
     except ImageProcessingError:
         raise
-    except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as error:
+    except (
+        AttributeError,
+        ImportError,
+        KeyError,
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as error:
         raise ImageProcessingError("The DICOM image could not be previewed.") from error

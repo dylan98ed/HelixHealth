@@ -1,0 +1,1372 @@
+# ================================================================
+# Prescripciones_def_app.py
+# SPRINT 3 - MÓDULO DE PRESCRIPCIÓN DE MEDICAMENTOS
+# CON BORRADO LÓGICO Y REACTIVACIÓN
+# CON RECETA ELECTRÓNICA XML Y REPORTE
+# ================================================================
+#
+# FUNCIONALIDADES:
+#   ✅ Registrar prescripción (CREATE)
+#   ✅ Buscar prescripciones por paciente (READ)
+#   ✅ Ver detalle de prescripción (READ)
+#   ✅ Anular prescripción (DELETE lógico - activo = 0)
+#   ✅ Reactivar prescripción anulada (activo = 1)
+#   ✅ Ver prescripciones activas / anuladas
+#   ✅ GENERAR RECETA ELECTRÓNICA XML (NUEVO)
+#   ✅ GENERAR REPORTE HTML IMPRIMIBLE (NUEVO)
+#   ✅ Guardar archivos en carpeta "recetas/"
+#   ✅ Selectores de Paciente, Profesional, Fármaco y SNOMED
+#   ✅ Solo muestra pacientes y profesionales ACTIVOS
+# ================================================================
+
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, ttk
+from datetime import datetime
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+import os
+import webbrowser
+
+# ================================================================
+# CONFIGURACIÓN
+# ================================================================
+
+CARPETA_RECETAS = "recetas"
+CARPETA_REPORTES = "reportes"
+
+# Crear carpetas si no existen
+for carpeta in [CARPETA_RECETAS, CARPETA_REPORTES]:
+    if not os.path.exists(carpeta):
+        os.makedirs(carpeta)
+        print(f"[INFO] Carpeta creada: {carpeta}")
+
+
+# ================================================================
+# CAPA DE ACCESO A DATOS (BACKEND)
+# ================================================================
+
+def conectar_bd():
+    """Establece conexión con la base de datos Salud.db"""
+    return sqlite3.connect('BD/Salud.db')
+
+
+# -------------------- FUNCIONES DE CONSULTA --------------------
+
+def obtener_pacientes_selector():
+    """Obtiene lista de pacientes ACTIVOS para selector"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT id, dni, nombre, apellido 
+            FROM Pacientes 
+            WHERE activo = 1
+            ORDER BY apellido, nombre
+        """)
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error al obtener pacientes: {e}")
+        return []
+
+
+def obtener_profesionales_selector():
+    """Obtiene lista de profesionales ACTIVOS para selector"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT p.id, p.dni, p.nombre, p.apellido, e.nombre as especialidad
+            FROM Profesionales p
+            LEFT JOIN Especialidades e ON p.especialidad_id = e.id
+            WHERE p.activo = 1
+            ORDER BY p.apellido, p.nombre
+        """)
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error al obtener profesionales: {e}")
+        return []
+
+
+def obtener_farmacos_selector():
+    """Obtiene lista de fármacos ACTIVOS para selector"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT id, codigo, nombre, principio_activo, presentacion, concentracion
+            FROM Farmacos 
+            WHERE activo = 1
+            ORDER BY nombre
+        """)
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error al obtener fármacos: {e}")
+        return []
+
+
+def obtener_snomed_selector():
+    """Obtiene lista de términos SNOMED ACTIVOS para selector"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT id, codigo, termino, categoria
+            FROM SnomedCT 
+            WHERE activo = 1 
+            ORDER BY termino
+        """)
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error al obtener SNOMED: {e}")
+        return []
+
+
+def obtener_paciente_por_dni(dni):
+    """Busca un paciente por DNI"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT id, dni, nombre, apellido, activo 
+            FROM Pacientes 
+            WHERE dni = ?
+        """, (dni,))
+        resultado = cursor.fetchone()
+        conexion.close()
+        return resultado
+    except Exception as e:
+        return None
+
+
+# -------------------- CRUD DE PRESCRIPCIONES --------------------
+
+def registrar_prescripcion(datos):
+    """Registra una nueva prescripción (CREATE)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        cursor.execute("""
+            INSERT INTO Prescripciones 
+            (paciente_id, profesional_id, farmaco_id, snomed_id,
+             dosis, via_administracion, frecuencia, duracion,
+             cantidad, indicaciones, fecha_inicio, fecha_fin, activo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            datos['paciente_id'],
+            datos['profesional_id'],
+            datos['farmaco_id'],
+            datos.get('snomed_id'),
+            datos['dosis'],
+            datos['via_administracion'],
+            datos['frecuencia'],
+            datos.get('duracion', ''),
+            datos.get('cantidad'),
+            datos.get('indicaciones', ''),
+            datos.get('fecha_inicio'),
+            datos.get('fecha_fin'),
+            1
+        ))
+        
+        conexion.commit()
+        nuevo_id = cursor.lastrowid
+        conexion.close()
+        return True, nuevo_id
+        
+    except Exception as e:
+        print(f"[ERROR] Error en registrar_prescripcion: {e}")
+        return False, f"❌ Error al registrar prescripción: {e}"
+
+
+def listar_prescripciones(activas=True):
+    """Lista prescripciones según su estado"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        estado = 1 if activas else 0
+        
+        cursor.execute(f"""
+            SELECT 
+                p.id,
+                p.fecha_prescripcion,
+                pac.nombre || ' ' || pac.apellido as paciente,
+                pac.dni as paciente_dni,
+                prof.nombre || ' ' || prof.apellido as profesional,
+                f.nombre as farmaco,
+                f.codigo as farmaco_codigo,
+                p.dosis,
+                p.via_administracion,
+                p.frecuencia,
+                p.duracion,
+                p.cantidad,
+                p.indicaciones,
+                s.termino as diagnostico,
+                p.activo,
+                p.fecha_inicio,
+                p.fecha_fin
+            FROM Prescripciones p
+            LEFT JOIN Pacientes pac ON p.paciente_id = pac.id
+            LEFT JOIN Profesionales prof ON p.profesional_id = prof.id
+            LEFT JOIN Farmacos f ON p.farmaco_id = f.id
+            LEFT JOIN SnomedCT s ON p.snomed_id = s.id
+            WHERE p.activo = {estado}
+            ORDER BY p.fecha_prescripcion DESC
+        """)
+        
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+        
+    except Exception as e:
+        print(f"[ERROR] Error en listar_prescripciones: {e}")
+        return []
+
+
+def buscar_prescripciones_por_paciente(paciente_id, activas=None):
+    """Busca prescripciones de un paciente"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        if activas is None:
+            where_estado = ""
+        elif activas:
+            where_estado = "AND p.activo = 1"
+        else:
+            where_estado = "AND p.activo = 0"
+        
+        cursor.execute(f"""
+            SELECT 
+                p.id,
+                p.fecha_prescripcion,
+                f.nombre as farmaco,
+                f.codigo as farmaco_codigo,
+                p.dosis,
+                p.via_administracion,
+                p.frecuencia,
+                p.duracion,
+                p.cantidad,
+                p.indicaciones,
+                s.termino as diagnostico,
+                p.activo,
+                prof.nombre || ' ' || prof.apellido as profesional
+            FROM Prescripciones p
+            LEFT JOIN Farmacos f ON p.farmaco_id = f.id
+            LEFT JOIN SnomedCT s ON p.snomed_id = s.id
+            LEFT JOIN Profesionales prof ON p.profesional_id = prof.id
+            WHERE p.paciente_id = ? {where_estado}
+            ORDER BY p.fecha_prescripcion DESC
+        """, (paciente_id,))
+        
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+        
+    except Exception as e:
+        print(f"[ERROR] Error en buscar_prescripciones_por_paciente: {e}")
+        return []
+
+
+def buscar_prescripcion_por_id(prescripcion_id):
+    """
+    Busca una prescripción por su ID con TODOS los datos relacionados.
+    Incluye datos completos para la receta electrónica.
+    """
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT 
+                p.*,
+                pac.nombre, pac.apellido, pac.dni, pac.fecha_nacimiento, 
+                pac.sexo, pac.telefono, pac.email, pac.domicilio, pac.obra_social,
+                prof.nombre, prof.apellido, prof.dni, prof.matricula, prof.email,
+                f.nombre, f.codigo, f.principio_activo, f.presentacion, f.concentracion,
+                s.termino, s.codigo,
+                e.nombre as especialidad
+            FROM Prescripciones p
+            LEFT JOIN Pacientes pac ON p.paciente_id = pac.id
+            LEFT JOIN Profesionales prof ON p.profesional_id = prof.id
+            LEFT JOIN Farmacos f ON p.farmaco_id = f.id
+            LEFT JOIN SnomedCT s ON p.snomed_id = s.id
+            LEFT JOIN Especialidades e ON prof.especialidad_id = e.id
+            WHERE p.id = ?
+        """, (prescripcion_id,))
+        
+        resultado = cursor.fetchone()
+        conexion.close()
+        
+        if resultado:
+            return {
+                # Datos de la prescripción
+                'id': resultado[0],
+                'paciente_id': resultado[1],
+                'profesional_id': resultado[2],
+                'farmaco_id': resultado[3],
+                'snomed_id': resultado[4],
+                'dosis': resultado[5],
+                'via_administracion': resultado[6],
+                'frecuencia': resultado[7],
+                'duracion': resultado[8] or '',
+                'cantidad': resultado[9] or '',
+                'indicaciones': resultado[10] or '',
+                'fecha_prescripcion': resultado[11],
+                'fecha_inicio': resultado[12] or '',
+                'fecha_fin': resultado[13] or '',
+                'activo': resultado[14],
+                # Datos del paciente
+                'paciente_nombre': resultado[15] or '',
+                'paciente_apellido': resultado[16] or '',
+                'paciente_dni': resultado[17] or '',
+                'paciente_fecha_nac': resultado[18] or '',
+                'paciente_sexo': resultado[19] or '',
+                'paciente_telefono': resultado[20] or '',
+                'paciente_email': resultado[21] or '',
+                'paciente_domicilio': resultado[22] or '',
+                'paciente_obra_social': resultado[23] or '',
+                # Datos del profesional
+                'profesional_nombre': resultado[24] or '',
+                'profesional_apellido': resultado[25] or '',
+                'profesional_dni': resultado[26] or '',
+                'profesional_matricula': resultado[27] or '',
+                'profesional_email': resultado[28] or '',
+                # Datos del fármaco
+                'farmaco_nombre': resultado[29] or '',
+                'farmaco_codigo': resultado[30] or '',
+                'farmaco_principio': resultado[31] or '',
+                'farmaco_presentacion': resultado[32] or '',
+                'farmaco_concentracion': resultado[33] or '',
+                # Datos del diagnóstico
+                'diagnostico': resultado[34] or '',
+                'diagnostico_codigo': resultado[35] or '',
+                # Especialidad
+                'especialidad': resultado[36] or ''
+            }
+        return None
+        
+    except Exception as e:
+        print(f"[ERROR] Error en buscar_prescripcion_por_id: {e}")
+        return None
+
+
+def anular_prescripcion(prescripcion_id):
+    """Anula una prescripción (DELETE lógico)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        cursor.execute("SELECT id, activo FROM Prescripciones WHERE id = ?", (prescripcion_id,))
+        resultado = cursor.fetchone()
+        
+        if not resultado:
+            conexion.close()
+            return False, "❌ No se encontró la prescripción."
+        
+        if resultado[1] == 0:
+            conexion.close()
+            return False, "❌ La prescripción ya estaba anulada."
+        
+        cursor.execute("UPDATE Prescripciones SET activo = 0 WHERE id = ?", (prescripcion_id,))
+        conexion.commit()
+        conexion.close()
+        
+        return True, "✅ Prescripción anulada correctamente."
+        
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def reactivar_prescripcion(prescripcion_id):
+    """Reactiva una prescripción anulada"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        cursor.execute("SELECT id, activo FROM Prescripciones WHERE id = ?", (prescripcion_id,))
+        resultado = cursor.fetchone()
+        
+        if not resultado:
+            conexion.close()
+            return False, "❌ No se encontró la prescripción."
+        
+        if resultado[1] == 1:
+            conexion.close()
+            return False, "❌ La prescripción ya estaba activa."
+        
+        cursor.execute("UPDATE Prescripciones SET activo = 1 WHERE id = ?", (prescripcion_id,))
+        conexion.commit()
+        conexion.close()
+        
+        return True, "✅ Prescripción reactivada correctamente."
+        
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def contar_prescripciones_paciente(paciente_id, activas=True):
+    """Cuenta las prescripciones de un paciente"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        estado = 1 if activas else 0
+        cursor.execute(
+            "SELECT COUNT(*) FROM Prescripciones WHERE paciente_id = ? AND activo = ?",
+            (paciente_id, estado)
+        )
+        total = cursor.fetchone()[0]
+        conexion.close()
+        return total
+    except Exception as e:
+        return 0
+
+
+# ================================================================
+# GENERACIÓN DE RECETA ELECTRÓNICA XML
+# ================================================================
+
+def generar_receta_xml(prescripcion_id):
+    """
+    Genera un archivo XML con la receta electrónica de la prescripción.
+    
+    Formato basado en el estándar FHIR (MedicationRequest):
+    - Patient: datos del paciente
+    - Practitioner: datos del profesional
+    - Medication: datos del fármaco
+    - Condition: diagnóstico (SNOMED)
+    - Dosage: dosis, vía, frecuencia
+    - Prescription: datos administrativos
+    """
+    prescripcion = buscar_prescripcion_por_id(prescripcion_id)
+    if not prescripcion:
+        return False, "No se encontró la prescripción.", None
+    
+    # ---------- ELEMENTO RAÍZ ----------
+    root = ET.Element("Prescription")
+    root.set("xmlns", "http://openhis.unlam.edu.ar/fhir")
+    root.set("version", "1.0")
+    
+    # ---------- METADATOS ----------
+    metadata = ET.SubElement(root, "Metadata")
+    ET.SubElement(metadata, "PrescriptionID").text = str(prescripcion['id'])
+    ET.SubElement(metadata, "FechaGeneracion").text = datetime.now().isoformat()
+    ET.SubElement(metadata, "SistemaEmisor").text = "OpenHIS-UNLaM"
+    ET.SubElement(metadata, "Hospital").text = "Hospital Universitario San Justo"
+    ET.SubElement(metadata, "Estado").text = "Activa" if prescripcion['activo'] == 1 else "Anulada"
+    
+    # ---------- PACIENTE ----------
+    paciente = ET.SubElement(root, "Patient")
+    ET.SubElement(paciente, "ID").text = str(prescripcion['paciente_id'])
+    ET.SubElement(paciente, "DNI").text = prescripcion['paciente_dni']
+    ET.SubElement(paciente, "Nombre").text = prescripcion['paciente_nombre']
+    ET.SubElement(paciente, "Apellido").text = prescripcion['paciente_apellido']
+    ET.SubElement(paciente, "FechaNacimiento").text = prescripcion['paciente_fecha_nac']
+    ET.SubElement(paciente, "Sexo").text = prescripcion['paciente_sexo']
+    ET.SubElement(paciente, "Telefono").text = prescripcion['paciente_telefono']
+    ET.SubElement(paciente, "Email").text = prescripcion['paciente_email']
+    ET.SubElement(paciente, "Domicilio").text = prescripcion['paciente_domicilio']
+    ET.SubElement(paciente, "ObraSocial").text = prescripcion['paciente_obra_social']
+    
+    # ---------- PROFESIONAL ----------
+    profesional = ET.SubElement(root, "Practitioner")
+    ET.SubElement(profesional, "ID").text = str(prescripcion['profesional_id'])
+    ET.SubElement(profesional, "DNI").text = prescripcion['profesional_dni']
+    ET.SubElement(profesional, "Nombre").text = prescripcion['profesional_nombre']
+    ET.SubElement(profesional, "Apellido").text = prescripcion['profesional_apellido']
+    ET.SubElement(profesional, "Matricula").text = prescripcion['profesional_matricula']
+    ET.SubElement(profesional, "Especialidad").text = prescripcion['especialidad']
+    ET.SubElement(profesional, "Email").text = prescripcion['profesional_email']
+    
+    # ---------- MEDICAMENTO ----------
+    medicamento = ET.SubElement(root, "Medication")
+    ET.SubElement(medicamento, "ID").text = str(prescripcion['farmaco_id'])
+    ET.SubElement(medicamento, "Codigo").text = prescripcion['farmaco_codigo']
+    ET.SubElement(medicamento, "Nombre").text = prescripcion['farmaco_nombre']
+    ET.SubElement(medicamento, "PrincipioActivo").text = prescripcion['farmaco_principio']
+    ET.SubElement(medicamento, "Presentacion").text = prescripcion['farmaco_presentacion']
+    ET.SubElement(medicamento, "Concentracion").text = prescripcion['farmaco_concentracion']
+    
+    # ---------- DIAGNÓSTICO (SNOMED) ----------
+    if prescripcion['diagnostico']:
+        diagnostico = ET.SubElement(root, "Condition")
+        ET.SubElement(diagnostico, "CodigoSNOMED").text = prescripcion['diagnostico_codigo']
+        ET.SubElement(diagnostico, "Termino").text = prescripcion['diagnostico']
+    
+    # ---------- DOSIS / INDICACIONES ----------
+    dosis = ET.SubElement(root, "Dosage")
+    ET.SubElement(dosis, "Dosis").text = prescripcion['dosis']
+    ET.SubElement(dosis, "ViaAdministracion").text = prescripcion['via_administracion']
+    ET.SubElement(dosis, "Frecuencia").text = prescripcion['frecuencia']
+    ET.SubElement(dosis, "Duracion").text = prescripcion['duracion']
+    ET.SubElement(dosis, "Cantidad").text = str(prescripcion['cantidad']) if prescripcion['cantidad'] else ''
+    ET.SubElement(dosis, "FechaInicio").text = prescripcion['fecha_inicio']
+    ET.SubElement(dosis, "FechaFin").text = prescripcion['fecha_fin']
+    ET.SubElement(dosis, "Indicaciones").text = prescripcion['indicaciones']
+    
+    # ---------- DATOS ADMINISTRATIVOS ----------
+    admin = ET.SubElement(root, "AdministrativeData")
+    ET.SubElement(admin, "FechaPrescripcion").text = prescripcion['fecha_prescripcion']
+    ET.SubElement(admin, "Estado").text = "Activa" if prescripcion['activo'] == 1 else "Anulada"
+    
+    # ---------- FORMATEAR XML ----------
+    xml_str = ET.tostring(root, encoding='unicode')
+    dom = minidom.parseString(xml_str)
+    xml_formateado = dom.toprettyxml(indent="  ", encoding='UTF-8').decode('UTF-8')
+    
+    # ---------- GUARDAR ARCHIVO ----------
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nombre_archivo = f"receta_{prescripcion_id}_{timestamp}.xml"
+    ruta_archivo = os.path.join(CARPETA_RECETAS, nombre_archivo)
+    
+    try:
+        with open(ruta_archivo, 'w', encoding='utf-8') as f:
+            f.write(xml_formateado)
+        print(f"[INFO] Receta XML generada: {ruta_archivo}")
+        return True, ruta_archivo, xml_formateado
+    except Exception as e:
+        return False, f"Error al guardar: {e}", None
+
+
+def generar_reporte_html(prescripcion_id):
+    """
+    Genera un reporte HTML imprimible de la receta.
+    """
+    prescripcion = buscar_prescripcion_por_id(prescripcion_id)
+    if not prescripcion:
+        return False, "No se encontró la prescripción.", None
+    
+    # Formatear fecha
+    fecha_presc = prescripcion['fecha_prescripcion']
+    if fecha_presc:
+        try:
+            fecha_obj = datetime.fromisoformat(fecha_presc.replace(' ', 'T'))
+            fecha_formateada = fecha_obj.strftime("%d/%m/%Y %H:%M")
+        except:
+            fecha_formateada = fecha_presc
+    else:
+        fecha_formateada = datetime.now().strftime("%d/%m/%Y %H:%M")
+    
+    estado = "ACTIVA" if prescripcion['activo'] == 1 else "ANULADA"
+    color_estado = "#4CAF50" if prescripcion['activo'] == 1 else "#f44336"
+    
+    # Diagnóstico HTML
+    diagnostico_html = ""
+    if prescripcion['diagnostico']:
+        diagnostico_html = f"""
+        <div class="section">
+            <h3>📋 Diagnóstico (SNOMED CT)</h3>
+            <p><strong>Código:</strong> {prescripcion['diagnostico_codigo']}</p>
+            <p><strong>Término:</strong> {prescripcion['diagnostico']}</p>
+        </div>
+        """
+    
+    # HTML
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Receta Electrónica #{prescripcion['id']}</title>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ font-family: 'Arial', sans-serif; padding: 30px; background: #f0f0f0; }}
+        .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 40px; 
+                     box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        .header {{ border-bottom: 3px solid #003366; padding-bottom: 20px; margin-bottom: 20px; }}
+        .header h1 {{ color: #003366; font-size: 24px; margin-bottom: 5px; }}
+        .header h2 {{ color: #666; font-size: 14px; font-weight: normal; }}
+        .estado {{ display: inline-block; padding: 5px 15px; background: {color_estado}; 
+                  color: white; border-radius: 15px; font-weight: bold; font-size: 12px; 
+                  float: right; margin-top: -40px; }}
+        .section {{ margin-bottom: 20px; padding: 15px; background: #f9f9f9; 
+                   border-left: 4px solid #003366; }}
+        .section h3 {{ color: #003366; font-size: 14px; margin-bottom: 10px; 
+                      text-transform: uppercase; }}
+        .section p {{ margin-bottom: 5px; font-size: 13px; }}
+        .section p strong {{ color: #333; display: inline-block; min-width: 150px; }}
+        .medicamento {{ background: #FFF3E0; border-left-color: #FF9800; }}
+        .medicamento h3 {{ color: #E65100; }}
+        .dosage {{ background: #E8F5E9; border-left-color: #4CAF50; }}
+        .dosage h3 {{ color: #2E7D32; }}
+        .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; 
+                  font-size: 11px; color: #666; text-align: center; }}
+        .firma {{ margin-top: 40px; text-align: center; }}
+        .firma-line {{ border-top: 1px solid #000; width: 300px; margin: 0 auto; 
+                      padding-top: 5px; }}
+        .qr {{ text-align: center; margin-top: 20px; font-size: 10px; color: #999; }}
+        @media print {{
+            body {{ background: white; padding: 0; }}
+            .container {{ box-shadow: none; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <span class="estado">{estado}</span>
+            <h1>🏥 Hospital Universitario San Justo</h1>
+            <h2>Receta Electrónica N° {prescripcion['id']}</h2>
+        </div>
+        
+        <div class="section">
+            <h3>👤 Datos del Paciente</h3>
+            <p><strong>Nombre:</strong> {prescripcion['paciente_nombre']} {prescripcion['paciente_apellido']}</p>
+            <p><strong>DNI:</strong> {prescripcion['paciente_dni']}</p>
+            <p><strong>Fecha de Nacimiento:</strong> {prescripcion['paciente_fecha_nac']}</p>
+            <p><strong>Sexo:</strong> {prescripcion['paciente_sexo']}</p>
+            <p><strong>Domicilio:</strong> {prescripcion['paciente_domicilio'] or 'No registrado'}</p>
+            <p><strong>Obra Social:</strong> {prescripcion['paciente_obra_social'] or 'No registrada'}</p>
+        </div>
+        
+        <div class="section medicamento">
+            <h3>💊 Medicamento Prescripto</h3>
+            <p><strong>Nombre:</strong> {prescripcion['farmaco_nombre']}</p>
+            <p><strong>Código:</strong> {prescripcion['farmaco_codigo']}</p>
+            <p><strong>Principio Activo:</strong> {prescripcion['farmaco_principio']}</p>
+            <p><strong>Presentación:</strong> {prescripcion['farmaco_presentacion']}</p>
+            <p><strong>Concentración:</strong> {prescripcion['farmaco_concentracion']}</p>
+        </div>
+        
+        <div class="section dosage">
+            <h3>📋 Indicaciones</h3>
+            <p><strong>Dosis:</strong> {prescripcion['dosis']}</p>
+            <p><strong>Vía de Administración:</strong> {prescripcion['via_administracion']}</p>
+            <p><strong>Frecuencia:</strong> {prescripcion['frecuencia']}</p>
+            <p><strong>Duración:</strong> {prescripcion['duracion'] or 'No especificada'}</p>
+            <p><strong>Cantidad:</strong> {prescripcion['cantidad'] or 'No especificada'}</p>
+            <p><strong>Fecha Inicio:</strong> {prescripcion['fecha_inicio'] or 'No especificada'}</p>
+            <p><strong>Fecha Fin:</strong> {prescripcion['fecha_fin'] or 'No especificada'}</p>
+            <p><strong>Indicaciones Especiales:</strong> {prescripcion['indicaciones'] or 'Sin indicaciones adicionales'}</p>
+        </div>
+        
+        {diagnostico_html}
+        
+        <div class="section">
+            <h3>👨‍⚕️ Profesional Prescriptor</h3>
+            <p><strong>Nombre:</strong> Dr./Dra. {prescripcion['profesional_nombre']} {prescripcion['profesional_apellido']}</p>
+            <p><strong>Matrícula:</strong> {prescripcion['profesional_matricula']}</p>
+            <p><strong>Especialidad:</strong> {prescripcion['especialidad'] or 'No especificada'}</p>
+            <p><strong>Email:</strong> {prescripcion['profesional_email'] or 'No registrado'}</p>
+        </div>
+        
+        <div class="section">
+            <h3>📅 Datos Administrativos</h3>
+            <p><strong>Fecha de Prescripción:</strong> {fecha_formateada}</p>
+            <p><strong>Estado:</strong> {estado}</p>
+        </div>
+        
+        <div class="firma">
+            <div class="firma-line">
+                Dr./Dra. {prescripcion['profesional_nombre']} {prescripcion['profesional_apellido']}<br>
+                Matrícula: {prescripcion['profesional_matricula']}
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>Documento generado por OpenHIS-UNLaM - Sistema de Información Hospitalaria</p>
+            <p>Generado el {datetime.now().strftime("%d/%m/%Y a las %H:%M:%S")}</p>
+            <p class="qr">🔒 Documento válido como receta electrónica según normativa vigente</p>
+        </div>
+    </div>
+</body>
+</html>"""
+    
+    # Guardar
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nombre_archivo = f"reporte_{prescripcion_id}_{timestamp}.html"
+    ruta_archivo = os.path.join(CARPETA_REPORTES, nombre_archivo)
+    
+    try:
+        with open(ruta_archivo, 'w', encoding='utf-8') as f:
+            f.write(html)
+        print(f"[INFO] Reporte HTML generado: {ruta_archivo}")
+        return True, ruta_archivo, html
+    except Exception as e:
+        return False, f"Error al guardar: {e}", None
+
+
+# ================================================================
+# CAPA DE PRESENTACIÓN (FRONTEND)
+# ================================================================
+
+class AppPrescripciones:
+    """Aplicación de gestión de prescripciones con receta electrónica"""
+    
+    def __init__(self, root):
+        self.root = root
+        self.root.title("OpenHIS-UNLaM - Prescripción de Medicamentos")
+        self.root.geometry("1200x700")
+        self.root.configure(bg='#f0f0f0')
+        
+        # Centrar
+        self.root.update_idletasks()
+        ancho = self.root.winfo_width()
+        alto = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (ancho // 2)
+        y = (self.root.winfo_screenheight() // 2) - (alto // 2)
+        self.root.geometry(f'{ancho}x{alto}+{x}+{y}')
+        
+        # Frame principal
+        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        # Título
+        tk.Label(
+            self.frame_principal,
+            text="💊 PRESCRIPCIÓN DE MEDICAMENTOS",
+            font=('Arial', 18, 'bold'),
+            bg='#f0f0f0',
+            fg='#003366'
+        ).pack(pady=5)
+        
+        tk.Label(
+            self.frame_principal,
+            text="Hospital Universitario San Justo - Sistema de Receta Electrónica",
+            font=('Arial', 11),
+            bg='#f0f0f0',
+            fg='#666666'
+        ).pack(pady=2)
+        
+        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        
+        # Botones
+        frame_botones = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_botones.pack(pady=10)
+        
+        estilo_boton = {
+            'font': ('Arial', 10, 'bold'),
+            'padx': 15,
+            'pady': 8,
+            'relief': 'raised',
+            'bd': 2
+        }
+        
+        tk.Button(frame_botones, text="💊 Nueva Prescripción", bg='#4CAF50',
+                 fg='white', command=self.abrir_nueva_prescripcion, **estilo_boton).pack(side='left', padx=3)
+        
+        tk.Button(frame_botones, text="🔍 Buscar por Paciente", bg='#2196F3',
+                 fg='white', command=self.buscar_por_paciente, **estilo_boton).pack(side='left', padx=3)
+        
+        tk.Frame(frame_botones, width=20, bg='#f0f0f0').pack(side='left')
+        
+        tk.Button(frame_botones, text="📊 Ver Activas", bg='#607D8B',
+                 fg='white', command=lambda: self.ver_prescripciones(activas=True),
+                 **estilo_boton).pack(side='left', padx=3)
+        
+        tk.Button(frame_botones, text="🚫 Ver Anuladas", bg='#9E9E9E',
+                 fg='white', command=lambda: self.ver_prescripciones(activas=False),
+                 **estilo_boton).pack(side='left', padx=3)
+        
+        tk.Frame(frame_botones, width=20, bg='#f0f0f0').pack(side='left')
+        
+        tk.Button(frame_botones, text="📁 Abrir Recetas", bg='#9C27B0',
+                 fg='white', command=self.abrir_carpeta_recetas,
+                 **estilo_boton).pack(side='left', padx=3)
+        
+        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        
+        # Label resultados
+        self.label_resultados = tk.Label(
+            self.frame_principal,
+            text="Seleccione una acción para comenzar",
+            font=('Arial', 11, 'italic'),
+            bg='#f0f0f0',
+            fg='#666666'
+        )
+        self.label_resultados.pack(pady=5)
+        
+        # Tabla
+        frame_tabla = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_tabla.pack(fill='both', expand=True, pady=10)
+        
+        self.tree = ttk.Treeview(
+            frame_tabla,
+            columns=('ID', 'Fecha', 'Paciente', 'DNI', 'Profesional',
+                    'Fármaco', 'Dosis', 'Vía', 'Frecuencia', 'Diagnóstico', 'Estado'),
+            show='headings',
+            height=12,
+            selectmode='browse'
+        )
+        
+        columnas = [
+            ('ID', 'ID', 40, 'center'),
+            ('Fecha', 'Fecha', 130, 'center'),
+            ('Paciente', 'Paciente', 150, 'w'),
+            ('DNI', 'DNI', 90, 'center'),
+            ('Profesional', 'Profesional', 140, 'w'),
+            ('Fármaco', 'Fármaco', 150, 'w'),
+            ('Dosis', 'Dosis', 70, 'center'),
+            ('Vía', 'Vía', 80, 'center'),
+            ('Frecuencia', 'Frecuencia', 90, 'center'),
+            ('Diagnóstico', 'Diagnóstico', 140, 'w'),
+            ('Estado', 'Estado', 80, 'center')
+        ]
+        
+        for col, heading, width, anchor in columnas:
+            self.tree.heading(col, text=heading)
+            self.tree.column(col, width=width, anchor=anchor)
+        
+        self.tree.pack(side='left', fill='both', expand=True)
+        
+        scrollbar = ttk.Scrollbar(frame_tabla, orient='vertical', command=self.tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.tree.bind('<Double-1>', self.on_doble_click)
+        
+        # Estado
+        self.label_estado = tk.Label(
+            self.frame_principal,
+            text="✅ OpenHIS-UNLaM | 📁 Carpeta de recetas: ./recetas/",
+            font=('Arial', 9),
+            bg='#f0f0f0',
+            fg='#666666'
+        )
+        self.label_estado.pack(side='bottom', pady=5)
+        
+        self.ver_prescripciones(activas=True)
+    
+    # ============================================================
+    # MÉTODOS
+    # ============================================================
+    
+    def ver_prescripciones(self, activas=True):
+        """Carga prescripciones según estado"""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        prescripciones = listar_prescripciones(activas=activas)
+        
+        for p in prescripciones:
+            estado = "✅ Activa" if p[14] == 1 else "🚫 Anulada"
+            self.tree.insert('', 'end', values=(
+                p[0], p[1][:16] if p[1] else '',
+                p[2] or 'N/A', p[3] or 'N/A', p[4] or 'N/A',
+                p[5] or 'N/A', p[7] or '-', p[8] or '-', p[9] or '-',
+                p[13] or '-', estado
+            ))
+        
+        tipo = "activas" if activas else "anuladas"
+        self.label_resultados.config(text=f"📊 Total de prescripciones {tipo}: {len(prescripciones)}")
+    
+    def on_doble_click(self, event):
+        """Doble clic - ver detalle"""
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+        item = self.tree.item(seleccion[0])
+        prescripcion_id = item['values'][0]
+        self.ver_detalle_prescripcion(prescripcion_id)
+    
+    def abrir_carpeta_recetas(self):
+        """Abre la carpeta de recetas en el explorador"""
+        try:
+            ruta = os.path.abspath(CARPETA_RECETAS)
+            if os.name == 'nt':  # Windows
+                os.startfile(ruta)
+            elif os.name == 'posix':  # Mac/Linux
+                os.system(f'open "{ruta}"' if os.uname().sysname == 'Darwin' else f'xdg-open "{ruta}"')
+            messagebox.showinfo("Carpeta abierta",
+                f"Se abrió la carpeta:\n{ruta}")
+        except Exception as e:
+            messagebox.showinfo("Ubicación de recetas",
+                f"Las recetas se guardan en:\n{os.path.abspath(CARPETA_RECETAS)}\n\n"
+                f"Error al abrir: {e}")
+    
+    # ---------- BUSCAR POR PACIENTE ----------
+    def buscar_por_paciente(self):
+        """Busca prescripciones por paciente"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Buscar por Paciente")
+        ventana.geometry("450x200")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        ventana.resizable(False, False)
+        
+        tk.Label(ventana, text="🔍 BUSCAR POR PACIENTE",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=15)
+        
+        frame = tk.Frame(ventana, bg='#f0f0f0')
+        frame.pack(pady=15)
+        
+        tk.Label(frame, text="DNI del paciente:", font=('Arial', 11),
+                bg='#f0f0f0').pack(side='left', padx=10)
+        
+        entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        entry_dni.pack(side='left', padx=10)
+        entry_dni.focus()
+        
+        def buscar():
+            dni = entry_dni.get().strip()
+            if not dni:
+                messagebox.showerror("Error", "Ingrese un DNI.")
+                return
+            
+            paciente = obtener_paciente_por_dni(dni)
+            if not paciente:
+                messagebox.showerror("Error", "Paciente no encontrado.")
+                return
+            
+            ventana.destroy()
+            self.mostrar_prescripciones_paciente(paciente)
+        
+        entry_dni.bind('<Return>', lambda e: buscar())
+        
+        tk.Button(ventana, text="🔍 Buscar", bg='#2196F3', fg='white',
+                 font=('Arial', 11, 'bold'), padx=20, pady=8,
+                 command=buscar).pack(pady=10)
+    
+    def mostrar_prescripciones_paciente(self, paciente):
+        """Muestra prescripciones de un paciente"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Prescripciones - {paciente[2]} {paciente[3]}")
+        ventana.geometry("1100x550")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        
+        estado_pac = "✅ Activo" if paciente[4] == 1 else "🚫 Inactivo"
+        
+        tk.Label(ventana, text=f"💊 PRESCRIPCIONES DE {paciente[2].upper()} {paciente[3].upper()}",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=5)
+        
+        tk.Label(ventana, text=f"DNI: {paciente[1]} | HC: {paciente[0]} | Paciente: {estado_pac}",
+                font=('Arial', 10), bg='#f0f0f0', fg='#666666').pack(pady=2)
+        
+        frame_tabla = tk.Frame(ventana, bg='#f0f0f0')
+        frame_tabla.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        tree = ttk.Treeview(
+            frame_tabla,
+            columns=('ID', 'Fecha', 'Fármaco', 'Dosis', 'Vía', 'Frecuencia', 'Profesional', 'Diagnóstico', 'Estado'),
+            show='headings',
+            height=10,
+            selectmode='browse'
+        )
+        
+        for col, heading, width, anchor in [
+            ('ID', 'ID', 40, 'center'),
+            ('Fecha', 'Fecha', 130, 'center'),
+            ('Fármaco', 'Fármaco', 150, 'w'),
+            ('Dosis', 'Dosis', 70, 'center'),
+            ('Vía', 'Vía', 80, 'center'),
+            ('Frecuencia', 'Frecuencia', 90, 'center'),
+            ('Profesional', 'Profesional', 150, 'w'),
+            ('Diagnóstico', 'Diagnóstico', 140, 'w'),
+            ('Estado', 'Estado', 80, 'center')
+        ]:
+            tree.heading(col, text=heading)
+            tree.column(col, width=width, anchor=anchor)
+        
+        tree.pack(side='left', fill='both', expand=True)
+        
+        scrollbar = ttk.Scrollbar(frame_tabla, orient='vertical', command=tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        prescripciones = buscar_prescripciones_por_paciente(paciente[0], activas=None)
+        
+        for p in prescripciones:
+            estado = "✅ Activa" if p[11] == 1 else "🚫 Anulada"
+            tree.insert('', 'end', values=(
+                p[0], p[1][:16] if p[1] else '',
+                p[2] or 'N/A', p[4] or '-', p[5] or '-', p[6] or '-',
+                p[12] or 'N/A', p[10] or '-', estado
+            ))
+        
+        # Doble clic para ver detalle
+        def on_double(event):
+            sel = tree.selection()
+            if sel:
+                presc_id = tree.item(sel[0])['values'][0]
+                self.ver_detalle_prescripcion(presc_id)
+        
+        tree.bind('<Double-1>', on_double)
+        
+        tk.Label(ventana, text=f"Total: {len(prescripciones)} prescripciones",
+                font=('Arial', 10), bg='#f0f0f0', fg='#666666').pack(pady=5)
+        
+        tk.Button(ventana, text="❌ Cerrar", bg='#f44336', fg='white',
+                 font=('Arial', 11, 'bold'), padx=20, pady=8,
+                 command=ventana.destroy).pack(pady=10)
+    
+    # ---------- NUEVA PRESCRIPCIÓN ----------
+    def abrir_nueva_prescripcion(self):
+        """Abre ventana para nueva prescripción"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Nueva Prescripción")
+        ventana.geometry("750x700")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        ventana.resizable(False, False)
+        
+        tk.Label(ventana, text="💊 NUEVA PRESCRIPCIÓN",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=10)
+        
+        tk.Label(ventana, text="Los campos con * son obligatorios",
+                font=('Arial', 9), bg='#f0f0f0', fg='#666666').pack(pady=2)
+        
+        # Obtener datos
+        pacientes = obtener_pacientes_selector()
+        if not pacientes:
+            messagebox.showwarning("Advertencia",
+                "No hay pacientes ACTIVOS.\nRegistre o reactive pacientes primero.")
+            ventana.destroy()
+            return
+        
+        profesionales = obtener_profesionales_selector()
+        if not profesionales:
+            messagebox.showwarning("Advertencia",
+                "No hay profesionales ACTIVOS.\nRegistre o reactive profesionales primero.")
+            ventana.destroy()
+            return
+        
+        farmacos = obtener_farmacos_selector()
+        if not farmacos:
+            messagebox.showwarning("Advertencia",
+                "No hay fármacos ACTIVOS.\nCargue fármacos en Tablas Maestras.")
+            ventana.destroy()
+            return
+        
+        snomed = obtener_snomed_selector()
+        
+        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
+        frame_campos.pack(padx=30, pady=10, fill='both', expand=True)
+        
+        # Paciente
+        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame.pack(fill='x', pady=4)
+        tk.Label(frame, text="Paciente *:", width=22, anchor='w',
+                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+        valores_pacientes = [f"{p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in pacientes]
+        combo_paciente = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
+        combo_paciente['values'] = valores_pacientes
+        combo_paciente.current(0)
+        combo_paciente.pack(side='right')
+        
+        # Profesional
+        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame.pack(fill='x', pady=4)
+        tk.Label(frame, text="Profesional *:", width=22, anchor='w',
+                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+        valores_prof = [f"{p[0]} - {p[2]} {p[3]} ({p[4] or 'Sin especialidad'})" for p in profesionales]
+        combo_prof = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
+        combo_prof['values'] = valores_prof
+        combo_prof.current(0)
+        combo_prof.pack(side='right')
+        
+        # Fármaco
+        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame.pack(fill='x', pady=4)
+        tk.Label(frame, text="Fármaco *:", width=22, anchor='w',
+                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+        valores_farmacos = [f"{f[0]} - {f[1]} {f[2]} ({f[3] or 'N/A'})" for f in farmacos]
+        combo_farmaco = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
+        combo_farmaco['values'] = valores_farmacos
+        combo_farmaco.current(0)
+        combo_farmaco.pack(side='right')
+        
+        # Diagnóstico SNOMED
+        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame.pack(fill='x', pady=4)
+        tk.Label(frame, text="Diagnóstico (SNOMED):", width=22, anchor='w',
+                bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+        if snomed:
+            valores_snomed = [f"{s[0]} - {s[1]} {s[2]} ({s[3]})" for s in snomed]
+            combo_snomed = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
+            combo_snomed['values'] = valores_snomed
+            combo_snomed.current(0)
+        else:
+            combo_snomed = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
+            combo_snomed['values'] = ['No hay diagnósticos cargados']
+            combo_snomed.current(0)
+        combo_snomed.pack(side='right')
+        
+        tk.Frame(frame_campos, height=2, bg='#cccccc').pack(fill='x', pady=8)
+        
+        frame_detalles = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame_detalles.pack(fill='x', pady=5)
+        
+        campos_texto = [
+            ('Dosis *', 'dosis', 0, 0),
+            ('Vía Administración *', 'via', 0, 1),
+            ('Frecuencia *', 'frecuencia', 1, 0),
+            ('Duración (ej: 7 días)', 'duracion', 1, 1),
+            ('Cantidad', 'cantidad', 2, 0),
+            ('Fecha Inicio (YYYY-MM-DD)', 'fecha_inicio', 2, 1),
+            ('Fecha Fin (YYYY-MM-DD)', 'fecha_fin', 3, 0),
+        ]
+        
+        entries = {}
+        for label_text, key, row, col in campos_texto:
+            frame = tk.Frame(frame_detalles, bg='#f0f0f0')
+            frame.grid(row=row, column=col, sticky='ew', padx=10, pady=3)
+            tk.Label(frame, text=label_text, width=22, anchor='w',
+                    bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+            entry = tk.Entry(frame, width=20, font=('Arial', 10))
+            entry.pack(side='right')
+            entries[key] = entry
+        
+        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame.pack(fill='x', pady=5)
+        tk.Label(frame, text="Indicaciones:", width=22, anchor='w',
+                bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+        text_indicaciones = tk.Text(frame, width=40, height=3, font=('Arial', 10))
+        text_indicaciones.pack(side='right')
+        
+        def guardar():
+            obligatorios = ['dosis', 'via', 'frecuencia']
+            for campo in obligatorios:
+                if not entries[campo].get().strip():
+                    messagebox.showerror("Error", f"El campo '{campo}' es obligatorio.")
+                    return
+            
+            try:
+                paciente_id = int(combo_paciente.get().split(' - ')[0])
+                profesional_id = int(combo_prof.get().split(' - ')[0])
+                farmaco_id = int(combo_farmaco.get().split(' - ')[0])
+                
+                snomed_id = None
+                if snomed and combo_snomed.get() and combo_snomed.get() != 'No hay diagnósticos cargados':
+                    snomed_id = int(combo_snomed.get().split(' - ')[0])
+            except (ValueError, IndexError):
+                messagebox.showerror("Error", "Seleccione opciones válidas.")
+                return
+            
+            datos = {
+                'paciente_id': paciente_id,
+                'profesional_id': profesional_id,
+                'farmaco_id': farmaco_id,
+                'snomed_id': snomed_id,
+                'dosis': entries['dosis'].get().strip(),
+                'via_administracion': entries['via'].get().strip(),
+                'frecuencia': entries['frecuencia'].get().strip(),
+                'duracion': entries['duracion'].get().strip(),
+                'cantidad': int(entries['cantidad'].get()) if entries['cantidad'].get().strip() else None,
+                'indicaciones': text_indicaciones.get('1.0', tk.END).strip(),
+                'fecha_inicio': entries['fecha_inicio'].get().strip() or None,
+                'fecha_fin': entries['fecha_fin'].get().strip() or None
+            }
+            
+            resultado, info = registrar_prescripcion(datos)
+            if resultado:
+                # Preguntar si quiere generar la receta
+                if messagebox.askyesno("Prescripción Exitosa",
+                    f"✅ Prescripción registrada con ID: {info}\n\n"
+                    f"¿Desea generar la receta electrónica XML ahora?"):
+                    self.generar_receta_con_id(info)
+                
+                ventana.destroy()
+                self.ver_prescripciones(activas=True)
+            else:
+                messagebox.showerror("Error", f"❌ {info}")
+        
+        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones.pack(pady=20)
+        
+        tk.Button(frame_botones, text="💾 Guardar Prescripción", bg='#4CAF50', fg='white',
+                 font=('Arial', 11, 'bold'), padx=25, pady=8,
+                 command=guardar).pack(side='left', padx=10)
+        
+        tk.Button(frame_botones, text="❌ Cancelar", bg='#f44336', fg='white',
+                 font=('Arial', 11, 'bold'), padx=25, pady=8,
+                 command=ventana.destroy).pack(side='left', padx=10)
+    
+    # ---------- VER DETALLE ----------
+    def ver_detalle_prescripcion(self, prescripcion_id):
+        """Muestra el detalle de una prescripción con opciones de receta"""
+        prescripcion = buscar_prescripcion_por_id(prescripcion_id)
+        if not prescripcion:
+            messagebox.showerror("Error", "No se encontró la prescripción.")
+            return
+        
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Detalle de Prescripción #{prescripcion_id}")
+        ventana.geometry("620x700")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        
+        tk.Label(ventana, text=f"💊 PRESCRIPCIÓN #{prescripcion_id}",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=10)
+        
+        estado = "✅ ACTIVA" if prescripcion['activo'] == 1 else "🚫 ANULADA"
+        color_estado = '#4CAF50' if prescripcion['activo'] == 1 else '#f44336'
+        
+        tk.Label(ventana, text=estado, font=('Arial', 12, 'bold'),
+                bg='#f0f0f0', fg=color_estado).pack(pady=5)
+        
+        frame_detalle = tk.Frame(ventana, bg='#f0f0f0')
+        frame_detalle.pack(padx=30, pady=10, fill='both', expand=True)
+        
+        detalles = [
+            ('👤 Paciente', f"{prescripcion['paciente_nombre']} {prescripcion['paciente_apellido']}"),
+            ('📋 DNI', prescripcion['paciente_dni']),
+            ('👨‍⚕️ Profesional', f"Dr./Dra. {prescripcion['profesional_nombre']} {prescripcion['profesional_apellido']}"),
+            ('📋 Matrícula', prescripcion['profesional_matricula']),
+            ('💊 Fármaco', prescripcion['farmaco_nombre']),
+            ('📋 Código', prescripcion['farmaco_codigo']),
+            ('🔬 Principio Activo', prescripcion['farmaco_principio']),
+            ('📋 Diagnóstico', prescripcion['diagnostico'] or 'No especificado'),
+            ('💊 Dosis', prescripcion['dosis']),
+            ('💉 Vía', prescripcion['via_administracion']),
+            ('⏱️ Frecuencia', prescripcion['frecuencia']),
+            ('📅 Duración', prescripcion['duracion'] or 'No especificada'),
+            ('📦 Cantidad', prescripcion['cantidad'] or 'No especificada'),
+            ('📅 Fecha Inicio', prescripcion['fecha_inicio'] or 'No especificada'),
+            ('📅 Fecha Fin', prescripcion['fecha_fin'] or 'No especificada'),
+            ('📝 Indicaciones', prescripcion['indicaciones'] or 'Sin indicaciones'),
+            ('📅 Fecha Prescripción', prescripcion['fecha_prescripcion'])
+        ]
+        
+        for label, value in detalles:
+            frame = tk.Frame(frame_detalle, bg='#f0f0f0')
+            frame.pack(fill='x', pady=2)
+            tk.Label(frame, text=f"{label}:", width=22, anchor='w',
+                    bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+            tk.Label(frame, text=str(value), anchor='w', bg='#f0f0f0',
+                    font=('Arial', 10), wraplength=350, justify='left').pack(side='left', padx=5)
+        
+        # ---------- BOTONES DE RECETA ----------
+        frame_receta = tk.LabelFrame(ventana, text=" 📄 Receta Electrónica ",
+                                     font=('Arial', 11, 'bold'), bg='#f0f0f0',
+                                     fg='#9C27B0', padx=15, pady=10)
+        frame_receta.pack(fill='x', padx=30, pady=10)
+        
+        tk.Button(frame_receta, text="📄 Generar Receta XML", bg='#9C27B0', fg='white',
+                 font=('Arial', 10, 'bold'), padx=15, pady=8,
+                 command=lambda: self.generar_receta_con_id(prescripcion_id)).pack(side='left', padx=5)
+        
+        tk.Button(frame_receta, text="🖨️ Generar Reporte HTML", bg='#E91E63', fg='white',
+                 font=('Arial', 10, 'bold'), padx=15, pady=8,
+                 command=lambda: self.generar_reporte_con_id(prescripcion_id)).pack(side='left', padx=5)
+        
+        # ---------- BOTONES DE ESTADO ----------
+        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones.pack(pady=15)
+        
+        if prescripcion['activo'] == 1:
+            tk.Button(frame_botones, text="🚫 Anular", bg='#f44336', fg='white',
+                     font=('Arial', 10, 'bold'), padx=15, pady=5,
+                     command=lambda: [ventana.destroy(), self.anular_con_id(prescripcion_id)]).pack(side='left', padx=5)
+        else:
+            tk.Button(frame_botones, text="♻️ Reactivar", bg='#4CAF50', fg='white',
+                     font=('Arial', 10, 'bold'), padx=15, pady=5,
+                     command=lambda: [ventana.destroy(), self.reactivar_con_id(prescripcion_id)]).pack(side='left', padx=5)
+        
+        tk.Button(frame_botones, text="❌ Cerrar", bg='#9E9E9E', fg='white',
+                 font=('Arial', 10, 'bold'), padx=15, pady=5,
+                 command=ventana.destroy).pack(side='left', padx=5)
+    
+    # ---------- GENERAR RECETA ----------
+    def generar_receta_con_id(self, prescripcion_id):
+        """Genera el XML de la receta electrónica"""
+        exito, resultado, xml = generar_receta_xml(prescripcion_id)
+        
+        if not exito:
+            messagebox.showerror("Error", f"No se pudo generar la receta:\n{resultado}")
+            return
+        
+        # Mostrar vista previa en ventana modal
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Receta Electrónica #{prescripcion_id}")
+        ventana.geometry("800x600")
+        ventana.configure(bg='#f0f0f0')
+        
+        tk.Label(ventana, text="📄 RECETA ELECTRÓNICA XML GENERADA",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#9C27B0').pack(pady=10)
+        
+        tk.Label(ventana, text=f"📁 Archivo: {resultado}",
+                font=('Arial', 10), bg='#f0f0f0', fg='#666666').pack(pady=5)
+        
+        # Texto con scroll
+        frame_text = tk.Frame(ventana, bg='#f0f0f0')
+        frame_text.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        text_widget = tk.Text(frame_text, wrap='none', font=('Consolas', 9),
+                             bg='#1e1e1e', fg='#d4d4d4')
+        text_widget.pack(side='left', fill='both', expand=True)
+        
+        scroll_y = tk.Scrollbar(frame_text, orient='vertical', command=text_widget.yview)
+        scroll_y.pack(side='right', fill='y')
+        text_widget.configure(yscrollcommand=scroll_y.set)
+        
+        scroll_x = tk.Scrollbar(ventana, orient='horizontal', command=text_widget.xview)
+        scroll_x.pack(fill='x', padx=20)
+        text_widget.configure(xscrollcommand=scroll_x.set)
+        
+        text_widget.insert('1.0', xml)
+        
+        # Botones
+        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones.pack(pady=10)
+        
+        tk.Button(frame_botones, text="📂 Abrir Carpeta", bg='#2196F3', fg='white',
+                 font=('Arial', 10, 'bold'), padx=15, pady=8,
+                 command=self.abrir_carpeta_recetas).pack(side='left', padx=5)
+        
+        tk.Button(frame_botones, text="❌ Cerrar", bg='#f44336', fg='white',
+                 font=('Arial', 10, 'bold'), padx=15, pady=8,
+                 command=ventana.destroy).pack(side='left', padx=5)
+        
+        messagebox.showinfo("✅ Receta Generada",
+            f"La receta electrónica XML se generó correctamente.\n\n"
+            f"📁 Ubicación: {resultado}")
+    
+    def generar_reporte_con_id(self, prescripcion_id):
+        """Genera el reporte HTML imprimible"""
+        exito, resultado, html = generar_reporte_html(prescripcion_id)
+        
+        if not exito:
+            messagebox.showerror("Error", f"No se pudo generar el reporte:\n{resultado}")
+            return
+        
+        # Preguntar si quiere abrirlo en el navegador
+        if messagebox.askyesno("✅ Reporte Generado",
+            f"El reporte HTML se generó correctamente.\n\n"
+            f"📁 Ubicación: {resultado}\n\n"
+            f"¿Desea abrirlo en el navegador para imprimirlo?"):
+            try:
+                webbrowser.open(f'file://{os.path.abspath(resultado)}')
+            except Exception as e:
+                messagebox.showinfo("Ubicación",
+                    f"El reporte se encuentra en:\n{os.path.abspath(resultado)}\n\n"
+                    f"Error al abrir: {e}")
+    
+    def anular_con_id(self, prescripcion_id):
+        """Anula una prescripción"""
+        if messagebox.askyesno("⚠️ Confirmar Anulación",
+            "¿Está seguro de anular esta prescripción?\n\n"
+            "ℹ️ Los datos NO se eliminan. Puede reactivarse después."):
+            resultado, mensaje = anular_prescripcion(prescripcion_id)
+            if resultado:
+                messagebox.showinfo("Éxito", mensaje)
+                self.ver_prescripciones(activas=True)
+            else:
+                messagebox.showerror("Error", mensaje)
+    
+    def reactivar_con_id(self, prescripcion_id):
+        """Reactiva una prescripción anulada"""
+        if messagebox.askyesno("♻️ Reactivar", "¿Reactivar esta prescripción?"):
+            resultado, mensaje = reactivar_prescripcion(prescripcion_id)
+            if resultado:
+                messagebox.showinfo("Éxito", mensaje)
+                self.ver_prescripciones(activas=True)
+            else:
+                messagebox.showerror("Error", mensaje)
+
+
+# ================================================================
+# PUNTO DE ENTRADA
+# ================================================================
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = AppPrescripciones(root)
+    root.mainloop()

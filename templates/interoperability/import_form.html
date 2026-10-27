@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Import FHIR XML · HelixHealth{% endblock %}
+{% block content %}
+  <header class="mb-4"><h1>Import external FHIR XML</h1><p class="lead">{{ patient.first_name }} {{ patient.last_name }}</p></header>
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {{ form.request_key }}
+    {{ form.non_field_errors }}
+    {% for field in form.visible_fields %}<div class="mb-3">{{ field.label_tag }} {{ field }} {{ field.errors }}</div>{% endfor %}
+    <p class="text-muted">Only a self-contained HelixHealth FHIR R4 XML bundle (up to 2 MiB) is accepted.</p>
+    <button class="btn btn-primary" type="submit">Import FHIR XML</button>
+    <a class="btn btn-outline-secondary" href="{% url 'interoperability:home' patient.pk %}">Cancel</a>
+  </form>
+{% endblock %}

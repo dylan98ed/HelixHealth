@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Prescription {{ prescription.identifier }} · HelixHealth{% endblock %}
+{% block content %}
+  <header class="mb-4"><h1>Prescription issued</h1><p>{{ prescription.identifier }} · {{ prescription.issued_at }}</p></header>
+  <p><a class="btn btn-outline-primary" href="{% url 'prescriptions:report' patient.pk prescription.identifier %}">Printable report</a> <a class="btn btn-outline-primary" href="{% url 'prescriptions:xml' patient.pk prescription.identifier %}">Download FHIR XML</a> <a class="btn btn-outline-secondary" href="{% url 'prescriptions:list' patient.pk %}">Prescription history</a></p>
+  <section aria-label="Medication directions">{% for item in prescription.items.all %}<article class="card mb-3"><div class="card-body"><h2 class="h5">{{ item.snapshot.medication.display }}</h2><p>{{ item.dose_value }} {{ item.dose_unit }} · {{ item.route }} · {{ item.frequency }} for {{ item.duration_days }} days</p>{% if item.instructions %}<p>{{ item.instructions }}</p>{% endif %}</div></article>{% endfor %}</section>
+{% endblock %}

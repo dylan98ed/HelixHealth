@@ -1,0 +1,909 @@
+# ================================================================
+# Signos_vitales_def_app.pyw
+# SPRINT 3 - MÓDULO DE SIGNOS VITALES (CON BORRADO LÓGICO COMPLETO)
+# ================================================================
+#
+# FUNCIONALIDADES:
+#   ✅ Registrar signos vitales (CREATE) - HU-03
+#   ✅ Ver historial de signos vitales (READ)
+#   ✅ Buscar signos vitales por paciente (READ)
+#   ✅ Anular signo vital (DELETE lógico - activo = 0)
+#   ✅ Reactivar signo vital anulado (activo = 1) ← NUEVO
+#   ✅ Ver registros activos ← NUEVO
+#   ✅ Ver registros anulados ← NUEVO
+#   ✅ Selector de médico obligatorio
+#   ✅ Interfaz gráfica con Tkinter
+# ================================================================
+
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, ttk
+from datetime import datetime
+
+# ================================================================
+# CAPA DE ACCESO A DATOS (BACKEND)
+# ================================================================
+
+def conectar_bd():
+    """Establece conexión con la base de datos Salud.db"""
+    return sqlite3.connect('BD/Salud.db')
+
+
+# -------------------- CONSULTAS DE APOYO --------------------
+
+def obtener_pacientes_selector():
+    """Obtiene lista de pacientes ACTIVOS para selector"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT id, dni, nombre, apellido 
+            FROM Pacientes 
+            WHERE activo = 1
+            ORDER BY apellido, nombre
+        """)
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error al obtener pacientes: {e}")
+        return []
+
+
+def obtener_paciente_por_dni(dni):
+    """Busca un paciente por DNI (activo o inactivo)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT id, dni, nombre, apellido, activo 
+            FROM Pacientes 
+            WHERE dni = ?
+        """, (dni,))
+        resultado = cursor.fetchone()
+        conexion.close()
+        return resultado
+    except Exception as e:
+        return None
+
+
+def obtener_profesionales_selector():
+    """Obtiene lista de profesionales ACTIVOS para selector"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT p.id, p.dni, p.nombre, p.apellido, e.nombre as especialidad
+            FROM Profesionales p
+            LEFT JOIN Especialidades e ON p.especialidad_id = e.id
+            WHERE p.activo = 1
+            ORDER BY p.apellido, p.nombre
+        """)
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error al obtener profesionales: {e}")
+        return []
+
+
+# -------------------- CRUD DE SIGNOS VITALES --------------------
+
+def registrar_signos_vitales(paciente_id, medico_id, datos):
+    """HU-03: Registrar signos vitales (CREATE)"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        cursor.execute("""
+            INSERT INTO SignosVitales 
+            (paciente_id, medico_id, presion_sistolica, presion_diastolica, 
+             frecuencia_cardiaca, temperatura, saturacion_oxigeno, 
+             motivo_consulta, activo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            paciente_id,
+            medico_id,
+            datos.get('presion_sistolica'),
+            datos.get('presion_diastolica'),
+            datos.get('frecuencia_cardiaca'),
+            datos.get('temperatura'),
+            datos.get('saturacion_oxigeno'),
+            datos['motivo_consulta'],
+            1  # activo
+        ))
+        
+        conexion.commit()
+        nuevo_id = cursor.lastrowid
+        conexion.close()
+        return True, nuevo_id
+        
+    except Exception as e:
+        print(f"[ERROR] Error en registrar_signos_vitales: {e}")
+        return False, f"❌ Error: {e}"
+
+
+def listar_signos_vitales(activos=True, limite=100):
+    """
+    Lista signos vitales según su estado
+    activos=True: solo activos
+    activos=False: solo anulados
+    """
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        estado = 1 if activos else 0
+        
+        cursor.execute(f"""
+            SELECT 
+                s.id,
+                s.fecha_hora,
+                p.nombre || ' ' || p.apellido as paciente,
+                p.dni as paciente_dni,
+                m.nombre || ' ' || m.apellido as medico,
+                s.presion_sistolica,
+                s.presion_diastolica,
+                s.frecuencia_cardiaca,
+                s.temperatura,
+                s.saturacion_oxigeno,
+                s.motivo_consulta,
+                s.activo
+            FROM SignosVitales s
+            LEFT JOIN Pacientes p ON s.paciente_id = p.id
+            LEFT JOIN Profesionales m ON s.medico_id = m.id
+            WHERE s.activo = {estado}
+            ORDER BY s.fecha_hora DESC
+            LIMIT ?
+        """, (limite,))
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error en listar_signos_vitales: {e}")
+        return []
+
+
+def buscar_signos_por_paciente(paciente_id, activos=None):
+    """
+    Busca signos vitales de un paciente
+    activos=None: todos
+    activos=True: solo activos
+    activos=False: solo anulados
+    """
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        if activos is None:
+            where_estado = ""
+        elif activos:
+            where_estado = "AND s.activo = 1"
+        else:
+            where_estado = "AND s.activo = 0"
+        
+        cursor.execute(f"""
+            SELECT 
+                s.id,
+                s.fecha_hora,
+                m.nombre || ' ' || m.apellido as medico,
+                s.presion_sistolica,
+                s.presion_diastolica,
+                s.frecuencia_cardiaca,
+                s.temperatura,
+                s.saturacion_oxigeno,
+                s.motivo_consulta,
+                s.activo
+            FROM SignosVitales s
+            LEFT JOIN Profesionales m ON s.medico_id = m.id
+            WHERE s.paciente_id = ? {where_estado}
+            ORDER BY s.fecha_hora DESC
+        """, (paciente_id,))
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error en buscar_signos_por_paciente: {e}")
+        return []
+
+
+def buscar_signo_por_id(signo_id):
+    """Busca un signo vital por su ID"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT 
+                s.*,
+                p.nombre || ' ' || p.apellido as paciente_nombre,
+                p.dni as paciente_dni,
+                m.nombre || ' ' || m.apellido as medico_nombre,
+                m.dni as medico_dni
+            FROM SignosVitales s
+            LEFT JOIN Pacientes p ON s.paciente_id = p.id
+            LEFT JOIN Profesionales m ON s.medico_id = m.id
+            WHERE s.id = ?
+        """, (signo_id,))
+        resultado = cursor.fetchone()
+        conexion.close()
+        
+        if resultado:
+            return {
+                'id': resultado[0],
+                'paciente_id': resultado[1],
+                'fecha_hora': resultado[2],
+                'presion_sistolica': resultado[3],
+                'presion_diastolica': resultado[4],
+                'frecuencia_cardiaca': resultado[5],
+                'temperatura': resultado[6],
+                'saturacion_oxigeno': resultado[7],
+                'motivo_consulta': resultado[8],
+                'medico_id': resultado[9],
+                'activo': resultado[10] if len(resultado) > 10 else 1,
+                'paciente_nombre': resultado[11] if len(resultado) > 11 else 'N/A',
+                'paciente_dni': resultado[12] if len(resultado) > 12 else 'N/A',
+                'medico_nombre': resultado[13] if len(resultado) > 13 else 'N/A',
+                'medico_dni': resultado[14] if len(resultado) > 14 else 'N/A'
+            }
+        return None
+    except Exception as e:
+        print(f"[ERROR] Error en buscar_signo_por_id: {e}")
+        return None
+
+
+def anular_signo_vital(signo_id):
+    """
+    Anula un signo vital (DELETE LÓGICO - activo = 0)
+    Los datos NO se eliminan, se marcan como anulados.
+    """
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        # Verificar estado actual
+        cursor.execute("SELECT id, activo FROM SignosVitales WHERE id = ?", (signo_id,))
+        resultado = cursor.fetchone()
+        
+        if not resultado:
+            conexion.close()
+            return False, "❌ No se encontró el registro."
+        
+        if resultado[1] == 0:
+            conexion.close()
+            return False, "❌ El registro ya estaba anulado."
+        
+        cursor.execute("UPDATE SignosVitales SET activo = 0 WHERE id = ?", (signo_id,))
+        conexion.commit()
+        conexion.close()
+        
+        return True, "✅ Signo vital anulado correctamente.\nLos datos se conservan para auditoría."
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def reactivar_signo_vital(signo_id):
+    """
+    Reactiva un signo vital anulado (activo = 1)
+    """
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        
+        # Verificar estado actual
+        cursor.execute("SELECT id, activo FROM SignosVitales WHERE id = ?", (signo_id,))
+        resultado = cursor.fetchone()
+        
+        if not resultado:
+            conexion.close()
+            return False, "❌ No se encontró el registro."
+        
+        if resultado[1] == 1:
+            conexion.close()
+            return False, "❌ El registro ya estaba activo."
+        
+        cursor.execute("UPDATE SignosVitales SET activo = 1 WHERE id = ?", (signo_id,))
+        conexion.commit()
+        conexion.close()
+        
+        return True, "✅ Signo vital reactivado correctamente."
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def contar_signos_paciente(paciente_id, activos=True):
+    """Cuenta los signos vitales de un paciente"""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        estado = 1 if activos else 0
+        cursor.execute(
+            "SELECT COUNT(*) FROM SignosVitales WHERE paciente_id = ? AND activo = ?",
+            (paciente_id, estado)
+        )
+        total = cursor.fetchone()[0]
+        conexion.close()
+        return total
+    except Exception as e:
+        return 0
+
+
+# ================================================================
+# CAPA DE PRESENTACIÓN (FRONTEND)
+# ================================================================
+
+class AppSignosVitales:
+    """Aplicación de gestión de signos vitales con borrado lógico completo"""
+    
+    def __init__(self, root):
+        self.root = root
+        self.root.title("OpenHIS-UNLaM - Signos Vitales")
+        self.root.geometry("1150x700")
+        self.root.configure(bg='#f0f0f0')
+        
+        # Centrar
+        self.root.update_idletasks()
+        ancho = self.root.winfo_width()
+        alto = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (ancho // 2)
+        y = (self.root.winfo_screenheight() // 2) - (alto // 2)
+        self.root.geometry(f'{ancho}x{alto}+{x}+{y}')
+        
+        # Frame principal
+        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        # Título
+        tk.Label(
+            self.frame_principal,
+            text="❤️ SIGNOS VITALES",
+            font=('Arial', 18, 'bold'),
+            bg='#f0f0f0',
+            fg='#E91E63'
+        ).pack(pady=5)
+        
+        tk.Label(
+            self.frame_principal,
+            text="Hospital Universitario San Justo - Registro de Signos Vitales",
+            font=('Arial', 11),
+            bg='#f0f0f0',
+            fg='#666666'
+        ).pack(pady=2)
+        
+        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        
+        # ---------- BOTONES PRINCIPALES ----------
+        frame_botones = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_botones.pack(pady=10)
+        
+        estilo_boton = {
+            'font': ('Arial', 10, 'bold'),
+            'padx': 15,
+            'pady': 8,
+            'relief': 'raised',
+            'bd': 2
+        }
+        
+        tk.Button(
+            frame_botones,
+            text="❤️ Nuevo Registro",
+            bg='#4CAF50',
+            fg='white',
+            command=self.abrir_nuevo_registro,
+            **estilo_boton
+        ).pack(side='left', padx=3)
+        
+        tk.Button(
+            frame_botones,
+            text="🔍 Buscar por Paciente",
+            bg='#2196F3',
+            fg='white',
+            command=self.buscar_por_paciente,
+            **estilo_boton
+        ).pack(side='left', padx=3)
+        
+        # Separador
+        tk.Frame(frame_botones, width=20, bg='#f0f0f0').pack(side='left')
+        
+        # NUEVOS BOTONES: Ver Activos / Ver Anulados
+        tk.Button(
+            frame_botones,
+            text="📊 Ver Activos",
+            bg='#607D8B',
+            fg='white',
+            command=lambda: self.ver_registros(activos=True),
+            **estilo_boton
+        ).pack(side='left', padx=3)
+        
+        tk.Button(
+            frame_botones,
+            text="🚫 Ver Anulados",
+            bg='#9E9E9E',
+            fg='white',
+            command=lambda: self.ver_registros(activos=False),
+            **estilo_boton
+        ).pack(side='left', padx=3)
+        
+        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        
+        # Label resultados
+        self.label_resultados = tk.Label(
+            self.frame_principal,
+            text="Seleccione una acción para comenzar",
+            font=('Arial', 11, 'italic'),
+            bg='#f0f0f0',
+            fg='#666666'
+        )
+        self.label_resultados.pack(pady=5)
+        
+        # Tabla
+        frame_tabla = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_tabla.pack(fill='both', expand=True, pady=10)
+        
+        self.tree = ttk.Treeview(
+            frame_tabla,
+            columns=('ID', 'Fecha', 'Paciente', 'DNI', 'Médico', 'Presión', 'FC', 'Temp', 'SatO2', 'Motivo', 'Estado'),
+            show='headings',
+            height=12,
+            selectmode='browse'
+        )
+        
+        columnas = [
+            ('ID', 'ID', 40, 'center'),
+            ('Fecha', 'Fecha', 120, 'center'),
+            ('Paciente', 'Paciente', 140, 'w'),
+            ('DNI', 'DNI', 85, 'center'),
+            ('Médico', 'Médico', 130, 'w'),
+            ('Presión', 'Presión', 80, 'center'),
+            ('FC', 'FC', 50, 'center'),
+            ('Temp', 'Temp', 55, 'center'),
+            ('SatO2', 'SatO2', 55, 'center'),
+            ('Motivo', 'Motivo', 130, 'w'),
+            ('Estado', 'Estado', 80, 'center')
+        ]
+        
+        for col, heading, width, anchor in columnas:
+            self.tree.heading(col, text=heading)
+            self.tree.column(col, width=width, anchor=anchor)
+        
+        self.tree.pack(side='left', fill='both', expand=True)
+        
+        scrollbar = ttk.Scrollbar(frame_tabla, orient='vertical', command=self.tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.tree.bind('<Double-1>', self.on_doble_click)
+        
+        # Estado
+        self.label_estado = tk.Label(
+            self.frame_principal,
+            text="✅ OpenHIS-UNLaM",
+            font=('Arial', 9),
+            bg='#f0f0f0',
+            fg='#666666'
+        )
+        self.label_estado.pack(side='bottom', pady=5)
+        
+        # Cargar activos al iniciar
+        self.ver_registros(activos=True)
+    
+    # ============================================================
+    # MÉTODOS
+    # ============================================================
+    
+    def ver_registros(self, activos=True):
+        """Carga registros según su estado"""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        registros = listar_signos_vitales(activos=activos)
+        
+        for r in registros:
+            presion = f"{r[5]}/{r[6]}" if r[5] and r[6] else '-'
+            estado = "✅ Activo" if r[11] == 1 else "🚫 Anulado"
+            
+            self.tree.insert('', 'end', values=(
+                r[0], r[1][:16] if r[1] else '',
+                r[2] or 'N/A', r[3] or 'N/A',
+                r[4] or 'N/A',
+                presion,
+                r[7] or '-', r[8] or '-', r[9] or '-',
+                r[10] or '-',
+                estado
+            ))
+        
+        tipo = "activos" if activos else "anulados"
+        self.label_resultados.config(text=f"📊 Total de registros {tipo}: {len(registros)}")
+    
+    def on_doble_click(self, event):
+        """Doble clic en la tabla"""
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+        item = self.tree.item(seleccion[0])
+        signo_id = item['values'][0]
+        self.ver_detalle(signo_id)
+    
+    def ver_detalle(self, signo_id):
+        """Muestra el detalle de un signo vital"""
+        signo = buscar_signo_por_id(signo_id)
+        if not signo:
+            messagebox.showerror("Error", "No se encontró el registro.")
+            return
+        
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Detalle Signo Vital #{signo_id}")
+        ventana.geometry("520x550")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        
+        tk.Label(
+            ventana,
+            text=f"❤️ SIGNO VITAL #{signo_id}",
+            font=('Arial', 14, 'bold'),
+            bg='#f0f0f0',
+            fg='#E91E63'
+        ).pack(pady=10)
+        
+        estado = "✅ ACTIVO" if signo['activo'] == 1 else "🚫 ANULADO"
+        color_estado = '#4CAF50' if signo['activo'] == 1 else '#f44336'
+        
+        tk.Label(
+            ventana,
+            text=estado,
+            font=('Arial', 12, 'bold'),
+            bg='#f0f0f0',
+            fg=color_estado
+        ).pack(pady=5)
+        
+        frame_detalle = tk.Frame(ventana, bg='#f0f0f0')
+        frame_detalle.pack(padx=30, pady=10, fill='both', expand=True)
+        
+        detalles = [
+            ('👤 Paciente', signo['paciente_nombre']),
+            ('📋 DNI', signo['paciente_dni']),
+            ('👨‍⚕️ Médico', signo['medico_nombre']),
+            ('📋 DNI Médico', signo['medico_dni']),
+            ('📅 Fecha/Hora', signo['fecha_hora']),
+            ('🩸 Presión Sistólica', f"{signo['presion_sistolica']} mmHg" if signo['presion_sistolica'] else '-'),
+            ('🩸 Presión Diastólica', f"{signo['presion_diastolica']} mmHg" if signo['presion_diastolica'] else '-'),
+            ('❤️ Frecuencia Cardíaca', f"{signo['frecuencia_cardiaca']} lpm" if signo['frecuencia_cardiaca'] else '-'),
+            ('🌡️ Temperatura', f"{signo['temperatura']} °C" if signo['temperatura'] else '-'),
+            ('💨 Saturación O₂', f"{signo['saturacion_oxigeno']}%" if signo['saturacion_oxigeno'] else '-'),
+            ('📝 Motivo Consulta', signo['motivo_consulta'] or '-')
+        ]
+        
+        for label, value in detalles:
+            frame = tk.Frame(frame_detalle, bg='#f0f0f0')
+            frame.pack(fill='x', pady=2)
+            tk.Label(
+                frame, text=f"{label}:", width=22, anchor='w',
+                bg='#f0f0f0', font=('Arial', 10, 'bold')
+            ).pack(side='left')
+            tk.Label(
+                frame, text=str(value), anchor='w',
+                bg='#f0f0f0', font=('Arial', 10),
+                wraplength=300, justify='left'
+            ).pack(side='left', padx=5)
+        
+        # Botones según estado
+        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones.pack(pady=15)
+        
+        if signo['activo'] == 1:
+            tk.Button(
+                frame_botones,
+                text="🚫 Anular",
+                bg='#f44336',
+                fg='white',
+                font=('Arial', 10, 'bold'),
+                padx=15,
+                pady=5,
+                command=lambda: [ventana.destroy(), self.anular_con_id(signo_id)]
+            ).pack(side='left', padx=5)
+        else:
+            tk.Button(
+                frame_botones,
+                text="♻️ Reactivar",
+                bg='#4CAF50',
+                fg='white',
+                font=('Arial', 10, 'bold'),
+                padx=15,
+                pady=5,
+                command=lambda: [ventana.destroy(), self.reactivar_con_id(signo_id)]
+            ).pack(side='left', padx=5)
+        
+        tk.Button(
+            frame_botones,
+            text="❌ Cerrar",
+            bg='#9E9E9E',
+            fg='white',
+            font=('Arial', 10, 'bold'),
+            padx=15,
+            pady=5,
+            command=ventana.destroy
+        ).pack(side='left', padx=5)
+    
+    def anular_con_id(self, signo_id):
+        """Anula un registro"""
+        if messagebox.askyesno(
+            "⚠️ Confirmar Anulación",
+            "¿Está seguro de anular este registro de signos vitales?\n\n"
+            "ℹ️ Los datos NO se eliminan. Puede reactivarse después."
+        ):
+            resultado, mensaje = anular_signo_vital(signo_id)
+            if resultado:
+                messagebox.showinfo("Éxito", mensaje)
+                self.ver_registros(activos=True)
+            else:
+                messagebox.showerror("Error", mensaje)
+    
+    def reactivar_con_id(self, signo_id):
+        """Reactiva un registro anulado"""
+        if messagebox.askyesno("♻️ Reactivar", "¿Reactivar este registro de signos vitales?"):
+            resultado, mensaje = reactivar_signo_vital(signo_id)
+            if resultado:
+                messagebox.showinfo("Éxito", mensaje)
+                self.ver_registros(activos=True)
+            else:
+                messagebox.showerror("Error", mensaje)
+    
+    # ---------- NUEVO REGISTRO ----------
+    def abrir_nuevo_registro(self):
+        """Abre ventana para registrar nuevos signos vitales"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Nuevo Registro de Signos Vitales")
+        ventana.geometry("680x680")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        ventana.resizable(False, False)
+        
+        tk.Label(
+            ventana,
+            text="❤️ NUEVO REGISTRO DE SIGNOS VITALES",
+            font=('Arial', 14, 'bold'),
+            bg='#f0f0f0',
+            fg='#E91E63'
+        ).pack(pady=10)
+        
+        tk.Label(
+            ventana,
+            text="Los campos con * son obligatorios",
+            font=('Arial', 9),
+            bg='#f0f0f0',
+            fg='#666666'
+        ).pack(pady=2)
+        
+        # Obtener datos
+        pacientes = obtener_pacientes_selector()
+        if not pacientes:
+            messagebox.showwarning("Advertencia",
+                "No hay pacientes activos en el sistema.\n"
+                "Registre o reactive pacientes primero.")
+            ventana.destroy()
+            return
+        
+        profesionales = obtener_profesionales_selector()
+        if not profesionales:
+            messagebox.showwarning("Advertencia",
+                "No hay profesionales activos en el sistema.\n"
+                "Registre o reactive profesionales primero.")
+            ventana.destroy()
+            return
+        
+        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
+        frame_campos.pack(padx=30, pady=10, fill='both', expand=True)
+        
+        # Paciente
+        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame.pack(fill='x', pady=4)
+        tk.Label(frame, text="Paciente *:", width=22, anchor='w',
+                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+        valores_pacientes = [f"{p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in pacientes]
+        combo_paciente = ttk.Combobox(frame, width=38, font=('Arial', 10), state='readonly')
+        combo_paciente['values'] = valores_pacientes
+        combo_paciente.current(0)
+        combo_paciente.pack(side='right')
+        
+        # Médico
+        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame.pack(fill='x', pady=4)
+        tk.Label(frame, text="Médico *:", width=22, anchor='w',
+                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+        valores_prof = [f"{p[0]} - {p[2]} {p[3]} ({p[4] or 'Sin especialidad'})" for p in profesionales]
+        combo_medico = ttk.Combobox(frame, width=38, font=('Arial', 10), state='readonly')
+        combo_medico['values'] = valores_prof
+        combo_medico.current(0)
+        combo_medico.pack(side='right')
+        
+        tk.Frame(frame_campos, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        
+        # Grid de signos
+        frame_grid = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame_grid.pack(fill='x', pady=5)
+        
+        campos_grid = [
+            ('Presión Sistólica (mmHg)', 'sistolica', 0, 0),
+            ('Presión Diastólica (mmHg)', 'diastolica', 0, 1),
+            ('Frecuencia Cardíaca (lpm)', 'fc', 1, 0),
+            ('Temperatura (°C)', 'temp', 1, 1),
+            ('Saturación O₂ (%)', 'sat', 2, 0),
+            ('Motivo de Consulta *', 'motivo', 2, 1)
+        ]
+        
+        entries = {}
+        for label_text, key, row, col in campos_grid:
+            frame = tk.Frame(frame_grid, bg='#f0f0f0')
+            frame.grid(row=row, column=col, sticky='ew', padx=10, pady=3)
+            tk.Label(frame, text=label_text, width=22, anchor='w',
+                    bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+            entry = tk.Entry(frame, width=18, font=('Arial', 10))
+            entry.pack(side='right')
+            entries[key] = entry
+        
+        def guardar():
+            if not entries['motivo'].get().strip():
+                messagebox.showerror("Error", "El motivo de consulta es obligatorio.")
+                return
+            
+            try:
+                paciente_id = int(combo_paciente.get().split(' - ')[0])
+                medico_id = int(combo_medico.get().split(' - ')[0])
+            except (ValueError, IndexError):
+                messagebox.showerror("Error", "Seleccione paciente y médico válidos.")
+                return
+            
+            try:
+                datos = {
+                    'presion_sistolica': int(entries['sistolica'].get()) if entries['sistolica'].get().strip() else None,
+                    'presion_diastolica': int(entries['diastolica'].get()) if entries['diastolica'].get().strip() else None,
+                    'frecuencia_cardiaca': int(entries['fc'].get()) if entries['fc'].get().strip() else None,
+                    'temperatura': float(entries['temp'].get()) if entries['temp'].get().strip() else None,
+                    'saturacion_oxigeno': int(entries['sat'].get()) if entries['sat'].get().strip() else None,
+                    'motivo_consulta': entries['motivo'].get().strip()
+                }
+            except ValueError:
+                messagebox.showerror("Error", "Ingrese valores numéricos válidos.")
+                return
+            
+            resultado, info = registrar_signos_vitales(paciente_id, medico_id, datos)
+            if resultado:
+                messagebox.showinfo("Éxito", f"✅ Signos vitales registrados.\nID: {info}")
+                ventana.destroy()
+                self.ver_registros(activos=True)
+            else:
+                messagebox.showerror("Error", f"❌ {info}")
+        
+        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones.pack(pady=20)
+        
+        tk.Button(frame_botones, text="💾 Guardar", bg='#4CAF50', fg='white',
+                 font=('Arial', 11, 'bold'), padx=25, pady=8,
+                 command=guardar).pack(side='left', padx=10)
+        tk.Button(frame_botones, text="❌ Cancelar", bg='#f44336', fg='white',
+                 font=('Arial', 11, 'bold'), padx=25, pady=8,
+                 command=ventana.destroy).pack(side='left', padx=10)
+    
+    # ---------- BUSCAR POR PACIENTE ----------
+    def buscar_por_paciente(self):
+        """Busca signos vitales por paciente"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Buscar por Paciente")
+        ventana.geometry("450x200")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        ventana.resizable(False, False)
+        
+        tk.Label(ventana, text="🔍 BUSCAR POR PACIENTE",
+                font=('Arial', 12, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=15)
+        
+        frame = tk.Frame(ventana, bg='#f0f0f0')
+        frame.pack(pady=15)
+        
+        tk.Label(frame, text="DNI:", font=('Arial', 11), bg='#f0f0f0').pack(side='left', padx=10)
+        entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        entry_dni.pack(side='left', padx=10)
+        entry_dni.focus()
+        
+        def buscar():
+            dni = entry_dni.get().strip()
+            if not dni:
+                messagebox.showerror("Error", "Ingrese un DNI.")
+                return
+            
+            paciente = obtener_paciente_por_dni(dni)
+            if not paciente:
+                messagebox.showerror("Error", "Paciente no encontrado.")
+                return
+            
+            ventana.destroy()
+            self.mostrar_historial_paciente(paciente)
+        
+        entry_dni.bind('<Return>', lambda e: buscar())
+        
+        tk.Button(ventana, text="🔍 Buscar", bg='#2196F3', fg='white',
+                 font=('Arial', 11, 'bold'), padx=20, pady=8,
+                 command=buscar).pack(pady=10)
+    
+    def mostrar_historial_paciente(self, paciente):
+        """Muestra el historial completo del paciente (activos y anulados)"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Historial - {paciente[2]} {paciente[3]}")
+        ventana.geometry("1000x550")
+        ventana.configure(bg='#f0f0f0')
+        ventana.grab_set()
+        
+        estado_pac = "✅ Activo" if paciente[4] == 1 else "🚫 Inactivo"
+        
+        tk.Label(ventana, text=f"❤️ HISTORIAL DE {paciente[2].upper()} {paciente[3].upper()}",
+                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#E91E63').pack(pady=5)
+        
+        tk.Label(ventana, text=f"DNI: {paciente[1]} | HC: {paciente[0]} | Paciente: {estado_pac}",
+                font=('Arial', 10), bg='#f0f0f0', fg='#666666').pack(pady=2)
+        
+        # Estadísticas
+        total_activos = contar_signos_paciente(paciente[0], activos=True)
+        total_anulados = contar_signos_paciente(paciente[0], activos=False)
+        
+        tk.Label(ventana, text=f"✅ Activos: {total_activos}   |   🚫 Anulados: {total_anulados}",
+                font=('Arial', 10, 'bold'), bg='#f0f0f0', fg='#333333').pack(pady=5)
+        
+        frame_tabla = tk.Frame(ventana, bg='#f0f0f0')
+        frame_tabla.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        tree = ttk.Treeview(
+            frame_tabla,
+            columns=('ID', 'Fecha', 'Médico', 'Presión', 'FC', 'Temp', 'SatO2', 'Motivo', 'Estado'),
+            show='headings',
+            height=10
+        )
+        
+        columnas = [
+            ('ID', 'ID', 40, 'center'),
+            ('Fecha', 'Fecha', 130, 'center'),
+            ('Médico', 'Médico', 150, 'w'),
+            ('Presión', 'Presión', 90, 'center'),
+            ('FC', 'FC', 60, 'center'),
+            ('Temp', 'Temp', 60, 'center'),
+            ('SatO2', 'SatO2', 60, 'center'),
+            ('Motivo', 'Motivo', 180, 'w'),
+            ('Estado', 'Estado', 80, 'center')
+        ]
+        
+        for col, heading, width, anchor in columnas:
+            tree.heading(col, text=heading)
+            tree.column(col, width=width, anchor=anchor)
+        
+        tree.pack(side='left', fill='both', expand=True)
+        
+        scrollbar = ttk.Scrollbar(frame_tabla, orient='vertical', command=tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Cargar TODOS los registros (activos y anulados)
+        registros = buscar_signos_por_paciente(paciente[0], activos=None)
+        
+        for r in registros:
+            presion = f"{r[3]}/{r[4]}" if r[3] and r[4] else '-'
+            estado = "✅ Activo" if r[9] == 1 else "🚫 Anulado"
+            tree.insert('', 'end', values=(
+                r[0], r[1][:16] if r[1] else '',
+                r[2] or 'N/A',
+                presion,
+                r[5] or '-', r[6] or '-', r[7] or '-',
+                r[8] or '-',
+                estado
+            ))
+        
+        tk.Button(ventana, text="❌ Cerrar", bg='#f44336', fg='white',
+                 font=('Arial', 11, 'bold'), padx=20, pady=8,
+                 command=ventana.destroy).pack(pady=10)
+
+
+# ================================================================
+# PUNTO DE ENTRADA
+# ================================================================
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = AppSignosVitales(root)
+    root.mainloop()

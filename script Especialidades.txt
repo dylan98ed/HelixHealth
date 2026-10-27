@@ -1,0 +1,18 @@
+CREATE TABLE IF NOT EXISTS Especialidades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT UNIQUE NOT NULL,
+    nombre TEXT NOT NULL,
+    descripcion TEXT,
+    activo INTEGER DEFAULT 1,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO Especialidades (codigo, nombre, descripcion) VALUES
+    ('CLI', 'Clínica Médica', 'Atención integral del adulto'),
+    ('CAR', 'Cardiología', 'Enfermedades del corazón y sistema circulatorio'),
+    ('PED', 'Pediatría', 'Atención de niños y adolescentes'),
+    ('TRA', 'Traumatología', 'Lesiones del sistema musculoesquelético'),
+    ('DER', 'Dermatología', 'Enfermedades de la piel'),
+    ('NEU', 'Neurología', 'Enfermedades del sistema nervioso'),
+    ('OFT', 'Oftalmología', 'Enfermedades de los ojos'),
+    ('GIN', 'Ginecología', 'Salud de la mujer y aparato reproductor');

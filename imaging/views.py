@@ -110,9 +110,7 @@ def download_image(
 
 @require_http_methods(["GET"])
 @medical_professional_required
-def preview_image(
-    request: HttpRequest, patient_pk: int, image_pk: int
-) -> HttpResponse:
+def preview_image(request: HttpRequest, patient_pk: int, image_pk: int) -> HttpResponse:
     image = get_object_or_404(
         AnonymizedImage.objects.defer("dicom_bytes"),
         pk=image_pk,

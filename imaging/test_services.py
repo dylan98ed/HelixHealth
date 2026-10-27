@@ -90,11 +90,16 @@ def test_dicom_scrubs_identifiers_and_preserves_pixels():
     assert (0x0011, 0x0010) not in result
     assert (0xFFFC, 0xFFFC) not in result
     assert "ReferencedStudySequence" not in result
-    assert result.SharedFunctionalGroupsSequence[0].PixelMeasuresSequence[0].PixelSpacing == [
+    assert result.SharedFunctionalGroupsSequence[0].PixelMeasuresSequence[
+        0
+    ].PixelSpacing == [
         0.5,
         0.5,
     ]
-    assert "PatientName" not in result.SharedFunctionalGroupsSequence[0].PixelMeasuresSequence[0]
+    assert (
+        "PatientName"
+        not in result.SharedFunctionalGroupsSequence[0].PixelMeasuresSequence[0]
+    )
     assert (
         result.StudyInstanceUID,
         result.SeriesInstanceUID,
