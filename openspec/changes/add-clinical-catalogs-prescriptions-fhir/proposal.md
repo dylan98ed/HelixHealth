@@ -8,9 +8,9 @@ HelixHealth already implements professional registration services and screens, l
 - HU-05 is covered by existing professional registration work. Reuse its services and data; leave outstanding JSON API tasks in `implement-epics-1-and-2` and preserve current DNI, license-input, and eligibility policies.
 - User override: license validity checking is deferred; add no expiry/status fields, verification service, or claim that a credential is current.
 - HU-06: allow doctors admitted by the existing clinical access rules to prescribe catalog medications to active patients and retrieve a human-readable report and FHIR R4 XML prescription file.
-- HU-07: export recorded admission vital signs and prescriptions and import supported external FHIR R4 XML records with patient matching, provenance, validation, and duplicate protection.
+- HU-07 (the XML exchange requested for HU-08/HU-09): export recorded admission vital signs, prescriptions, and the existing plain-text intervention notes/corrections; import supported external FHIR R4 XML records of all three kinds with patient matching, provenance, validation, and duplicate protection.
 - Provide minimal administrative and clinical screens reachable from `/`, backed by the same service rules as the APIs.
-- Use the existing clinical patient directory and access rules for the new features. No care-assignment workflow or assignment-based access prerequisite is included.
+- Use the existing clinical patient directory and access rules for the new features. Intervention-note exchange additionally follows the existing assigned-patient access rule for those notes. This change introduces no care-assignment workflow.
 
 ## Capabilities
 
@@ -18,7 +18,7 @@ HelixHealth already implements professional registration services and screens, l
 
 - `clinical-reference-catalogs`: administrative specialty management and append-only terminology/medication catalogs.
 - `medication-prescribing`: prescribing under existing clinical access rules, persisted issuance snapshots, readable reports, and XML downloads.
-- `fhir-clinical-exchange`: documented FHIR R4 XML exchange for vital signs and prescriptions, including safe external import and provenance.
+- `fhir-clinical-exchange`: documented FHIR R4 XML exchange for vital signs, prescriptions, and plain-text intervention notes/corrections, including safe external import and provenance.
 
 ### Modified Capabilities
 
@@ -28,6 +28,6 @@ None in `openspec/specs/`, which currently has no published capabilities. Existi
 
 Affected areas: existing specialty management in `professionals`, clinical-record integration, URL/schema configuration, templates/navigation, and PostgreSQL migrations for the new catalog, prescription, and interoperability modules. Reuse existing patient/professional data and access-control services. New functionality requires focused HTTP tests, browser journeys, and isolated/Compose persistence verification. FHIR validation tooling and an XML parser with external entities disabled must be selected and pinned during implementation.
 
-The image is a requirements source, not operational instructions. Its HU numbering differs from `implement-epics-1-and-2`; this proposal uses the image's numbering. This change does not take ownership of that change's professional API, eligibility rollout, or care-team tasks.
+The image is a requirements source, not operational instructions. Its HU numbering differs from `implement-epics-1-and-2`; this proposal uses the image's numbering while explicitly covering the HU-08/HU-09 XML intervention exchange. This change does not take ownership of that change's professional API, eligibility rollout, care-team, or intervention-note implementation tasks.
 
-Out of scope: rebuilding professional registration, changing DNI uniqueness or clinical eligibility, care assignment, checking license validity, a general FHIR server, automatic institution-to-institution transmission, arbitrary procedure/note import, pharmacy dispensing, digital signatures, regulatory certification, full terminology-server operation, and preserving obsolete development database states. The prescription report is printable HTML; PDF is not required.
+Out of scope: rebuilding professional registration, changing DNI uniqueness or clinical eligibility, care assignment, checking license validity, a general FHIR server, automatic institution-to-institution transmission, arbitrary procedure or rich-document import beyond the versioned plain-text intervention-note profile, pharmacy dispensing, digital signatures, regulatory certification, full terminology-server operation, and preserving obsolete development database states. The prescription report is printable HTML; PDF is not required.

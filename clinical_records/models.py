@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
@@ -77,3 +78,52 @@ class Admission(models.Model):
             )
         if errors:
             raise ValidationError(errors)
+
+
+class CareRelationship(models.Model):
+    id = models.BigAutoField(primary_key=True, editable=False)
+    patient = models.ForeignKey(
+        Patient, on_delete=models.PROTECT, related_name="care_relationships"
+    )
+    professional = models.ForeignKey(
+        Professional, on_delete=models.PROTECT, related_name="care_relationships"
+    )
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="care_assignments",
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True, editable=False)
+    is_active = models.BooleanField(default=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, editable=False)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="care_revocations",
+    )
+
+    class Meta:
+        ordering = ("-assigned_at", "-id")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("patient", "professional"),
+                condition=Q(is_active=True),
+                name="unique_active_care_pair",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(is_active=True, revoked_at__isnull=True, revoked_by__isnull=True)
+                    | Q(
+                        is_active=False,
+                        revoked_at__isnull=False,
+                        revoked_by__isnull=False,
+                    )
+                ),
+                name="care_revocation_consistent",
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"Care assignment {self.pk} for patient {self.patient_id}"

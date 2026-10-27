@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from access_control.acceptance_personas import (
     ACTIVE_PATIENT_DNI,
     ADMINISTRATIVE_UPDATED_PHONE,
+    ADMINISTRATOR_USERNAME,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
     COMPLETED_ACTIVE_PROFESSIONAL_DNI,
@@ -38,7 +39,7 @@ from access_control.medical_professionals import (
     has_active_medical_professional_context,
 )
 from access_control.roles import MEDICAL_PROFESSIONAL_GROUP
-from clinical_records.models import Admission
+from clinical_records.models import Admission, CareRelationship
 from patients.models import Patient
 from professionals.models import Professional
 
@@ -49,6 +50,24 @@ class Command(BaseCommand):
     def handle(self, *args: object, **options: object) -> None:
         user_model = get_user_model()
         failures: list[str] = []
+
+        care_history = CareRelationship.objects.filter(
+            patient__dni=ACTIVE_PATIENT_DNI,
+            professional__dni=LEGACY_COMPLETE_ACTIVE_DNI,
+        )
+        if (
+            care_history.count() != 1
+            or not care_history.filter(
+                is_active=False,
+                assigned_at__isnull=False,
+                assigned_by__username=ADMINISTRATOR_USERNAME,
+                revoked_at__isnull=False,
+                revoked_by__username=ADMINISTRATOR_USERNAME,
+            ).exists()
+        ):
+            failures.append(
+                "the care-team assignment and revocation were not persisted"
+            )
 
         if not Professional.objects.filter(
             user__username=MEDICAL_INACTIVE_USERNAME,

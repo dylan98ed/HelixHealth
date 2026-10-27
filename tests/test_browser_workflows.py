@@ -16,7 +16,7 @@ from playwright.sync_api import Page, expect
 from pydicom import dcmread
 
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
-from clinical_records.models import Admission
+from clinical_records.models import Admission, CareRelationship
 from imaging.models import AnonymizedImage
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
@@ -44,6 +44,27 @@ def read_image_records(patient_id):
                     "preview_png",
                 )
             ]
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(load).result()
+
+
+def read_care_relationships(patient_id):
+    def load():
+        try:
+            return list(
+                CareRelationship.objects.filter(patient_id=patient_id).values(
+                    "id",
+                    "professional__user_id",
+                    "assigned_by_id",
+                    "assigned_at",
+                    "is_active",
+                    "revoked_by_id",
+                    "revoked_at",
+                )
+            )
         finally:
             connections.close_all()
 
@@ -107,7 +128,9 @@ def test_professional_converts_and_saves_image_from_patient_record(
         re.compile(r"/clinical-records/patients/\d+/images/\?created=\d+$")
     )
     expect(browser_page.get_by_role("status")).to_contain_text("DICOM saved")
-    preview = browser_page.get_by_role("img", name="Preview of saved PNG image", exact=True)
+    preview = browser_page.get_by_role(
+        "img", name="Preview of saved PNG image", exact=True
+    )
     expect(preview).to_be_visible()
     preview.scroll_into_view_if_needed()
     expect(preview).to_have_js_property("naturalWidth", 2)
@@ -157,7 +180,9 @@ def test_professional_converts_and_saves_image_from_patient_record(
         }
     )
     browser_page.get_by_role("button", name="Save anonymized DICOM").click()
-    expect(browser_page.get_by_text("The DICOM frame count is invalid.")).to_be_visible()
+    expect(
+        browser_page.get_by_text("The DICOM frame count is invalid.")
+    ).to_be_visible()
     assert len(read_image_records(browser_admission_patient.pk)) == 1
     browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
         {
@@ -174,7 +199,9 @@ def test_professional_converts_and_saves_image_from_patient_record(
         if record["source_format"] == "DICOM"
     )
     sanitized = dcmread(BytesIO(dicom_record["dicom_bytes"]))
-    dicom_preview = browser_page.get_by_role("img", name="Preview of saved DICOM image", exact=True)
+    dicom_preview = browser_page.get_by_role(
+        "img", name="Preview of saved DICOM image", exact=True
+    )
     expect(dicom_preview).to_be_visible()
     dicom_preview.scroll_into_view_if_needed()
     expect(dicom_preview).to_have_js_property("naturalWidth", 2)
@@ -199,10 +226,15 @@ def test_professional_converts_and_saves_image_from_patient_record(
         browser_page.get_by_label("Sex").select_option("F")
         browser_page.get_by_role("button", name="Save anonymized DICOM").click()
     browser_page.reload()
-    expect(browser_page.get_by_role("link", name="Download DICOM", exact=True)).to_have_count(20)
+    expect(
+        browser_page.get_by_role("link", name="Download DICOM", exact=True)
+    ).to_have_count(20)
     browser_page.get_by_role("link", name="Next images").click()
     expect(browser_page).to_have_url(re.compile(r"/images/\?page=2$"))
-    expect(browser_page.get_by_role("link", name="Download DICOM", exact=True)).to_have_count(1)
+    expect(
+        browser_page.get_by_role("link", name="Download DICOM", exact=True)
+    ).to_have_count(1)
+
     def inspect_list_query():
         try:
             http_client = Client()
@@ -707,6 +739,66 @@ def login_through_application(
     page.get_by_label("Username").fill(username)
     page.get_by_label("Password").fill(password)
     page.get_by_role("button", name="Sign in").click()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_admin_assigns_and_revokes_care_through_patient_search(
+    browser_patient_administrator,
+    browser_medical_professional,
+    browser_admission_patient,
+    live_server,
+    browser_page,
+):
+    patient = browser_admission_patient
+    professional_dni = read_professional_state(browser_medical_professional.username)[
+        "dni"
+    ]
+    assert read_care_relationships(patient.pk) == []
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_patient_administrator.username,
+        password=TEST_PASSWORD,
+    )
+    browser_page.get_by_label("DNI", exact=True).fill(patient.dni)
+    browser_page.get_by_role("button", name="Search patient").click()
+    browser_page.get_by_role("link", name="Open patient record").click()
+    browser_page.get_by_role("link", name="Care team").click()
+    expect(
+        browser_page.get_by_text("No professionals are currently assigned.")
+    ).to_be_visible()
+    browser_page.get_by_label("Professional DNI").fill(professional_dni)
+    browser_page.get_by_role("button", name="Search professional").click()
+    expect(browser_page.get_by_role("status")).to_contain_text("Professional found")
+    browser_page.get_by_role("button", name="Assign professional").click()
+    expect(browser_page).to_have_url(
+        f"{live_server.url}{reverse('patients:care-team', args=[patient.pk])}"
+    )
+    expect(browser_page.get_by_text("PR-BROWSER-MEDICAL")).to_be_visible()
+    assigned = read_care_relationships(patient.pk)[0]
+    assert assigned["professional__user_id"] == browser_medical_professional.pk
+    assert assigned["assigned_by_id"] == browser_patient_administrator.pk
+    assert assigned["assigned_at"] is not None
+    browser_page.get_by_label("Professional DNI").fill(professional_dni)
+    browser_page.get_by_role("button", name="Search professional").click()
+    browser_page.get_by_role("button", name="Assign professional").click()
+    assert len(read_care_relationships(patient.pk)) == 1
+    browser_page.get_by_role(
+        "link", name="Revoke assignment for Browser Professional"
+    ).click()
+    browser_page.get_by_role("button", name="Revoke assignment").click()
+    expect(browser_page.get_by_role("alert")).to_contain_text("requires confirmation")
+    browser_page.get_by_label("I confirm this assignment should be revoked.").check()
+    browser_page.get_by_role("button", name="Revoke assignment").click()
+    expect(
+        browser_page.get_by_text("No professionals are currently assigned.")
+    ).to_be_visible()
+    revoked = read_care_relationships(patient.pk)[0]
+    assert revoked["id"] == assigned["id"]
+    assert not revoked["is_active"]
+    assert revoked["revoked_by_id"] == browser_patient_administrator.pk
+    assert revoked["revoked_at"] is not None
 
 
 @pytest.mark.browser

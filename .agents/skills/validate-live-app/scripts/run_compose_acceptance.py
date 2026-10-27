@@ -250,6 +250,38 @@ def main() -> int:
         expect(page.get_by_text("Inactive", exact=True)).to_be_visible()
         expect(page.get_by_role("link", name="Edit patient")).to_have_count(0)
 
+    def assign_and_revoke_care(page: Page) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        expect(page).to_have_url(f"{base_url}/patients/search/")
+        page.get_by_label("DNI", exact=True).fill(ACTIVE_PATIENT_DNI)
+        page.get_by_role("button", name="Search patient").click()
+        result = page.locator("#patient-directory")
+        expect(result.get_by_role("heading", name="Patient found")).to_be_visible()
+        result.get_by_role("link", name="Open patient record", exact=True).click()
+        page.get_by_role("link", name="Care team").click()
+        expect(
+            page.get_by_text("No professionals are currently assigned.")
+        ).to_be_visible()
+        page.get_by_label("Professional DNI").fill(LEGACY_COMPLETE_ACTIVE_DNI)
+        page.get_by_role("button", name="Search professional").click()
+        expect(page.get_by_role("status")).to_contain_text("Professional found")
+        page.get_by_role("button", name="Assign professional").click()
+        expect(
+            page.get_by_text(LEGACY_COMPLETE_ACTIVE_REGISTRATION_NUMBER)
+        ).to_be_visible()
+        page.get_by_label("Professional DNI").fill(LEGACY_COMPLETE_ACTIVE_DNI)
+        page.get_by_role("button", name="Search professional").click()
+        page.get_by_role("button", name="Assign professional").click()
+        expect(
+            page.get_by_role("link", name="Revoke assignment for Legacy Completed")
+        ).to_have_count(1)
+        page.get_by_role("link", name="Revoke assignment for Legacy Completed").click()
+        page.get_by_label("I confirm this assignment should be revoked.").check()
+        page.get_by_role("button", name="Revoke assignment").click()
+        expect(
+            page.get_by_text("No professionals are currently assigned.")
+        ).to_be_visible()
+
     def paginated_workspace(page: Page) -> None:
         application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
         expect(page).to_have_url(f"{base_url}/clinical-records/")
@@ -633,6 +665,7 @@ def main() -> int:
             ),
             ("medical-admission", record_admission),
             ("medical-image-conversion", save_medical_image),
+            ("administrative-care-assignment", assign_and_revoke_care),
             ("administrative-patient-management", manage_patient),
             ("medical-workspace", paginated_workspace),
             (

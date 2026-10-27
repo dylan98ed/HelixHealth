@@ -264,15 +264,22 @@ def update_professional(
 def deactivate_professional(
     *, actor: ActorContext | None, professional: Professional, confirmed: bool
 ) -> Professional:
-    _actor(actor)
+    authorized = _actor(actor)
     if not confirmed:
         raise ConfirmationRequiredError(
             "Professional deactivation requires confirmation."
         )
+    subject_id = Professional.objects.only("user_id").get(pk=professional.pk).user_id
+    get_user_model().objects.select_for_update().get(pk=subject_id)
     profile = Professional.objects.select_for_update().get(pk=professional.pk)
     if profile.is_active:
         profile.is_active = False
         profile.save(update_fields=["is_active"])
+        from clinical_records.care_services import revoke_active_relationships
+
+        revoke_active_relationships(
+            professional=profile, actor_user_id=authorized.user_id
+        )
     return profile
 
 

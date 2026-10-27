@@ -44,6 +44,10 @@ from access_control.acceptance_personas import (
 )
 from access_control.actors import actor_context_from_user
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
+from clinical_records.care_services import (
+    assign_care_relationship,
+    revoke_care_relationship,
+)
 from clinical_records.models import Admission
 from patients.models import Patient
 from professionals.models import Professional
@@ -181,6 +185,20 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
         temperature=Decimal("36.7"),
     )
     managed_patient = Patient.all_objects.get(dni=ACTIVE_PATIENT_DNI)
+    care_actor = actor_context_from_user(
+        user_model.objects.get(username=ADMINISTRATOR_USERNAME)
+    )
+    assignment, _ = assign_care_relationship(
+        actor=care_actor,
+        patient=managed_patient,
+        professional_dni=LEGACY_COMPLETE_ACTIVE_DNI,
+    )
+    revoke_care_relationship(
+        actor=care_actor,
+        patient=managed_patient,
+        relationship=assignment,
+        confirmed=True,
+    )
     managed_patient.phone = ADMINISTRATIVE_UPDATED_PHONE
     managed_patient.is_active = False
     managed_patient.save(update_fields=["phone", "is_active"])

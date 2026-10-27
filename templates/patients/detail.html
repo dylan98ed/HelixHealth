@@ -16,6 +16,7 @@
       <dl class="record-details"><dt>Phone</dt><dd>{{ patient.phone }}</dd><dt>Email</dt><dd>{{ patient.email }}</dd><dt>Address</dt><dd>{{ patient.address }}</dd></dl>
     </section>
   </div>
+  <div class="mt-4"><a class="btn btn-outline-primary" href="{% url 'patients:care-team' patient.pk %}">Care team</a></div>
   {% if patient.is_active %}
     <div class="d-flex flex-wrap gap-2 mt-4"><a class="btn btn-primary" href="{% url 'patients:update' patient.pk %}">Edit patient</a><a class="btn btn-outline-danger" href="{% url 'patients:deactivate' patient.pk %}">Deactivate patient</a></div>
   {% endif %}

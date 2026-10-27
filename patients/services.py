@@ -112,7 +112,7 @@ def deactivate_patient(
     patient: Patient,
     confirmed: bool,
 ) -> Patient:
-    ADMINISTRATIVE_POLICY.require(actor)
+    authorized = ADMINISTRATIVE_POLICY.require(actor)
     if not confirmed:
         raise DeactivationConfirmationRequiredError(
             "Patient deactivation requires explicit confirmation."
@@ -126,6 +126,11 @@ def deactivate_patient(
     if locked_patient.is_active:
         locked_patient.is_active = False
         locked_patient.save(update_fields=["is_active"])
+        from clinical_records.care_services import revoke_active_relationships
+
+        revoke_active_relationships(
+            patient=locked_patient, actor_user_id=authorized.user_id
+        )
     return locked_patient
 
 
