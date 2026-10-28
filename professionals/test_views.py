@@ -356,7 +356,7 @@ def test_inactive_references_can_be_repaired_before_confirmed_reactivation(
 
 
 @pytest.mark.django_db
-def test_html_reactivation_reports_active_dni_conflict(
+def test_html_registration_rejects_inactive_dni_and_allows_reactivation(
     client,
     registration_setup,
     user_factory,
@@ -369,16 +369,19 @@ def test_html_reactivation_reports_active_dni_conflict(
         {"confirm": "on"},
     )
     replacement = user_factory(username="html-dni-replacement")
-    client.post(
+    conflict = client.post(
         reverse("professionals:register"),
         {**payload, "username": replacement.username, "license_number": "MN 8899"},
     )
+
+    assert conflict.status_code == 200
+    assert b"A professional already has this DNI" in conflict.content
+    assert not Professional.objects.filter(user=replacement).exists()
 
     response = client.post(
         reverse("professionals:reactivate", args=[original.pk]),
         {"confirm": "on"},
     )
-    assert response.status_code == 200
-    assert b"An active professional already has this DNI" in response.content
+    assert response.status_code == 302
     original.refresh_from_db()
-    assert original.is_active is False
+    assert original.is_active is True

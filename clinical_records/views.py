@@ -17,8 +17,8 @@ from rest_framework.response import Response
 from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import IsActiveMedicalProfessionalActor
 from access_control.policies import (
-    IsAdministrativeActor,
     MEDICAL_PROFESSIONAL_POLICY,
+    IsAdministrativeActor,
 )
 from clinical_records.forms import AdmissionForm, PatientAdmissionSearchForm
 from clinical_records.models import Admission

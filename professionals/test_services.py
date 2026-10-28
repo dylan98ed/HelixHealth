@@ -86,7 +86,7 @@ def test_register_completes_legacy_in_place_and_preserves_inactive(
 
 
 @pytest.mark.django_db
-def test_inactive_legacy_profile_can_reuse_an_active_professionals_dni(
+def test_inactive_legacy_profile_cannot_reuse_an_active_professionals_dni(
     admin_actor, references
 ):
     get_user_model().objects.create_user(username="subject", password="x")
@@ -96,10 +96,12 @@ def test_inactive_legacy_profile_can_reuse_an_active_professionals_dni(
         user=get_user_model().objects.get(username="subject"), is_active=False
     )
 
-    completed = register(admin_actor)
+    with pytest.raises(ProfessionalConflictError):
+        register(admin_actor)
 
-    assert completed.pk == legacy.pk and not completed.is_active
-    assert completed.dni == active.dni
+    legacy.refresh_from_db()
+    assert legacy.dni is None and not legacy.is_active
+    assert Professional.objects.filter(dni=active.dni).count() == 1
 
 
 @pytest.mark.django_db

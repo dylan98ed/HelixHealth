@@ -1,8 +1,10 @@
 from collections.abc import Iterable
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from patients.identifiers import generate_clinical_record_number
 from patients.validators import (
@@ -30,14 +32,17 @@ class Patient(models.Model):
     last_name = models.CharField(max_length=150, validators=[validate_not_blank])
     date_of_birth = models.DateField(validators=[validate_date_of_birth])
     sex = models.CharField(max_length=20, validators=[validate_not_blank])
-    phone = models.CharField(max_length=32, validators=[validate_phone])
-    email = models.EmailField()
-    address = models.TextField(validators=[validate_not_blank])
+    phone = models.CharField(max_length=32, blank=True, validators=[validate_phone])
+    email = models.EmailField(blank=True)
+    address = models.TextField(blank=True, validators=[validate_not_blank])
     health_insurer = models.CharField(
         max_length=150,
+        blank=True,
         validators=[validate_not_blank],
     )
     is_active = models.BooleanField(default=True)
+    is_external = models.BooleanField(default=False, editable=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     objects = ActivePatientManager()
     all_objects = models.Manager()  # noqa: DJ012 - both declarations are managers.
@@ -54,8 +59,7 @@ class Patient(models.Model):
             ),
             models.UniqueConstraint(
                 fields=("dni",),
-                condition=Q(is_active=True),
-                name="unique_active_patient_dni",
+                name="unique_patient_dni",
             ),
         )
         ordering = ("last_name", "first_name", "id")
@@ -84,3 +88,14 @@ class Patient(models.Model):
             validate_unique=validate_unique,
             validate_constraints=validate_constraints,
         )
+
+    def clean(self) -> None:
+        super().clean()
+        if not self.is_external:
+            missing = {
+                name: "This field is required for a locally registered patient."
+                for name in ("phone", "email", "address", "health_insurer")
+                if not getattr(self, name).strip()
+            }
+            if missing:
+                raise ValidationError(missing)

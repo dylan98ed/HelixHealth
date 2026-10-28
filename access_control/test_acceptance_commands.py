@@ -12,9 +12,9 @@ from django.test import override_settings
 from access_control.acceptance_personas import (
     ACCEPTANCE_PASSWORD_ENV,
     ACTIVE_PATIENT_DNI,
+    ADMINISTRATIVE_ADMISSION_REASON,
     ADMINISTRATIVE_UPDATED_PHONE,
     ADMINISTRATOR_USERNAME,
-    ADMINISTRATIVE_ADMISSION_REASON,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
     CATALOG_MEDICATION_CODE,
@@ -66,7 +66,12 @@ from patients.models import Patient
 from prescriptions.models import Prescription
 from prescriptions.services import issue_prescription
 from professionals.models import Professional
-from professionals.services import register_professional, update_professional
+from professionals.services import (
+    ProfessionalConflictError,
+    reactivate_professional,
+    register_professional,
+    update_professional,
+)
 
 ACCEPTANCE_PASSWORD = "Acceptance-test-password-2026!"
 
@@ -291,16 +296,24 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
             },
         )
 
-    register_professional(
+    with pytest.raises(ProfessionalConflictError):
+        register_professional(
+            actor=actor,
+            username=REACTIVATION_CONFLICT_USERNAME,
+            dni=LEGACY_COMPLETE_INACTIVE_DNI,
+            license_number=REACTIVATION_CONFLICT_LICENSE,
+            first_name="Conflict",
+            last_name="Replacement",
+            date_of_birth=date(1990, 1, 1),
+            specialty_code="general-medicine",
+            hospital_service_code="inpatient-ward",
+        )
+    reactivate_professional(
         actor=actor,
-        username=REACTIVATION_CONFLICT_USERNAME,
-        dni=LEGACY_COMPLETE_INACTIVE_DNI,
-        license_number=REACTIVATION_CONFLICT_LICENSE,
-        first_name="Conflict",
-        last_name="Replacement",
-        date_of_birth=date(1990, 1, 1),
-        specialty_code="general-medicine",
-        hospital_service_code="inpatient-ward",
+        professional=Professional.objects.get(
+            user__username=LEGACY_COMPLETE_INACTIVE_USERNAME
+        ),
+        confirmed=True,
     )
 
     temporary_specialty = create_specialty(

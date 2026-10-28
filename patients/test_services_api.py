@@ -181,6 +181,8 @@ def test_patient_detail_api_contract_contains_only_specified_fields(user_factory
         "address",
         "health_insurer",
         "is_active",
+        "is_external",
+        "created_at",
     }
 
 

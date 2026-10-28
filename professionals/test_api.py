@@ -11,6 +11,7 @@ from access_control.actors import ActorContext, ActorRole
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from professionals.models import HospitalService, Professional, Specialty
 from professionals.services import (
+    ProfessionalConflictError,
     deactivate_professional,
     register_professional,
 )
@@ -88,6 +89,8 @@ def test_create_and_detail_api_return_the_exact_professional_contract(
         "registration_completed_at",
         "is_active",
         "is_clinically_eligible",
+        "is_external",
+        "created_at",
     }
     assert response.data["license_number"] == "MN 001234"
     assert response.data["registration_number"].startswith("PR-")
@@ -133,6 +136,8 @@ def test_detail_api_keeps_nullable_relation_keys_for_an_incomplete_profile(
         "registration_completed_at",
         "is_active",
         "is_clinically_eligible",
+        "is_external",
+        "created_at",
     }
     assert response.data["specialty_code"] is None
     assert response.data["hospital_service_code"] is None
@@ -377,7 +382,7 @@ def test_status_api_requires_confirmation_and_persists_transitions(
 
 
 @pytest.mark.django_db
-def test_reactivation_api_reports_incomplete_and_dni_conflict_states(
+def test_reactivation_api_reports_incomplete_and_rejects_dni_reuse(
     api_client,
     administrative_user,
     user_factory,
@@ -389,25 +394,23 @@ def test_reactivation_api_reports_incomplete_and_dni_conflict_states(
         confirmed=True,
     )
     replacement_user = user_factory(username="professional-api-replacement")
-    replacement = register_for_test(
-        administrative_user,
-        payload,
-        username=replacement_user.username,
-        license_number="MP 9999",
-    )
+    with pytest.raises(ProfessionalConflictError):
+        register_for_test(
+            administrative_user,
+            payload,
+            username=replacement_user.username,
+            license_number="MP 9999",
+        )
 
-    conflict = api_client.post(
+    reactivated = api_client.post(
         reverse("professionals:api-reactivate", args=[inactive.pk]),
         {"confirm": True},
         format="json",
     )
-    assert conflict.status_code == status.HTTP_409_CONFLICT
-    assert conflict.data == {
-        "dni": ["An active professional already has this DNI."],
-        "existing_professional_id": replacement.pk,
-    }
+    assert reactivated.status_code == status.HTTP_200_OK
+    assert reactivated.data["is_active"] is True
     inactive.refresh_from_db()
-    assert inactive.is_active is False
+    assert inactive.is_active is True
 
     incomplete = Professional.objects.create(
         user=user_factory(username="professional-api-incomplete-reactivation"),

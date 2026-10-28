@@ -32,7 +32,11 @@ class AdmissionDetailSerializer(serializers.ModelSerializer):
     recorded_by_username = serializers.SerializerMethodField()
 
     def get_professional_username(self, obj: Admission) -> str | None:
-        return obj.professional.user.username if obj.professional else None
+        return (
+            obj.professional.user.username
+            if obj.professional and obj.professional.user
+            else None
+        )
 
     def get_recorded_by_username(self, obj: Admission) -> str | None:
         return obj.recorded_by.username if obj.recorded_by else None

@@ -10,10 +10,10 @@ from professionals.models import Professional
 
 
 def has_active_medical_professional_context(
-    user: AbstractBaseUser | AnonymousUser,
+    user: AbstractBaseUser | AnonymousUser | None,
 ) -> bool:
     """Return whether the user has a current, completed clinical identity."""
-    if not user.is_authenticated or not user.is_active or user.pk is None:
+    if user is None or not user.is_authenticated or not user.is_active or user.pk is None:
         return False
 
     actor = actor_context_from_user(user)
@@ -28,7 +28,7 @@ def has_active_medical_professional_context(
 
 
 def has_completed_active_medical_professional_context(
-    user: AbstractBaseUser | AnonymousUser,
+    user: AbstractBaseUser | AnonymousUser | None,
 ) -> bool:
     """Compatibility alias for the single completed-registration predicate."""
     return has_active_medical_professional_context(user)

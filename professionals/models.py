@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
+from django.utils import timezone
 
 from professionals.validators import (
     validate_license_number,
@@ -46,8 +47,12 @@ class Professional(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="professional_profile",
+        null=True,
+        blank=True,
     )
     is_active = models.BooleanField(default=True)
+    is_external = models.BooleanField(default=False, editable=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
     dni = models.CharField(  # noqa: DJ001 - legacy identities require NULL.
         max_length=8,
         null=True,
@@ -139,8 +144,8 @@ class Professional(models.Model):
             ),
             models.UniqueConstraint(
                 fields=("dni",),
-                condition=Q(is_active=True, dni__isnull=False),
-                name="unique_active_professional_dni",
+                condition=Q(dni__isnull=False),
+                name="unique_professional_dni",
             ),
         )
 
@@ -152,6 +157,7 @@ class Professional(models.Model):
         """Whether every required registration value was persisted."""
         return bool(
             self.registration_completed_at
+            and self.user_id
             and self.dni
             and self.registration_number
             and self.first_name
@@ -166,7 +172,7 @@ class Professional(models.Model):
         """A safe list label for complete and incomplete legacy profiles."""
         if self.first_name and self.last_name:
             return f"{self.last_name}, {self.first_name}"
-        return self.user.get_username()
+        return self.user.get_username() if self.user is not None else "Imported professional"
 
     @property
     def registration_status(self) -> str:

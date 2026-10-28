@@ -22,6 +22,10 @@ from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission, CareRelationship
 from imaging.models import AnonymizedImage
 from interoperability.fhir_validation import validate_fhir_r4_bundle
+from interoperability.identity import (
+    resolve_imported_patient,
+    resolve_imported_professional,
+)
 from interoperability.models import ExternalClinicalRecord, ImportBatch
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
@@ -936,6 +940,7 @@ def test_administrative_user_registers_patient_through_ui(
     expect(browser_page.get_by_text("24681357", exact=True)).to_be_visible()
     expect(browser_page.get_by_text(re.compile(r"HC-\d{8,}"))).to_be_visible()
     expect(browser_page.get_by_text("Active", exact=True)).to_be_visible()
+    expect(browser_page.get_by_text("Created locally", exact=False)).to_be_visible()
     browser_page.get_by_role("link", name="Edit patient").click()
     expect(browser_page.get_by_role("heading", name="Edit patient")).to_be_visible()
     browser_page.get_by_label("Phone").fill("+54 11 5555-0123")
@@ -977,6 +982,112 @@ def test_administrative_user_registers_patient_through_ui(
                 name=re.compile(r"HC-\d+ 24681357 Patient Browser False"),
             )
         ).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_administrator_views_existing_imported_identity_markers(
+    browser_patient_administrator,
+    live_server,
+    browser_page,
+):
+    # This scenario targets display after import; the import UI is introduced later.
+    def provision_existing_imports():
+        try:
+            patient, _ = resolve_imported_patient(
+                dni="34567890", first_name="María", last_name="Externa",
+                date_of_birth=date(1988, 4, 12), gender="female",
+            )
+            professional, _ = resolve_imported_professional(
+                dni="45678901", first_name="Juan", last_name="Externo",
+                license_number="MN 45678",
+            )
+            return patient.pk, professional.pk, patient.created_at, professional.user_id
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        patient_pk, professional_pk, patient_created_at, professional_user_id = (
+            executor.submit(provision_existing_imports).result()
+        )
+    login_through_application(
+        browser_page, live_server.url,
+        username=browser_patient_administrator.username, password=TEST_PASSWORD,
+    )
+    browser_page.get_by_label("DNI").fill("34567890")
+    browser_page.get_by_role("button", name="Search patient").click()
+    browser_page.get_by_role("link", name="Open patient record").click()
+    expect(browser_page.get_by_text("Imported from another system", exact=False)).to_be_visible()
+    assert patient_pk and patient_created_at
+
+    browser_page.get_by_role("link", name="Professionals", exact=True).click()
+    browser_page.get_by_role("navigation", name="Professional status").get_by_role(
+        "link", name="Incomplete", exact=True
+    ).click()
+    browser_page.get_by_role("link", name="Externo, Juan", exact=True).click()
+    expect(browser_page.get_by_text("Imported from another system", exact=False)).to_be_visible()
+    expect(browser_page.get_by_text("No login account", exact=True)).to_be_visible()
+    assert professional_pk and professional_user_id is None
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_administrator_links_imported_professional_to_operator_created_account(
+    browser_superuser,
+    browser_patient_administrator,
+    browser_professional_references,
+    live_server,
+    browser,
+):
+    def provision_imported_professional():
+        try:
+            professional, _ = resolve_imported_professional(
+                dni="56789012", first_name="Laura", last_name="Importada",
+                license_number="MN 56789",
+            )
+            return professional.pk
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        professional_pk = executor.submit(provision_imported_professional).result()
+
+    with browser.new_context() as operator_context:
+        operator = operator_context.new_page()
+        login_through_admin(
+            operator, live_server.url,
+            username=browser_superuser.username, password=TEST_PASSWORD,
+        )
+        operator.get_by_role("link", name="Users", exact=True).click()
+        operator.get_by_role("link", name="Add user", exact=True).click()
+        operator.get_by_label("Username").fill("imported-professional-account")
+        operator.locator("#id_password1").fill(TEST_PASSWORD)
+        operator.locator("#id_password2").fill(TEST_PASSWORD)
+        operator.get_by_role("button", name="Save", exact=True).click()
+        expect(operator.get_by_text(re.compile("was added successfully"))).to_be_visible()
+
+    with browser.new_context() as context:
+        page = context.new_page()
+        login_through_application(
+            page, live_server.url,
+            username=browser_patient_administrator.username, password=TEST_PASSWORD,
+        )
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        page.get_by_role("navigation", name="Professional status").get_by_role(
+            "link", name="Incomplete", exact=True
+        ).click()
+        page.get_by_role("link", name="Importada, Laura", exact=True).click()
+        page.get_by_role("link", name="Complete registration", exact=True).click()
+        page.get_by_label("Username", exact=True).fill("imported-professional-account")
+        page.get_by_label("Date of birth", exact=True).fill("1984-03-05")
+        page.get_by_label("Specialty", exact=True).select_option("general-medicine")
+        page.get_by_label("Hospital service", exact=True).select_option("inpatient-ward")
+        page.get_by_role("button", name="Complete registration", exact=True).click()
+        expect(page.get_by_text("Professional registered")).to_be_visible()
+        page.get_by_role("link", name="Open professional record").click()
+        expect(page.get_by_text("Imported from another system", exact=False)).to_be_visible()
+        expect(page.get_by_text("Username: imported-professional-account")).to_be_visible()
+        assert read_professional_state("imported-professional-account")["pk"] == professional_pk
 
 
 @pytest.mark.browser
@@ -1770,10 +1881,8 @@ def test_admin_maintains_and_reactivates_professional_through_visible_controls(
         hospital_service_code=replacement_service.code,
     )
     browser_page.get_by_role("button", name="Register professional", exact=True).click()
-    expect(browser_page.get_by_role("status")).to_contain_text(
-        "Professional registered"
-    )
-    browser_page.get_by_role("link", name="Open professional record").click()
+    expect(browser_page.get_by_text("A professional already has this DNI")).to_be_visible()
+    assert read_professional_state(replacement_account.username)["pk"] is None
 
     browser_page.get_by_role("link", name="Back to professionals").click()
     browser_page.get_by_role("navigation", name="Professional status").get_by_role(
@@ -1785,11 +1894,9 @@ def test_admin_maintains_and_reactivates_professional_through_visible_controls(
         "I confirm this change to the professional's status."
     ).check()
     browser_page.get_by_role("button", name="Reactivate professional").click()
-    expect(
-        browser_page.get_by_text("An active professional already has this DNI")
-    ).to_be_visible()
+    expect(browser_page.get_by_text("Active", exact=True)).to_be_visible()
     saved = read_professional_state(username)
-    assert saved["active"] is False
+    assert saved["active"] is True
     assert saved["pk"] == original["pk"]
     assert saved["number"] == original["number"]
     assert saved["admissions"] == original["admissions"]

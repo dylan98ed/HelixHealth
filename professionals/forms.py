@@ -46,7 +46,7 @@ class ProfessionalRegistrationForm(forms.Form):
         super().__init__(*args, **kwargs)
         if professional is not None:
             self.initial.update(
-                username=professional.user.get_username(),
+                username=professional.user.get_username() if professional.user is not None else "",
                 dni=professional.dni,
                 license_number=professional.license_number,
                 first_name=professional.first_name,
@@ -55,7 +55,7 @@ class ProfessionalRegistrationForm(forms.Form):
                 specialty_code=professional.specialty_id,
                 hospital_service_code=professional.hospital_service_id,
             )
-            self.fields["username"].disabled = True
+            self.fields["username"].disabled = professional.user_id is not None
         specialty = self.fields["specialty_code"]
         service = self.fields["hospital_service_code"]
         assert isinstance(specialty, forms.ModelChoiceField)

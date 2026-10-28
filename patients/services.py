@@ -38,7 +38,10 @@ def create_patient(
 ) -> Patient:
     ADMINISTRATIVE_POLICY.require(actor)
 
-    existing_patient = Patient.objects.filter(dni=dni).first()
+    if not all((phone, email, address.strip(), health_insurer.strip())):
+        raise PatientServiceError("Local patient registration requires complete contact details.")
+
+    existing_patient = Patient.all_objects.filter(dni=dni).first()
     if existing_patient is not None:
         raise DuplicateActivePatientDNIError(existing_patient)
 
@@ -63,7 +66,7 @@ def create_patient(
         with transaction.atomic():
             patient.save(force_insert=True)
     except IntegrityError as error:
-        existing_patient = Patient.objects.filter(dni=dni).first()
+        existing_patient = Patient.all_objects.filter(dni=dni).first()
         if existing_patient is not None:
             raise DuplicateActivePatientDNIError(existing_patient) from error
         raise

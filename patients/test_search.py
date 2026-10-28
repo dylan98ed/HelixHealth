@@ -85,7 +85,7 @@ def test_exact_active_dni_query_uses_unique_index():
         explained = cursor.fetchone()[0]
 
     plan = explained[0]["Plan"]
-    assert "unique_active_patient_dni" in plan_index_names(plan)
+    assert "unique_patient_dni" in plan_index_names(plan)
 
 
 @pytest.mark.django_db

@@ -867,8 +867,7 @@ def main() -> int:
             last_name="Replacement",
         )
         page.get_by_role("button", name="Register professional", exact=True).click()
-        expect(page.get_by_role("status")).to_contain_text("Professional registered")
-        page.get_by_role("link", name="Open professional record", exact=True).click()
+        expect(page.get_by_text("A professional already has this DNI")).to_be_visible()
         page.get_by_role("link", name="Back to professionals", exact=True).click()
         page.get_by_role("navigation", name="Professional status").get_by_role(
             "link", name="Inactive", exact=True
@@ -879,9 +878,7 @@ def main() -> int:
         page.get_by_role("link", name="Reactivate professional", exact=True).click()
         page.get_by_label("I confirm this change to the professional's status.").check()
         page.get_by_role("button", name="Reactivate professional", exact=True).click()
-        expect(
-            page.get_by_text("An active professional already has this DNI")
-        ).to_be_visible()
+        expect(page.get_by_text("Active", exact=True)).to_be_visible()
 
     def paginate_professional_statuses(page: Page) -> None:
         application_login(page, base_url, ADMINISTRATOR_USERNAME, password)

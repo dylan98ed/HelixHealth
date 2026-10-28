@@ -3,7 +3,7 @@
 {% block content %}
   <a class="quiet-link d-inline-block mb-4" href="{% url 'patients:search' %}">← Back to patients</a>
   <header class="page-heading">
-    <div><p class="eyebrow">Patient record</p><h1>{{ patient.first_name }} {{ patient.last_name }}</h1><p>Clinical record <strong>{{ patient.clinical_record_number }}</strong></p></div>
+    <div><p class="eyebrow">Patient record</p><h1>{{ patient.first_name }} {{ patient.last_name }}</h1><p>Clinical record <strong>{{ patient.clinical_record_number }}</strong></p><p>{% if patient.is_external %}Imported from another system{% else %}Created locally{% endif %} · Created {{ patient.created_at }}</p></div>
     <span class="workspace-badge">{% if patient.is_active %}<span class="status-dot" aria-hidden="true"></span>Active{% else %}Inactive{% endif %}</span>
   </header>
   <div class="record-grid">
