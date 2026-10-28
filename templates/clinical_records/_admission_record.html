@@ -10,8 +10,14 @@
       <dd class="col-sm-7">{{ admission.heart_rate }} bpm</dd>
       <dt class="col-sm-5">Temperature</dt>
       <dd class="col-sm-7">{{ admission.temperature }} degrees Celsius</dd>
-      <dt class="col-sm-5">Professional</dt>
-      <dd class="col-sm-7">{{ admission.professional.user.get_username }}</dd>
+      {% if admission.professional %}
+        <dt class="col-sm-5">Professional</dt>
+        <dd class="col-sm-7">{{ admission.professional.user.get_username }}</dd>
+      {% endif %}
+      {% if admission.recorded_by and not admission.professional %}
+        <dt class="col-sm-5">Recorded by</dt>
+        <dd class="col-sm-7">{{ admission.recorded_by.get_username }}</dd>
+      {% endif %}
       <dt class="col-sm-5">Recorded at</dt>
       <dd class="col-sm-7">{{ admission.created_at|date:"c" }}</dd>
     </dl>

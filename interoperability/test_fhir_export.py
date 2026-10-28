@@ -11,6 +11,7 @@ from clinical_records.models import Admission
 from interoperability.fhir_export import (
     FHIR_XML_MEDIA_TYPE,
     CodingSnapshot,
+    FhirExportError,
     PatientSnapshot,
     PractitionerSnapshot,
     PrescriptionItemSnapshot,
@@ -157,6 +158,26 @@ def test_admission_export_is_valid_escaped_stable_and_does_not_write() -> None:
         repeated_xml
     ).xpath("string(f:id/@value)", namespaces=NS)
     validate_helixhealth_profile(xml)
+
+
+@pytest.mark.django_db
+def test_administrative_admission_cannot_claim_a_physician_in_fhir_export() -> None:
+    patient = _patient()
+    administrator = get_user_model().objects.create_user(
+        username="fhir-administrator", password="fhir-test-password"
+    )
+    admission = Admission.objects.create(
+        patient=patient,
+        recorded_by=administrator,
+        consultation_reason="Administrative intake",
+        systolic_blood_pressure=120,
+        diastolic_blood_pressure=80,
+        heart_rate=72,
+        temperature=Decimal("36.7"),
+    )
+
+    with pytest.raises(FhirExportError, match="recorded by administrators"):
+        serialize_admission_bundle([admission])
 
 
 def test_prescription_snapshot_export_preserves_every_supplied_value() -> None:

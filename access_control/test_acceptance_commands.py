@@ -14,6 +14,7 @@ from access_control.acceptance_personas import (
     ACTIVE_PATIENT_DNI,
     ADMINISTRATIVE_UPDATED_PHONE,
     ADMINISTRATOR_USERNAME,
+    ADMINISTRATIVE_ADMISSION_REASON,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
     CATALOG_MEDICATION_CODE,
@@ -201,6 +202,15 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
         patient=Patient.objects.get(dni=ACTIVE_PATIENT_DNI),
         professional=Professional.objects.get(user__username=MEDICAL_ACTIVE_USERNAME),
         consultation_reason=ADMISSION_REASON,
+        systolic_blood_pressure=120,
+        diastolic_blood_pressure=80,
+        heart_rate=72,
+        temperature=Decimal("36.7"),
+    )
+    Admission.objects.create(
+        patient=Patient.objects.get(dni=ACTIVE_PATIENT_DNI),
+        recorded_by=user_model.objects.get(username=ADMINISTRATOR_USERNAME),
+        consultation_reason=ADMINISTRATIVE_ADMISSION_REASON,
         systolic_blood_pressure=120,
         diastolic_blood_pressure=80,
         heart_rate=72,

@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import IsActiveMedicalProfessionalActor
 from access_control.policies import (
+    IsAdministrativeActor,
     MEDICAL_PROFESSIONAL_POLICY,
 )
 from clinical_records.forms import AdmissionForm, PatientAdmissionSearchForm
@@ -28,6 +29,7 @@ from clinical_records.serializers import (
 from clinical_records.services import (
     InactivePatientError,
     active_professional_for_actor,
+    admission_author_for_actor,
     create_admission,
     lookup_active_patient_for_admission,
 )
@@ -49,6 +51,21 @@ def medical_professional_required[ResponseT: HttpResponseBase](
                 "This operation requires a medical-professional actor."
             )
         active_professional_for_actor(actor)
+        return view_function(request, *args, **kwargs)
+
+    return wrapped
+
+
+def admission_creator_required[ResponseT: HttpResponseBase](
+    view_function: Callable[..., ResponseT],
+) -> Callable[..., ResponseT]:
+    @wraps(view_function)
+    @login_required
+    def wrapped(request: HttpRequest, *args: Any, **kwargs: Any) -> ResponseT:
+        try:
+            admission_author_for_actor(actor_context_from_user(request.user))
+        except PermissionError as error:
+            raise PermissionDenied(str(error)) from error
         return view_function(request, *args, **kwargs)
 
     return wrapped
@@ -106,7 +123,7 @@ def admission_patient_search_results(request: HttpRequest) -> HttpResponse:
     )
 
 
-@medical_professional_required
+@admission_creator_required
 @require_http_methods(["GET", "POST"])
 def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
     patient = get_object_or_404(Patient.objects, pk=patient_pk)
@@ -138,7 +155,9 @@ def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
             )
 
     admissions = Paginator(
-        Admission.objects.filter(patient=patient).select_related("professional__user"),
+        Admission.objects.filter(patient=patient).select_related(
+            "professional__user", "recorded_by"
+        ),
         ADMISSIONS_PER_PAGE,
     ).get_page(request.GET.get("history_page"))
     context = {
@@ -158,7 +177,7 @@ def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
 
 
 class AdmissionCreateAPIView(GenericAPIView):
-    permission_classes = [IsActiveMedicalProfessionalActor]
+    permission_classes = [IsActiveMedicalProfessionalActor | IsAdministrativeActor]
     serializer_class = AdmissionCreateSerializer
 
     def get_patient(self, patient_pk: int) -> Patient:

@@ -7,6 +7,7 @@ from access_control.acceptance_personas import (
     ACTIVE_PATIENT_DNI,
     ADMINISTRATIVE_UPDATED_PHONE,
     ADMINISTRATOR_USERNAME,
+    ADMINISTRATIVE_ADMISSION_REASON,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
     CATALOG_MEDICATION_CODE,
@@ -87,6 +88,15 @@ class Command(BaseCommand):
             consultation_reason=ADMISSION_REASON,
         ).exists():
             failures.append("the medical admission was not persisted")
+
+        if not Admission.objects.filter(
+            patient__dni=ACTIVE_PATIENT_DNI,
+            professional__isnull=True,
+            recorded_by__username=ADMINISTRATOR_USERNAME,
+            consultation_reason=ADMINISTRATIVE_ADMISSION_REASON,
+            created_at__isnull=False,
+        ).exists():
+            failures.append("the administrative admission was not persisted")
 
         if not Patient.objects.filter(dni=REGISTERED_PATIENT_DNI).exists():
             failures.append("the administrative patient registration was not persisted")

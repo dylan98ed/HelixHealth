@@ -1,10 +1,11 @@
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
-from access_control.actors import ActorContext
-from access_control.policies import MEDICAL_PROFESSIONAL_POLICY
+from access_control.actors import ActorContext, ActorRole
+from access_control.policies import ADMINISTRATIVE_POLICY, MEDICAL_PROFESSIONAL_POLICY
 from clinical_records.models import Admission
 from patients.models import Patient
 from professionals.models import Professional
@@ -12,6 +13,34 @@ from professionals.models import Professional
 
 class InactivePatientError(ValueError):
     """Raised when a clinical event targets an inactive patient."""
+
+
+def admission_author_for_actor(actor: ActorContext | None):
+    """Resolve the current recorder and any clinical professional identity."""
+    if actor is None:
+        MEDICAL_PROFESSIONAL_POLICY.require(actor)
+    assert actor is not None
+    if actor.has_role(ActorRole.MEDICAL_PROFESSIONAL):
+        try:
+            professional = active_professional_for_actor(actor)
+        except PermissionDenied:
+            if not actor.has_role(ActorRole.ADMINISTRATIVE):
+                raise
+        else:
+            return professional.user, professional
+    ADMINISTRATIVE_POLICY.require(actor)
+    administrator = (
+        get_user_model()
+        .objects.filter(
+            pk=actor.user_id,
+            is_active=True,
+            groups__name=ActorRole.ADMINISTRATIVE.value,
+        )
+        .first()
+    )
+    if administrator is None:
+        raise PermissionDenied("An active administrative account is required.")
+    return administrator, None
 
 
 def active_professional_for_actor(actor: ActorContext | None) -> Professional:
@@ -50,7 +79,7 @@ def create_admission(
     heart_rate: int,
     temperature: Decimal,
 ) -> Admission:
-    professional = active_professional_for_actor(actor)
+    recorder, professional = admission_author_for_actor(actor)
     locked_patient = (
         Patient.all_objects.select_for_update().filter(pk=patient.pk).first()
     )
@@ -60,6 +89,7 @@ def create_admission(
     admission = Admission(
         patient=locked_patient,
         professional=professional,
+        recorded_by=recorder,
         consultation_reason=consultation_reason.strip(),
         systolic_blood_pressure=systolic_blood_pressure,
         diastolic_blood_pressure=diastolic_blood_pressure,

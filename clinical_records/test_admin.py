@@ -15,6 +15,7 @@ def test_admission_admin_is_view_only(rf):
         "id",
         "patient",
         "professional",
+        "recorded_by",
         "consultation_reason",
         "systolic_blood_pressure",
         "diastolic_blood_pressure",

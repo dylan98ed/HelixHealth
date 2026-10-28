@@ -19,6 +19,15 @@ class Admission(models.Model):
         Professional,
         on_delete=models.PROTECT,
         related_name="admissions",
+        null=True,
+        blank=True,
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recorded_admissions",
+        null=True,
+        blank=True,
     )
     consultation_reason = models.TextField()
     systolic_blood_pressure = models.PositiveSmallIntegerField()
@@ -30,6 +39,10 @@ class Admission(models.Model):
     class Meta:
         ordering = ("-created_at", "-id")
         constraints = (
+            models.CheckConstraint(
+                condition=Q(professional__isnull=False) | Q(recorded_by__isnull=False),
+                name="admission_has_recorder",
+            ),
             models.CheckConstraint(
                 condition=~Q(consultation_reason=""),
                 name="admission_reason_not_empty",

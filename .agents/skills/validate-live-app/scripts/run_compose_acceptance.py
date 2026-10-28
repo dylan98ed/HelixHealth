@@ -26,6 +26,7 @@ ACTIVE_PATIENT_DNI = personas.ACTIVE_PATIENT_DNI
 ADMINISTRATIVE_UPDATED_PHONE = personas.ADMINISTRATIVE_UPDATED_PHONE
 ADMINISTRATOR_USERNAME = personas.ADMINISTRATOR_USERNAME
 ADMISSION_REASON = personas.ADMISSION_REASON
+ADMINISTRATIVE_ADMISSION_REASON = personas.ADMINISTRATIVE_ADMISSION_REASON
 BROWSER_CREATED_USERNAME = personas.BROWSER_CREATED_USERNAME
 CATALOG_MEDICATION_CODE = personas.CATALOG_MEDICATION_CODE
 CATALOG_MEDICATION_SYSTEM = personas.CATALOG_MEDICATION_SYSTEM
@@ -185,6 +186,41 @@ def main() -> int:
         history = page.get_by_role("region", name="Admission history")
         expect(history.get_by_text(ADMISSION_REASON, exact=True)).to_be_visible()
         expect(history.get_by_text(MEDICAL_ACTIVE_USERNAME, exact=True)).to_be_visible()
+
+    def record_administrative_admission(page: Page) -> None:
+        application_login(page, base_url, ADMINISTRATOR_USERNAME, password)
+        expect(page).to_have_url(f"{base_url}/patients/search/")
+        page.get_by_label("Name or surname").fill("Acceptance Patient")
+        page.get_by_role(
+            "link", name="Open patient record for Acceptance Patient"
+        ).click()
+        expect(page.get_by_role("heading", name="Acceptance Patient")).to_be_visible()
+        page.get_by_role("link", name="Record admission").click()
+        expect(page.get_by_role("heading", name="Patient admission")).to_be_visible()
+        expect(page.get_by_role("link", name="Medical images")).to_have_count(0)
+        page.get_by_label("Consultation reason").fill(
+            ADMINISTRATIVE_ADMISSION_REASON
+        )
+        page.get_by_label("Systolic blood pressure").fill("251")
+        page.get_by_label("Heart rate").fill("72")
+        page.get_by_label("Temperature").fill("36.7")
+        page.get_by_role("button", name="Record admission").click()
+        expect(
+            page.locator('[data-field-error="systolic_blood_pressure"]')
+        ).to_be_visible()
+        page.get_by_label("Systolic blood pressure").fill("120")
+        page.get_by_label("Diastolic blood pressure").fill("80")
+        page.get_by_role("button", name="Record admission").click()
+        expect(page.get_by_role("status")).to_contain_text("Admission recorded")
+        expect(
+            page.get_by_text(ADMINISTRATIVE_ADMISSION_REASON, exact=True)
+        ).to_be_visible()
+        page.reload(wait_until="networkidle")
+        history = page.get_by_role("region", name="Admission history")
+        expect(
+            history.get_by_text(ADMINISTRATIVE_ADMISSION_REASON, exact=True)
+        ).to_be_visible()
+        expect(history.get_by_text(ADMINISTRATOR_USERNAME, exact=True)).to_be_visible()
 
     def save_medical_image(page: Page) -> None:
         application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
@@ -930,6 +966,7 @@ def main() -> int:
                 ),
             ),
             ("medical-admission", record_admission),
+            ("administrative-admission", record_administrative_admission),
             ("medical-image-conversion", save_medical_image),
             ("administrative-care-assignment", assign_and_revoke_care),
             ("administrative-catalog-management", manage_catalogs),

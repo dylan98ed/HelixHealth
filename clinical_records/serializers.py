@@ -11,17 +11,31 @@ from clinical_records.services import InactivePatientError, create_admission
 from clinical_records.vital_signs import validate_vital_signs
 
 SERVER_OWNED_ADMISSION_FIELDS = frozenset(
-    {"id", "patient", "patient_id", "professional", "professional_id", "created_at"}
+    {
+        "id",
+        "patient",
+        "patient_id",
+        "professional",
+        "professional_id",
+        "recorded_by",
+        "recorded_by_id",
+        "recorded_by_username",
+        "created_at",
+    }
 )
 
 
 class AdmissionDetailSerializer(serializers.ModelSerializer):
     patient_id = serializers.IntegerField(read_only=True)
-    professional_id = serializers.IntegerField(read_only=True)
-    professional_username = serializers.CharField(
-        source="professional.user.username",
-        read_only=True,
-    )
+    professional_id = serializers.IntegerField(read_only=True, allow_null=True)
+    professional_username = serializers.SerializerMethodField()
+    recorded_by_username = serializers.SerializerMethodField()
+
+    def get_professional_username(self, obj: Admission) -> str | None:
+        return obj.professional.user.username if obj.professional else None
+
+    def get_recorded_by_username(self, obj: Admission) -> str | None:
+        return obj.recorded_by.username if obj.recorded_by else None
 
     class Meta:
         model = Admission
@@ -30,6 +44,7 @@ class AdmissionDetailSerializer(serializers.ModelSerializer):
             "patient_id",
             "professional_id",
             "professional_username",
+            "recorded_by_username",
             *ADMISSION_INPUT_FIELDS,
             "created_at",
         )

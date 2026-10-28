@@ -59,6 +59,24 @@ def read_image_records(patient_id):
         return executor.submit(load).result()
 
 
+def read_admission_records(patient_id):
+    def load():
+        try:
+            return list(
+                Admission.objects.filter(patient_id=patient_id).values(
+                    "consultation_reason",
+                    "professional_id",
+                    "recorded_by_id",
+                    "created_at",
+                )
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(load).result()
+
+
 def read_care_relationships(patient_id):
     def load():
         try:
@@ -1094,6 +1112,69 @@ def test_medical_professional_records_admission_through_ui(
     expect(
         history.get_by_text(browser_medical_professional.username, exact=True)
     ).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_administrator_records_admission_from_visible_patient_record(
+    browser_patient_administrator,
+    browser_search_patient,
+    live_server,
+    browser_page,
+):
+    patient = browser_search_patient
+    assert read_admission_records(patient.pk) == []
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_patient_administrator.username,
+        password=TEST_PASSWORD,
+    )
+    expect(browser_page).to_have_url(
+        f"{live_server.url}{reverse('patients:search')}"
+    )
+    browser_page.get_by_label("Name or surname").fill("Searchable Patient")
+    browser_page.get_by_role(
+        "link", name="Open patient record for Searchable Patient"
+    ).click()
+    expect(browser_page).to_have_url(
+        f"{live_server.url}{reverse('patients:detail', args=[patient.pk])}"
+    )
+    browser_page.get_by_role("link", name="Record admission").click()
+    admission_url = reverse("clinical_records:patient-admissions", args=[patient.pk])
+    expect(browser_page).to_have_url(f"{live_server.url}{admission_url}")
+    expect(browser_page.get_by_role("heading", name="Patient admission")).to_be_visible()
+    expect(browser_page.get_by_role("link", name="Medical images")).to_have_count(0)
+
+    browser_page.get_by_label("Consultation reason").fill("Administrative intake")
+    browser_page.get_by_label("Systolic blood pressure").fill("251")
+    browser_page.get_by_label("Heart rate").fill("72")
+    browser_page.get_by_label("Temperature").fill("36.7")
+    browser_page.get_by_role("button", name="Record admission").click()
+    expect(
+        browser_page.locator('[data-field-error="systolic_blood_pressure"]')
+    ).to_be_visible()
+    assert read_admission_records(patient.pk) == []
+
+    browser_page.get_by_label("Systolic blood pressure").fill("120")
+    browser_page.get_by_label("Diastolic blood pressure").fill("80")
+    browser_page.get_by_role("button", name="Record admission").click()
+    expect(browser_page.get_by_role("status")).to_contain_text("Admission recorded")
+    expect(browser_page.get_by_text("Administrative intake", exact=True)).to_be_visible()
+    expect(
+        browser_page.locator("#admission-workflow").get_by_text(
+            browser_patient_administrator.username, exact=True
+        )
+    ).to_be_visible()
+    browser_page.reload()
+    expect(browser_page).to_have_url(f"{live_server.url}{admission_url}")
+    history = browser_page.get_by_role("region", name="Admission history")
+    expect(history.get_by_text("Administrative intake", exact=True)).to_be_visible()
+    records = read_admission_records(patient.pk)
+    assert len(records) == 1
+    assert records[0]["professional_id"] is None
+    assert records[0]["recorded_by_id"] == browser_patient_administrator.pk
+    assert records[0]["created_at"] is not None
 
 
 @pytest.mark.browser

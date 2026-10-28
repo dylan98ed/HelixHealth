@@ -18,7 +18,7 @@
   </div>
   <div class="mt-4"><a class="btn btn-outline-primary" href="{% url 'patients:care-team' patient.pk %}">Care team</a></div>
   {% if patient.is_active %}
-    <div class="d-flex flex-wrap gap-2 mt-4"><a class="btn btn-primary" href="{% url 'patients:update' patient.pk %}">Edit patient</a><a class="btn btn-outline-danger" href="{% url 'patients:deactivate' patient.pk %}">Deactivate patient</a></div>
+    <div class="d-flex flex-wrap gap-2 mt-4"><a class="btn btn-primary" href="{% url 'clinical_records:patient-admissions' patient.pk %}">Record admission</a><a class="btn btn-outline-primary" href="{% url 'patients:update' patient.pk %}">Edit patient</a><a class="btn btn-outline-danger" href="{% url 'patients:deactivate' patient.pk %}">Deactivate patient</a></div>
   {% endif %}
   <section class="mt-5" aria-labelledby="admissions-heading">
     <h2 class="h4 mb-4" id="admissions-heading">Admissions</h2>

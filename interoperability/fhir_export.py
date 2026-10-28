@@ -350,6 +350,12 @@ def serialize_admission_bundle(admissions: Iterable[Admission]) -> bytes:
     if any(admission.patient_id != patient.pk for admission in selected):
         raise FhirExportError("All selected admissions must belong to one patient.")
     professional = selected[0].professional
+    if professional is None or any(
+        admission.professional_id is None for admission in selected
+    ):
+        raise FhirExportError(
+            "Admissions recorded by administrators cannot be exported as physician-authored FHIR observations."
+        )
     if any(admission.professional_id != professional.pk for admission in selected):
         raise FhirExportError(
             "Admissions with different authors require separate exports."

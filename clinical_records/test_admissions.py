@@ -102,11 +102,35 @@ def test_admission_persists_patient_professional_vitals_and_server_timestamp(
 
     assert admission.patient == patient
     assert admission.professional == professional
+    assert admission.recorded_by == user
     assert admission.consultation_reason == "Persistent headache"
     assert admission.systolic_blood_pressure == 120
     assert admission.diastolic_blood_pressure == 80
     assert admission.heart_rate == 72
     assert admission.temperature == Decimal("36.7")
+    assert before_creation <= admission.created_at <= after_creation
+
+
+@pytest.mark.django_db
+def test_administrator_records_admission_as_sole_responsible_user(user_factory):
+    patient = Patient.objects.create(**patient_attributes())
+    administrator = user_factory(username="admission-administrator")
+    administrator.groups.add(Group.objects.get(name=ADMINISTRATIVE_GROUP))
+
+    before_creation = timezone.now()
+    admission = create_admission(
+        actor=ActorContext(
+            user_id=administrator.pk,
+            roles=frozenset({ActorRole.ADMINISTRATIVE}),
+        ),
+        patient=patient,
+        **admission_data(),
+    )
+    after_creation = timezone.now()
+
+    admission.refresh_from_db()
+    assert admission.professional is None
+    assert admission.recorded_by == administrator
     assert before_creation <= admission.created_at <= after_creation
 
 
@@ -228,7 +252,7 @@ def test_creation_rejects_missing_wrong_inactive_and_unlinked_professional_actor
         create_admission(actor=None, patient=patient, **admission_data())
 
     administrative_user = user_factory(username="admission-admin")
-    with pytest.raises(PermissionError):
+    with pytest.raises(PermissionDenied):
         create_admission(
             actor=ActorContext(
                 user_id=administrative_user.pk,
@@ -402,7 +426,7 @@ def test_api_rejects_server_owned_metadata_and_uses_authenticated_professional(
 
 
 @pytest.mark.django_db
-def test_api_authorization_rejects_anonymous_admin_and_inactive_professional(
+def test_api_authorization_rejects_anonymous_unassigned_and_inactive_professional(
     client,
     user_factory,
 ):
@@ -411,9 +435,8 @@ def test_api_authorization_rejects_anonymous_admin_and_inactive_professional(
 
     assert client.post(url, admission_data()).status_code == status.HTTP_403_FORBIDDEN
 
-    admin = user_factory(username="api-admission-admin")
-    admin.groups.add(Group.objects.get(name=ADMINISTRATIVE_GROUP))
-    client.force_login(admin)
+    unassigned = user_factory(username="api-admission-unassigned")
+    client.force_login(unassigned)
     assert client.post(url, admission_data()).status_code == status.HTTP_403_FORBIDDEN
 
     inactive_user, inactive_professional = create_professional_user(
@@ -424,6 +447,50 @@ def test_api_authorization_rejects_anonymous_admin_and_inactive_professional(
     inactive_professional.save(update_fields=["is_active"])
     client.force_login(inactive_user)
     assert client.post(url, admission_data()).status_code == status.HTTP_403_FORBIDDEN
+    assert Admission.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_administrator_api_records_admission_and_rejects_spoofed_author(
+    client, user_factory
+):
+    patient = Patient.objects.create(**patient_attributes())
+    administrator = user_factory(username="api-admission-administrator")
+    administrator.groups.add(Group.objects.get(name=ADMINISTRATIVE_GROUP))
+    other_user = user_factory(username="api-admission-spoof-target")
+    client.force_login(administrator)
+    url = reverse("clinical_records:api-create-admission", args=[patient.pk])
+
+    spoofed = client.post(
+        url, {**admission_data(), "recorded_by_id": other_user.pk}
+    )
+    assert spoofed.status_code == status.HTTP_400_BAD_REQUEST
+    assert "recorded_by_id" in spoofed.json()
+    assert Admission.objects.count() == 0
+
+    response = client.post(url, admission_data())
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["professional_id"] is None
+    assert response.json()["recorded_by_username"] == administrator.username
+    admission = Admission.objects.get()
+    assert admission.professional is None
+    assert admission.recorded_by == administrator
+
+
+@pytest.mark.django_db
+def test_administrator_cannot_record_admission_for_inactive_patient(
+    client, user_factory
+):
+    patient = Patient.all_objects.create(**patient_attributes(is_active=False))
+    administrator = user_factory(username="inactive-patient-admission-admin")
+    administrator.groups.add(Group.objects.get(name=ADMINISTRATIVE_GROUP))
+    client.force_login(administrator)
+    url = reverse("clinical_records:api-create-admission", args=[patient.pk])
+
+    assert client.post(url, admission_data()).status_code == status.HTTP_404_NOT_FOUND
+    assert client.get(
+        reverse("clinical_records:patient-admissions", args=[patient.pk])
+    ).status_code == status.HTTP_404_NOT_FOUND
     assert Admission.objects.count() == 0
 
 
