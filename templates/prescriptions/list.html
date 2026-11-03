@@ -17,4 +17,5 @@
     {% empty %}<p>No prescriptions have been issued.</p>{% endfor %}
     {% include "_pagination.html" with page_obj=prescriptions page_parameter="page" label="Prescription history" %}
   </section>
+  {% include "interoperability/_imported_medications.html" %}
 {% endblock %}

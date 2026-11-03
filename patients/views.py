@@ -149,6 +149,8 @@ def patient_search_results(request: HttpRequest) -> HttpResponse:
 @administrative_required
 @require_http_methods(["GET"])
 def patient_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    from interoperability.history import imported_request_history
+
     patient = get_object_or_404(Patient.all_objects, pk=pk)
     admissions = Paginator(
         Admission.objects.filter(patient=patient).select_related("professional__user"),
@@ -161,6 +163,7 @@ def patient_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "patient": patient,
             "admissions": admissions,
             "admissions_page": admissions,
+            **imported_request_history(request, patient),
         },
     )
 

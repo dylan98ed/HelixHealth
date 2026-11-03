@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Import FHIR JSON · HelixHealth{% endblock %}
+{% block content %}
+  <header class="mb-4"><h1>Import FHIR JSON</h1><p>Import a self-contained FHIR R4 collection Bundle. Patients and practitioners are matched by DNI; new people are marked as imported.</p></header>
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {{ form.request_key }}
+    {% if form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+    {% for field in form.visible_fields %}<div class="mb-3">{{ field.label_tag }} {{ field }} {{ field.errors }}</div>{% endfor %}
+    <p class="text-muted">Choose a .json file up to 2 MiB containing one patient, one practitioner, and at least one procedure and medication request.</p>
+    <button class="btn btn-primary" type="submit">Import FHIR JSON</button>
+    <a class="btn btn-outline-secondary" href="{% url 'clinical_records:dashboard' %}">Cancel</a>
+  </form>
+  <section class="mt-5" aria-label="Recent JSON imports">
+    <h2 class="h4">Recent JSON imports</h2>
+    {% for batch in recent %}<article class="card mb-2"><div class="card-body"><p class="mb-1">{{ batch.received_at }} · {{ batch.patient.first_name }} {{ batch.patient.last_name }} · DNI {{ batch.patient.dni }}</p><a href="{% url 'interoperability:json-import-detail' batch.identifier %}">Open import {{ batch.identifier }}</a></div></article>
+    {% empty %}<p>No FHIR JSON files have been imported.</p>{% endfor %}
+  </section>
+{% endblock %}

@@ -23,6 +23,7 @@
           {% endif %}
           {% if is_medical_professional_actor %}
             <a {% if request.resolver_match.app_name == 'clinical_records' %}aria-current="page"{% endif %} href="{% url 'clinical_records:dashboard' %}">Clinical workspace</a>
+            <a href="{% url 'interoperability:json-import-upload' %}">Import FHIR JSON</a>
           {% endif %}
         </div>
         <div class="account-nav">

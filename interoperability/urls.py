@@ -5,6 +5,9 @@ from interoperability import views
 app_name = "interoperability"
 
 urlpatterns = [
+    path("interoperability/json/import/", views.json_import_upload, name="json-import-upload"),
+    path("interoperability/json/imports/<uuid:identifier>/", views.json_import_detail, name="json-import-detail"),
+    path("interoperability/json/imports/<uuid:identifier>/file/", views.json_import_file, name="json-import-file"),
     path(
         "patients/<int:patient_pk>/interoperability/", views.exchange_home, name="home"
     ),

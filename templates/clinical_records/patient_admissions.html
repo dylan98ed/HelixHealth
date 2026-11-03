@@ -51,6 +51,8 @@
         {% endfor %}
         {% include "_pagination.html" with page_obj=admissions_page page_parameter="history_page" label="Admission history" %}
       </section>
+      {% include "interoperability/_imported_services.html" %}
+      {% include "interoperability/_imported_medications.html" %}
     </main>
   </div>
 {% endblock %}

@@ -1,8 +1,9 @@
 # Contrato propuesto de intercambio FHIR R4 JSON (v2)
 
-Este contrato define el formato a implementar para el práctico integrador de
-semana 11. **Todavía no describe un endpoint disponible.** El perfil XML v1
-permanece vigente hasta que se implementen y prueben las etapas siguientes.
+Este contrato define el formato de importación para el práctico integrador de
+semana 11. La carga está disponible en la navegación del profesional médico
+como **Import FHIR JSON**. La exportación JSON se implementará en la etapa 5.
+El perfil XML v1 permanece vigente.
 FHIR R4 corresponde a la versión 4.0.1; el archivo es UTF-8, termina en
 `.json` y se entrega como `application/fhir+json`.
 
@@ -74,9 +75,11 @@ del enunciado académico es ilustrativo: sus DNI
 ficticios y `urn:uuid:` que no contienen UUID reales no son datos compatibles
 con este contrato. El fixture positivo puede comprobarse con el modelo
 independiente `fhir.resources` de R4. Esa comprobación confirma la estructura
-FHIR general; la validación del perfil local será una implementación posterior.
+FHIR general; la validación adicional del perfil local se ejecuta durante la
+importación.
 La comprobación reproducible es:
 
 ```powershell
 & .venv/Scripts/python.exe -m pytest interoperability/test_fhir_json_contract.py -q
+& .venv/Scripts/python.exe -m pytest interoperability/test_json_importing.py -q
 ```

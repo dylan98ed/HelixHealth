@@ -155,8 +155,8 @@ el segundo.
 ## Estado
 
 - Etapa 1: contrato y fixtures independientes en `json-v2/`. El ejemplo
-  positivo ya se valida contra el modelo FHIR R4 instalado; las reglas del
-  perfil JSON aún no están implementadas en un validador de aplicación.
+  positivo se valida contra el modelo FHIR R4 y el perfil local en la
+  importación JSON.
 - Etapa 2: implementada. Las personas recibidas pueden conciliarse por DNI,
   incluso si el registro local está inactivo. Los perfiles nuevos quedan
   marcados como externos y conservan su fecha de creación; los profesionales
@@ -164,6 +164,26 @@ el segundo.
   muestran el origen y permiten completar o vincular el perfil desde los
   flujos autorizados. La conciliación se verifica por pruebas de integración y
   los recorridos visibles por pruebas de navegador.
-- Etapas 3 a 6: pendientes. La importación JSON completa se incorpora en la
-  etapa 4; el servicio de conciliación de esta etapa aún no tiene una entrada
-  de carga JSON para el usuario.
+- Etapa 3: implementada. `ImportedServiceRequest` y
+  `ImportedMedicationRequest` conservan el recurso recibido con paciente,
+  profesional, fuente e identificador externo estables. Las solicitudes se
+  muestran en la ficha clínica y las de medicación también en el historial de
+  prescripciones, señaladas como recibidas. No generan prácticas realizadas ni
+  recetas locales. El reintento idéntico reutiliza el registro y la reutilización
+  de un identificador con contenido diferente genera un conflicto.
+- Etapa 4: implementada. El profesional médico puede cargar un Bundle JSON
+  desde la navegación, sin seleccionar un paciente previo. Se validan límites,
+  estructura R4, perfil y referencias antes de escribir. La conciliación de
+  personas y los recursos clínicos se guardan en una transacción; el resumen
+  permite descargar el archivo original y repetir un envío sin duplicados.
+  Los conflictos y errores de validación dejan la base sin escrituras parciales.
+- Etapas 5 y 6: pendientes.
+
+### Criterio de duplicados para Observation
+
+La importación XML existente guarda cada `Observation` en
+`ExternalClinicalRecord`, con unicidad por `(source_system, resource_type,
+external_identifier)`. Un recurso con la misma identidad y el mismo paciente y
+contenido se reutiliza; uno con otro paciente o distinto `content_digest` se
+rechaza. La importación JSON aplica este mismo criterio, sin crear una segunda
+observación para el mismo recurso externo.

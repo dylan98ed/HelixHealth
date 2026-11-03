@@ -25,4 +25,6 @@
     {% for admission in admissions %}{% include "clinical_records/_admission_record.html" %}{% empty %}<div class="form-panel text-body-secondary">No admissions have been recorded.</div>{% endfor %}
     {% include "_pagination.html" with page_obj=admissions_page page_parameter="history_page" label="Admissions" %}
   </section>
+  {% include "interoperability/_imported_services.html" %}
+  {% include "interoperability/_imported_medications.html" %}
 {% endblock %}

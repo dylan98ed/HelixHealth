@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}FHIR JSON import · HelixHealth{% endblock %}
+{% block content %}
+  <header class="mb-4"><h1>FHIR JSON import</h1><p>{{ batch.identifier }} · received {{ batch.received_at }}</p></header>
+  <p><a class="btn btn-outline-primary" href="{% url 'interoperability:json-import-file' batch.identifier %}">Download original JSON</a> <a class="btn btn-outline-secondary" href="{% url 'interoperability:json-import-upload' %}?retry={{ batch.identifier }}">Retry this import</a> <a class="btn btn-outline-secondary" href="{% url 'interoperability:json-import-upload' %}">Import another file</a></p>
+  <section class="card mb-4" aria-label="Import summary"><div class="card-body">
+    <h2 class="h4">Import summary</h2>
+    <p>Source: {{ batch.source_system }} · Bundle: {{ batch.bundle_identifier }}</p>
+    <p>Patient: {{ batch.patient.first_name }} {{ batch.patient.last_name }} · DNI {{ batch.patient.dni }} · {% if batch.summary.patient.created %}Created as external{% else %}Reused existing record{% endif %} · {% if batch.summary.patient.is_active %}Active{% else %}Inactive{% endif %}</p>
+    <p>Practitioner: {{ batch.practitioner.display_name }} · DNI {{ batch.practitioner.dni }} · {% if batch.summary.practitioner.created %}Created as external{% else %}Reused existing record{% endif %} · {% if batch.summary.practitioner.is_active %}Active{% else %}Inactive{% endif %}</p>
+    <p>Requested procedures: {{ batch.summary.service_request_count }} ({{ batch.summary.new_service_request_count }} new). Medication requests: {{ batch.summary.medication_request_count }} ({{ batch.summary.new_medication_request_count }} new). Observations: {{ batch.summary.observation_count }} ({{ batch.summary.new_observation_count }} new).</p>
+    <a href="{% url 'clinical_records:patient-admissions' batch.patient.pk %}">Open patient clinical record</a>
+  </div></section>
+{% endblock %}

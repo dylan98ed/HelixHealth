@@ -25,9 +25,11 @@ from access_control.medical_professionals import IsActiveMedicalProfessionalActo
 from clinical_records.models import Admission
 from clinical_records.views import medical_professional_required
 from interoperability.exporting import ExportSelectionError, export_selected_records
-from interoperability.forms import ExternalImportForm
+from interoperability.forms import ExternalImportForm, JsonImportForm
 from interoperability.importing import ExternalImportError
-from interoperability.models import ImportBatch
+from interoperability.json_importing import JsonImportError
+from interoperability.json_services import JsonImportConflict, import_json_bundle
+from interoperability.models import ImportBatch, JsonImportBatch
 from interoperability.serializers import (
     ExportRequestSerializer,
     ImportBatchPageSerializer,
@@ -39,6 +41,56 @@ from patients.models import Patient
 from prescriptions.models import Prescription
 
 IMPORTS_PER_PAGE = 20
+
+
+@medical_professional_required
+@require_http_methods(["GET", "POST"])
+def json_import_upload(request: HttpRequest) -> HttpResponse:
+    initial: dict[str, object] = {"request_key": uuid4()}
+    retry_identifier = request.GET.get("retry")
+    if retry_identifier:
+        prior = get_object_or_404(JsonImportBatch, identifier=retry_identifier)
+        initial = {"request_key": prior.request_key, "source_system": prior.source_system}
+    form = JsonImportForm(request.POST or None, request.FILES or None, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        try:
+            result = import_json_bundle(
+                actor=actor_context_from_user(request.user),
+                request_key=form.cleaned_data["request_key"],
+                source_system=form.cleaned_data["source_system"],
+                raw_json=form.cleaned_data["file"].read(),
+            )
+        except (JsonImportError, JsonImportConflict) as error:
+            form.add_error(None, str(error))
+        else:
+            return redirect("interoperability:json-import-detail", identifier=result.batch.identifier)
+    recent = JsonImportBatch.objects.select_related("patient", "practitioner")[:20]
+    return render(request, "interoperability/json_import_form.html", {"form": form, "recent": recent})
+
+
+@medical_professional_required
+@require_http_methods(["GET"])
+def json_import_detail(request: HttpRequest, identifier: str) -> HttpResponse:
+    batch = get_object_or_404(
+        JsonImportBatch.objects.select_related("patient", "practitioner"),
+        identifier=identifier,
+    )
+    response = render(request, "interoperability/json_import_detail.html", {"batch": batch})
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@medical_professional_required
+@require_http_methods(["GET"])
+def json_import_file(request: HttpRequest, identifier: str) -> FileResponse:
+    batch = get_object_or_404(JsonImportBatch, identifier=identifier)
+    response = FileResponse(
+        BytesIO(bytes(batch.raw_json)), as_attachment=True,
+        filename=f"import-{batch.identifier}.json",
+        content_type="application/fhir+json; charset=utf-8",
+    )
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def _patient_or_404(patient_pk: int) -> Patient:
