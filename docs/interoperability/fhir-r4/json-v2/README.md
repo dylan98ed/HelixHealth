@@ -1,19 +1,47 @@
 # Contrato propuesto de intercambio FHIR R4 JSON (v2)
 
-Este contrato define el formato de importación para el práctico integrador de
+Este contrato define el formato de intercambio para el práctico integrador de
 semana 11. La carga está disponible en la navegación del profesional médico
-como **Import FHIR JSON**. La exportación JSON se implementará en la etapa 5.
+como **Import FHIR JSON**. La exportación está en la sección
+**Interoperability** de la ficha clínica de cada paciente.
 El perfil XML v1 permanece vigente.
 FHIR R4 corresponde a la versión 4.0.1; el archivo es UTF-8, termina en
 `.json` y se entrega como `application/fhir+json`.
+
+## Exportación
+
+En la ficha de un paciente, un profesional médico activo puede elegir al menos
+una práctica solicitada recibida (`ServiceRequest`) y una solicitud de
+medicación recibida o receta emitida localmente. También puede elegir una
+admisión local para exportar sus tres signos vitales (presión arterial, pulso y
+temperatura), aun sin prácticas solicitadas; una receta del mismo profesional
+puede incluirse en ese archivo. Se pueden agregar observaciones de signos
+vitales importadas en JSON. Todos los registros elegidos deben corresponder al
+mismo profesional. Una receta local produce un `MedicationRequest` por ítem.
+
+El botón **Download FHIR JSON** entrega un Bundle `.json` con MIME
+`application/fhir+json`. Los IDs de los recursos y el identificador del Bundle
+son estables para una misma selección; el `timestamp` refleja la descarga.
+El archivo se llama `FHIR_<DNI_paciente>_<DNI_profesional>_<apellido_alumno>.json`:
+los DNI provienen del Bundle y el apellido de la cuenta médica que realiza la
+descarga. Se eliminan espacios y tildes del apellido para el nombre del archivo.
+La exportación es de solo lectura. La selección XML existente sigue separada.
+
+La API ofrece `POST /clinical-records/api/patients/{patient_pk}/exchange/export/json/`
+con listas `admission_ids`, `service_request_ids`, `medication_request_ids`,
+`prescription_ids` (UUID) y `observation_ids`. Devuelve `200` con el archivo, `400` si faltan
+recursos obligatorios o los profesionales no coinciden, `404` si un ID no
+pertenece al paciente y deniega cuentas sin perfil médico activo.
 
 ## Bundle y recursos
 
 - Un `Bundle` con `resourceType=Bundle`, `type=collection`, `identifier`,
   `timestamp` y entradas con `fullUrl` únicos. Las entradas `request`,
   `search` y `response` no se aceptan.
-- Exactamente un `Patient` y un `Practitioner`; al menos un `ServiceRequest`
-  y un `MedicationRequest`. `Organization` y `Observation` son opcionales.
+- Exactamente un `Patient` y un `Practitioner`. Para el intercambio completo
+  del práctico se requieren `ServiceRequest` y `MedicationRequest`. Para
+  intercambiar signos vitales se acepta al menos un `Observation`, con o sin
+  `MedicationRequest`, sin exigir una práctica solicitada. `Organization` es opcional.
   Otros tipos se rechazan en esta versión. Máximo: 500 entradas y 2 MiB.
 - `Patient.identifier` debe contener exactamente un DNI argentino de 7 u 8
   dígitos; se lo identifica por el valor aunque el sistema de identificadores

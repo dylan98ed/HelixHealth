@@ -22,6 +22,11 @@ urlpatterns = [
         name="export",
     ),
     path(
+        "patients/<int:patient_pk>/interoperability/export/json/",
+        views.export_selected_json_file,
+        name="json-export",
+    ),
+    path(
         "patients/<int:patient_pk>/interoperability/imports/<uuid:identifier>/",
         views.import_detail,
         name="import-detail",
@@ -50,5 +55,10 @@ urlpatterns = [
         "api/patients/<int:patient_pk>/exchange/export/",
         views.ExportAPIView.as_view(),
         name="api-export",
+    ),
+    path(
+        "api/patients/<int:patient_pk>/exchange/export/json/",
+        views.JsonExportAPIView.as_view(),
+        name="api-json-export",
     ),
 ]

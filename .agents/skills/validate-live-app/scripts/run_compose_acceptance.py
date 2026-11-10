@@ -514,7 +514,9 @@ def main() -> int:
             "link", name="Record admission for Acceptance Patient"
         ).click()
         page.get_by_role("link", name="Interoperability", exact=True).click()
-        page.get_by_label(re.compile(f"Admission .*{ADMISSION_REASON}")).check()
+        page.locator('form[action$="/interoperability/export/"]').get_by_label(
+            re.compile(f"Admission .*{ADMISSION_REASON}")
+        ).check()
         page.get_by_label(re.compile("Prescription ")).check()
         page.get_by_role("button", name="Export selected XML", exact=True).click()
         expect(page.get_by_role("alert")).to_contain_text(

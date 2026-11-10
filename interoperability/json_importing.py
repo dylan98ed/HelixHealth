@@ -207,8 +207,12 @@ def parse_json_bundle(raw: bytes) -> ParsedJsonBundle:
         by_type.setdefault(kind, []).append(resource)
     if len(by_type.get("Patient", [])) != 1 or len(by_type.get("Practitioner", [])) != 1:
         raise JsonImportError("Bundle requires exactly one Patient and Practitioner.")
-    if not by_type.get("ServiceRequest") or not by_type.get("MedicationRequest"):
-        raise JsonImportError("Bundle requires ServiceRequest and MedicationRequest.")
+    if by_type.get("ServiceRequest") and not by_type.get("MedicationRequest"):
+        raise JsonImportError("ServiceRequest requires a MedicationRequest in this profile.")
+    if not by_type.get("ServiceRequest") and not by_type.get("Observation"):
+        raise JsonImportError(
+            "Bundle requires ServiceRequest with MedicationRequest or at least one Observation."
+        )
     if len(by_type.get("Organization", [])) > 1:
         raise JsonImportError("Bundle allows at most one Organization.")
     patient = by_type["Patient"][0]

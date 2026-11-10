@@ -9,6 +9,11 @@ la semana 11. Un `Bundle` de tipo `collection` debe contener un `Patient`, un
 profesionales por DNI, incluidos los registros con baja lógica, y asociarles
 correctamente las prácticas y prescripciones recibidas.
 
+La exportación de signos vitales de admisiones locales admite además un Bundle
+con `Patient`, `Practitioner` y `Observation`, con `MedicationRequest` opcional.
+Este caso cubre admisiones sin prácticas solicitadas recibidas y mantiene la
+posibilidad de descargar los mismos signos vitales que en XML.
+
 El intercambio XML existente seguirá disponible. El envío por correo, las
 capturas, la Planilla Scrum y la reflexión son entregables académicos externos a
 HelixHealth.
@@ -177,7 +182,46 @@ el segundo.
   personas y los recursos clínicos se guardan en una transacción; el resumen
   permite descargar el archivo original y repetir un envío sin duplicados.
   Los conflictos y errores de validación dejan la base sin escrituras parciales.
-- Etapas 5 y 6: pendientes.
+- Etapa 5: implementada. La ficha permite seleccionar prácticas recibidas,
+  solicitudes de medicación recibidas, recetas emitidas y observaciones JSON
+  compatibles, además de los signos vitales de admisiones locales, para un
+  mismo paciente y profesional. Se permite un Bundle de signos vitales sin
+  `ServiceRequest`, con una receta opcional, para igualar la exportación XML
+  de admisiones. La interfaz y la API
+  descargan un Bundle FHIR JSON autovalidado con IDs estables. La exportación
+  XML conserva su flujo separado.
+- Etapa 6: validación integral incorporada. Los escenarios de parser cubren
+  estructura R4, referencias, códigos, fechas, límites y unidades UCUM. Los
+  escenarios transaccionales comprueban reintentos, deduplicación de signos
+  vitales y rollback ante conflicto. El navegador recorre desde `/` el alta de
+  personas externas, su reutilización activa e inactiva después de la baja
+  visible, contradicciones de identidad y la descarga/reimportación combinada
+  con `Observation`. La ejecución completa y sus recuentos se verifican con
+  los comandos siguientes.
+
+### Verificación ejecutable
+
+Desde la raíz del repositorio, con PostgreSQL de desarrollo disponible:
+
+```powershell
+& .venv/Scripts/python.exe -m ruff check .
+& .venv/Scripts/python.exe -m mypy --no-incremental
+& .venv/Scripts/python.exe manage.py makemigrations --check --dry-run
+& .venv/Scripts/python.exe -m pytest interoperability/test_json_importing.py interoperability/test_json_services.py interoperability/test_json_exporting.py -q
+& .venv/Scripts/python.exe -m pytest -q
+uv run python .agents/skills/validate-live-app/scripts/validate_live_app.py
+```
+
+El último comando ejecuta la suite de navegador en un servidor de pruebas
+aislado y los recorridos de aceptación contra un proyecto Compose temporal con
+su propio volumen PostgreSQL. El recorrido JSON específico pertenece a la
+suite aislada; los recorridos Compose verifican las rutas generales de la
+aplicación y su persistencia. Ambos resultados se informan por separado.
+
+Resultado de cierre de la etapa, incluida la exportación JSON de signos vitales
+locales: 408 pruebas generales aprobadas; 42 pruebas
+de navegador en el servidor aislado y 31 recorridos Compose aprobados, sin
+escenarios omitidos. `ruff`, `mypy` y la comprobación de migraciones pasaron.
 
 ### Criterio de duplicados para Observation
 
