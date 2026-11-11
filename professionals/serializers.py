@@ -116,7 +116,9 @@ class ProfessionalDetailSerializer(serializers.ModelSerializer):
         return has_active_medical_professional_context(professional.user)
 
     def get_username(self, professional: Professional) -> str | None:
-        return professional.user.get_username() if professional.user is not None else None
+        return (
+            professional.user.get_username() if professional.user is not None else None
+        )
 
 
 class ProfessionalSearchResultSerializer(serializers.ModelSerializer):

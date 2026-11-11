@@ -39,7 +39,9 @@ def create_patient(
     ADMINISTRATIVE_POLICY.require(actor)
 
     if not all((phone, email, address.strip(), health_insurer.strip())):
-        raise PatientServiceError("Local patient registration requires complete contact details.")
+        raise PatientServiceError(
+            "Local patient registration requires complete contact details."
+        )
 
     existing_patient = Patient.all_objects.filter(dni=dni).first()
     if existing_patient is not None:

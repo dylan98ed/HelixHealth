@@ -63,7 +63,10 @@ def json_import_upload(request: HttpRequest) -> HttpResponse:
     retry_identifier = request.GET.get("retry")
     if retry_identifier:
         prior = get_object_or_404(JsonImportBatch, identifier=retry_identifier)
-        initial = {"request_key": prior.request_key, "source_system": prior.source_system}
+        initial = {
+            "request_key": prior.request_key,
+            "source_system": prior.source_system,
+        }
     form = JsonImportForm(request.POST or None, request.FILES or None, initial=initial)
     if request.method == "POST" and form.is_valid():
         try:
@@ -76,9 +79,16 @@ def json_import_upload(request: HttpRequest) -> HttpResponse:
         except (JsonImportError, JsonImportConflict) as error:
             form.add_error(None, str(error))
         else:
-            return redirect("interoperability:json-import-detail", identifier=result.batch.identifier)
+            return redirect(
+                "interoperability:json-import-detail",
+                identifier=result.batch.identifier,
+            )
     recent = JsonImportBatch.objects.select_related("patient", "practitioner")[:20]
-    return render(request, "interoperability/json_import_form.html", {"form": form, "recent": recent})
+    return render(
+        request,
+        "interoperability/json_import_form.html",
+        {"form": form, "recent": recent},
+    )
 
 
 @medical_professional_required
@@ -88,7 +98,9 @@ def json_import_detail(request: HttpRequest, identifier: str) -> HttpResponse:
         JsonImportBatch.objects.select_related("patient", "practitioner"),
         identifier=identifier,
     )
-    response = render(request, "interoperability/json_import_detail.html", {"batch": batch})
+    response = render(
+        request, "interoperability/json_import_detail.html", {"batch": batch}
+    )
     response["Cache-Control"] = "no-store"
     return response
 
@@ -98,7 +110,8 @@ def json_import_detail(request: HttpRequest, identifier: str) -> HttpResponse:
 def json_import_file(request: HttpRequest, identifier: str) -> FileResponse:
     batch = get_object_or_404(JsonImportBatch, identifier=identifier)
     response = FileResponse(
-        BytesIO(bytes(batch.raw_json)), as_attachment=True,
+        BytesIO(bytes(batch.raw_json)),
+        as_attachment=True,
         filename=f"import-{batch.identifier}.json",
         content_type="application/fhir+json; charset=utf-8",
     )
@@ -145,14 +158,22 @@ def _render_exchange_home(
             "patient": patient,
             "batches": batches,
             "admissions": Admission.objects.filter(patient=patient),
-            "prescriptions": Prescription.objects.filter(patient=patient).select_related("prescriber"),
+            "prescriptions": Prescription.objects.filter(
+                patient=patient
+            ).select_related("prescriber"),
             "export_error": export_error,
             "selected_admission_ids": selected_admission_ids,
             "selected_prescription_ids": selected_prescription_ids,
-            "service_requests": ImportedServiceRequest.objects.filter(patient=patient).select_related("requester"),
-            "medication_requests": ImportedMedicationRequest.objects.filter(patient=patient).select_related("requester"),
+            "service_requests": ImportedServiceRequest.objects.filter(
+                patient=patient
+            ).select_related("requester"),
+            "medication_requests": ImportedMedicationRequest.objects.filter(
+                patient=patient
+            ).select_related("requester"),
             "json_observations": ExternalClinicalRecord.objects.filter(
-                patient=patient, resource_type="Observation", content__resourceType="Observation"
+                patient=patient,
+                resource_type="Observation",
+                content__resourceType="Observation",
             ),
             "json_export_error": json_export_error,
             "selected_service_request_ids": selected_service_request_ids,
@@ -292,7 +313,9 @@ def export_selected(
 
 @medical_professional_required
 @require_http_methods(["POST"])
-def export_selected_json_file(request: HttpRequest, patient_pk: int) -> FileResponse | HttpResponse:
+def export_selected_json_file(
+    request: HttpRequest, patient_pk: int
+) -> FileResponse | HttpResponse:
     patient = _patient_or_404(patient_pk)
     selections = {
         "admission_ids": tuple(request.POST.getlist("json_admission_ids")),
@@ -309,10 +332,15 @@ def export_selected_json_file(request: HttpRequest, patient_pk: int) -> FileResp
         except JsonExportSelectionError as exc:
             error = str(exc)
         else:
-            exporter = active_professional_for_actor(actor_context_from_user(request.user))
+            exporter = active_professional_for_actor(
+                actor_context_from_user(request.user)
+            )
             response = FileResponse(
-                BytesIO(raw), as_attachment=True,
-                filename=json_export_filename(raw, student_last_name=exporter.last_name or ""),
+                BytesIO(raw),
+                as_attachment=True,
+                filename=json_export_filename(
+                    raw, student_last_name=exporter.last_name or ""
+                ),
                 content_type="application/fhir+json",
             )
             response["Cache-Control"] = "no-store"
@@ -320,11 +348,14 @@ def export_selected_json_file(request: HttpRequest, patient_pk: int) -> FileResp
     else:
         error = str(next(iter(serializer.errors.values()))[0])
     return _render_exchange_home(
-        request, patient, json_export_error=error,
+        request,
+        patient,
+        json_export_error=error,
         selected_service_request_ids=selections["service_request_ids"],
         selected_medication_request_ids=selections["medication_request_ids"],
         selected_json_prescription_ids=selections["prescription_ids"],
-        selected_observation_ids=selections["observation_ids"], status_code=400,
+        selected_observation_ids=selections["observation_ids"],
+        status_code=400,
         selected_json_admission_ids=selections["admission_ids"],
     )
 
@@ -528,7 +559,9 @@ class JsonExportAPIView(GenericAPIView):
         responses={
             (200, "application/fhir+json"): OpenApiTypes.BINARY,
             400: OpenApiResponse(description="Incomplete or incompatible selection."),
-            404: OpenApiResponse(description="A selected resource is not owned by this patient."),
+            404: OpenApiResponse(
+                description="A selected resource is not owned by this patient."
+            ),
         },
     )
     def post(self, request: Request, patient_pk: int) -> FileResponse | Response:
@@ -542,8 +575,11 @@ class JsonExportAPIView(GenericAPIView):
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         exporter = active_professional_for_actor(actor_context_from_user(request.user))
         response = FileResponse(
-            BytesIO(raw), as_attachment=True,
-            filename=json_export_filename(raw, student_last_name=exporter.last_name or ""),
+            BytesIO(raw),
+            as_attachment=True,
+            filename=json_export_filename(
+                raw, student_last_name=exporter.last_name or ""
+            ),
             content_type="application/fhir+json",
         )
         response["Cache-Control"] = "no-store"

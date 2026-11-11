@@ -43,11 +43,15 @@ def _save_observation(
     *, resource: dict, source: str, patient: Patient, practitioner: Professional
 ) -> bool:
     digest = hashlib.sha256(
-        json.dumps(resource, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        json.dumps(
+            resource, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
     ).hexdigest()
     from datetime import datetime
 
-    recorded_at = datetime.fromisoformat(resource["effectiveDateTime"].replace("Z", "+00:00"))
+    recorded_at = datetime.fromisoformat(
+        resource["effectiveDateTime"].replace("Z", "+00:00")
+    )
     record, created = ExternalClinicalRecord.objects.get_or_create(
         source_system=source,
         resource_type="Observation",
@@ -56,18 +60,28 @@ def _save_observation(
             "patient": patient,
             "kind": ExternalClinicalRecord.KIND_OBSERVATION,
             "source_recorded_at": recorded_at,
-            "external_author": {"professional_id": practitioner.pk, "dni": practitioner.dni},
+            "external_author": {
+                "professional_id": practitioner.pk,
+                "dni": practitioner.dni,
+            },
             "content": resource,
             "content_digest": digest,
         },
     )
-    if not created and (record.patient_id != patient.pk or record.content_digest != digest):
-        raise JsonImportConflict("Observation identifier already has different content or patient.")
+    if not created and (
+        record.patient_id != patient.pk or record.content_digest != digest
+    ):
+        raise JsonImportConflict(
+            "Observation identifier already has different content or patient."
+        )
     return created
 
 
 def import_json_bundle(
-    *, actor: ActorContext | None, source_system: str, request_key: UUID,
+    *,
+    actor: ActorContext | None,
+    source_system: str,
+    request_key: UUID,
     raw_json: bytes,
 ) -> JsonImportResult:
     """Validate first, then reconcile identities and persist everything atomically."""
@@ -89,7 +103,9 @@ def import_json_bundle(
             if replay is not None:
                 if replay.source_system == source and replay.input_digest == digest:
                     return JsonImportResult(replay, False)
-                raise JsonImportConflict("This request key was already used with different content.")
+                raise JsonImportConflict(
+                    "This request key was already used with different content."
+                )
             replay = JsonImportBatch.objects.filter(
                 source_system=source, input_digest=digest
             ).first()
@@ -114,27 +130,40 @@ def import_json_bundle(
             new_observations = 0
             for resource in parsed.service_requests:
                 _, created = save_imported_service_request(
-                    resource=resource, source_system=source,
-                    patient=patient, requester=practitioner,
+                    resource=resource,
+                    source_system=source,
+                    patient=patient,
+                    requester=practitioner,
                 )
                 new_services += created
             for resource in parsed.medication_requests:
                 _, created = save_imported_medication_request(
-                    resource=resource, source_system=source,
-                    patient=patient, requester=practitioner,
+                    resource=resource,
+                    source_system=source,
+                    patient=patient,
+                    requester=practitioner,
                 )
                 new_medications += created
             for resource in parsed.observations:
                 new_observations += _save_observation(
-                    resource=resource, source=source,
-                    patient=patient, practitioner=practitioner,
+                    resource=resource,
+                    source=source,
+                    patient=patient,
+                    practitioner=practitioner,
                 )
             summary = {
-                "patient": {"dni": patient.dni, "created": patient_created,
-                            "is_active": patient.is_active, "is_external": patient.is_external},
-                "practitioner": {"dni": practitioner.dni, "created": practitioner_created,
-                                 "is_active": practitioner.is_active,
-                                 "is_external": practitioner.is_external},
+                "patient": {
+                    "dni": patient.dni,
+                    "created": patient_created,
+                    "is_active": patient.is_active,
+                    "is_external": patient.is_external,
+                },
+                "practitioner": {
+                    "dni": practitioner.dni,
+                    "created": practitioner_created,
+                    "is_active": practitioner.is_active,
+                    "is_external": practitioner.is_external,
+                },
                 "service_request_count": len(parsed.service_requests),
                 "new_service_request_count": new_services,
                 "medication_request_count": len(parsed.medication_requests),
@@ -143,10 +172,15 @@ def import_json_bundle(
                 "new_observation_count": new_observations,
             }
             batch = JsonImportBatch.objects.create(
-                patient=patient, practitioner=practitioner, submitted_by=submitter,
-                source_system=source, bundle_identifier=parsed.bundle_identifier,
-                request_key=request_key, input_digest=digest,
-                raw_json=raw_json, summary=summary,
+                patient=patient,
+                practitioner=practitioner,
+                submitted_by=submitter,
+                source_system=source,
+                bundle_identifier=parsed.bundle_identifier,
+                request_key=request_key,
+                input_digest=digest,
+                raw_json=raw_json,
+                summary=summary,
             )
             return JsonImportResult(batch, True)
     except (ExternalIdentityConflict, ImportedRequestConflict) as error:
@@ -154,7 +188,11 @@ def import_json_bundle(
     except ValidationError as error:
         raise JsonImportError("; ".join(error.messages)) from error
     except IntegrityError as error:
-        replay = JsonImportBatch.objects.filter(source_system=source, input_digest=digest).first()
+        replay = JsonImportBatch.objects.filter(
+            source_system=source, input_digest=digest
+        ).first()
         if replay is not None:
             return JsonImportResult(replay, False)
-        raise JsonImportConflict("Concurrent import conflicts with existing clinical data.") from error
+        raise JsonImportConflict(
+            "Concurrent import conflicts with existing clinical data."
+        ) from error

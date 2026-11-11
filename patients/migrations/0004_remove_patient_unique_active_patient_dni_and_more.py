@@ -7,48 +7,61 @@ import patients.validators
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('patients', '0003_defer_clinical_record_generation'),
+        ("patients", "0003_defer_clinical_record_generation"),
     ]
 
     operations = [
         migrations.RemoveConstraint(
-            model_name='patient',
-            name='unique_active_patient_dni',
+            model_name="patient",
+            name="unique_active_patient_dni",
         ),
         migrations.AddField(
-            model_name='patient',
-            name='created_at',
-            field=models.DateTimeField(default=django.utils.timezone.now, editable=False),
+            model_name="patient",
+            name="created_at",
+            field=models.DateTimeField(
+                default=django.utils.timezone.now, editable=False
+            ),
         ),
         migrations.AddField(
-            model_name='patient',
-            name='is_external',
+            model_name="patient",
+            name="is_external",
             field=models.BooleanField(default=False, editable=False),
         ),
         migrations.AlterField(
-            model_name='patient',
-            name='address',
-            field=models.TextField(blank=True, validators=[patients.validators.validate_not_blank]),
+            model_name="patient",
+            name="address",
+            field=models.TextField(
+                blank=True, validators=[patients.validators.validate_not_blank]
+            ),
         ),
         migrations.AlterField(
-            model_name='patient',
-            name='email',
+            model_name="patient",
+            name="email",
             field=models.EmailField(blank=True, max_length=254),
         ),
         migrations.AlterField(
-            model_name='patient',
-            name='health_insurer',
-            field=models.CharField(blank=True, max_length=150, validators=[patients.validators.validate_not_blank]),
+            model_name="patient",
+            name="health_insurer",
+            field=models.CharField(
+                blank=True,
+                max_length=150,
+                validators=[patients.validators.validate_not_blank],
+            ),
         ),
         migrations.AlterField(
-            model_name='patient',
-            name='phone',
-            field=models.CharField(blank=True, max_length=32, validators=[patients.validators.validate_phone]),
+            model_name="patient",
+            name="phone",
+            field=models.CharField(
+                blank=True,
+                max_length=32,
+                validators=[patients.validators.validate_phone],
+            ),
         ),
         migrations.AddConstraint(
-            model_name='patient',
-            constraint=models.UniqueConstraint(fields=('dni',), name='unique_patient_dni'),
+            model_name="patient",
+            constraint=models.UniqueConstraint(
+                fields=("dni",), name="unique_patient_dni"
+            ),
         ),
     ]

@@ -162,7 +162,9 @@ class ImportedMedicationRequest(models.Model):
         Patient, on_delete=models.PROTECT, related_name="imported_medication_requests"
     )
     requester = models.ForeignKey(
-        Professional, on_delete=models.PROTECT, related_name="imported_medication_requests"
+        Professional,
+        on_delete=models.PROTECT,
+        related_name="imported_medication_requests",
     )
     source_system = models.URLField(max_length=500)
     external_identifier = models.CharField(max_length=255)
@@ -202,7 +204,9 @@ class JsonImportBatch(models.Model):
         Professional, on_delete=models.PROTECT, related_name="json_import_batches"
     )
     submitted_by = models.ForeignKey(
-        Professional, on_delete=models.PROTECT, related_name="submitted_json_import_batches"
+        Professional,
+        on_delete=models.PROTECT,
+        related_name="submitted_json_import_batches",
     )
     source_system = models.URLField(max_length=500)
     bundle_identifier = models.CharField(max_length=500)

@@ -43,21 +43,36 @@ def test_new_imported_people_are_marked_and_have_no_login() -> None:
 @pytest.mark.django_db
 def test_inactive_people_are_reused_without_reactivation_or_origin_change() -> None:
     patient = Patient.all_objects.create(
-        dni="12345678", first_name="Alex", last_name="Pérez",
-        date_of_birth=date(1990, 1, 15), sex="U", phone="",
-        email="", address="", health_insurer="", is_active=False,
+        dni="12345678",
+        first_name="Alex",
+        last_name="Pérez",
+        date_of_birth=date(1990, 1, 15),
+        sex="U",
+        phone="",
+        email="",
+        address="",
+        health_insurer="",
+        is_active=False,
     )
     professional = Professional.objects.create(
-        dni="23456789", first_name="Patricia", last_name="Gómez",
-        license_number="MN 12345", is_active=False,
+        dni="23456789",
+        first_name="Patricia",
+        last_name="Gómez",
+        license_number="MN 12345",
+        is_active=False,
     )
 
     found_patient, new_patient = resolve_imported_patient(
-        dni=patient.dni, first_name="Another", last_name="Name",
-        date_of_birth=patient.date_of_birth, gender="unknown",
+        dni=patient.dni,
+        first_name="Another",
+        last_name="Name",
+        date_of_birth=patient.date_of_birth,
+        gender="unknown",
     )
     found_professional, new_professional = resolve_imported_professional(
-        dni=professional.dni, first_name="Another", last_name="Name",
+        dni=professional.dni,
+        first_name="Another",
+        last_name="Name",
         license_number="MN 12345",
     )
 
@@ -72,11 +87,16 @@ def test_inactive_people_are_reused_without_reactivation_or_origin_change() -> N
 @pytest.mark.django_db
 def test_conflicts_leave_one_identity_and_database_prevents_dni_reuse() -> None:
     patient, _ = resolve_imported_patient(
-        dni="12345678", first_name="Alex", last_name="Pérez",
-        date_of_birth=date(1990, 1, 15), gender="unknown",
+        dni="12345678",
+        first_name="Alex",
+        last_name="Pérez",
+        date_of_birth=date(1990, 1, 15),
+        gender="unknown",
     )
     professional, _ = resolve_imported_professional(
-        dni="23456789", first_name="Patricia", last_name="Gómez",
+        dni="23456789",
+        first_name="Patricia",
+        last_name="Gómez",
         license_number="MN 12345",
     )
     patient.is_active = False
@@ -86,18 +106,26 @@ def test_conflicts_leave_one_identity_and_database_prevents_dni_reuse() -> None:
 
     with pytest.raises(ExternalIdentityConflict, match="birth date"):
         resolve_imported_patient(
-            dni=patient.dni, first_name="Alex", last_name="Pérez",
-            date_of_birth=date(1991, 1, 15), gender="unknown",
+            dni=patient.dni,
+            first_name="Alex",
+            last_name="Pérez",
+            date_of_birth=date(1991, 1, 15),
+            gender="unknown",
         )
     with pytest.raises(ExternalIdentityConflict, match="license number"):
         resolve_imported_professional(
-            dni=professional.dni, first_name="Patricia", last_name="Gómez",
+            dni=professional.dni,
+            first_name="Patricia",
+            last_name="Gómez",
             license_number="MN 99999",
         )
     with pytest.raises(IntegrityError), transaction.atomic():
         Patient.all_objects.create(
-            dni=patient.dni, first_name="Duplicate", last_name="Patient",
-            date_of_birth=patient.date_of_birth, sex="U",
+            dni=patient.dni,
+            first_name="Duplicate",
+            last_name="Patient",
+            date_of_birth=patient.date_of_birth,
+            sex="U",
         )
     with pytest.raises(IntegrityError), transaction.atomic():
         Professional.objects.create(dni=professional.dni)

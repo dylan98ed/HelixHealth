@@ -23,7 +23,14 @@ from interoperability.limits import MAX_BUNDLE_BYTES, MAX_BUNDLE_ENTRIES
 MAX_JSON_DEPTH = 64
 UCUM_SYSTEM = "http://unitsofmeasure.org"
 LOINC_SYSTEM = "http://loinc.org"
-ALLOWED_TYPES = {"Patient", "Practitioner", "ServiceRequest", "MedicationRequest", "Observation", "Organization"}
+ALLOWED_TYPES = {
+    "Patient",
+    "Practitioner",
+    "ServiceRequest",
+    "MedicationRequest",
+    "Observation",
+    "Organization",
+}
 
 
 class JsonImportError(ValueError):
@@ -95,8 +102,10 @@ def _dni(resource: dict[str, Any], label: str) -> str:
     if not isinstance(identifiers, list):
         raise JsonImportError(f"{label}.identifier must contain one DNI.")
     values = [
-        item.get("value") for item in identifiers
-        if isinstance(item, dict) and isinstance(item.get("value"), str)
+        item.get("value")
+        for item in identifiers
+        if isinstance(item, dict)
+        and isinstance(item.get("value"), str)
         and re.fullmatch(r"[0-9]{7,8}", item["value"])
     ]
     if len(values) != 1:
@@ -121,13 +130,17 @@ def _license(practitioner: dict[str, Any]) -> str:
         raise JsonImportError("Practitioner.qualification must be a list.")
     values = [
         identifier.get("value")
-        for qualification in qualifications if isinstance(qualification, dict)
+        for qualification in qualifications
+        if isinstance(qualification, dict)
         for identifier in (qualification.get("identifier") or [])
-        if isinstance(identifier, dict) and isinstance(identifier.get("value"), str)
+        if isinstance(identifier, dict)
+        and isinstance(identifier.get("value"), str)
         and identifier["value"].strip()
     ]
     if len(values) != 1:
-        raise JsonImportError("Practitioner must contain exactly one license identifier.")
+        raise JsonImportError(
+            "Practitioner must contain exactly one license identifier."
+        )
     return str(values[0]).strip()
 
 
@@ -143,8 +156,13 @@ def _observation(resource: dict[str, Any]) -> None:
     _timestamp(resource.get("effectiveDateTime"), "Observation.effectiveDateTime")
     if code == "85354-9":
         components = resource.get("component") or []
-        if sorted((item.get("code") or {}).get("coding", [{}])[0].get("code") for item in components) != sorted(VITAL_CODES[code]):
-            raise JsonImportError("Blood pressure requires systolic and diastolic components.")
+        if sorted(
+            (item.get("code") or {}).get("coding", [{}])[0].get("code")
+            for item in components
+        ) != sorted(VITAL_CODES[code]):
+            raise JsonImportError(
+                "Blood pressure requires systolic and diastolic components."
+            )
         quantities = [item.get("valueQuantity") for item in components]
     else:
         if resource.get("component"):
@@ -153,7 +171,10 @@ def _observation(resource: dict[str, Any]) -> None:
     for quantity in quantities:
         if not isinstance(quantity, dict) or quantity.get("value") is None:
             raise JsonImportError("Observation requires a valueQuantity.")
-        if quantity.get("system") != UCUM_SYSTEM or quantity.get("code") != VITAL_UNITS[code]:
+        if (
+            quantity.get("system") != UCUM_SYSTEM
+            or quantity.get("code") != VITAL_UNITS[code]
+        ):
             raise JsonImportError("Observation requires the documented UCUM unit.")
 
 
@@ -162,7 +183,9 @@ def parse_json_bundle(raw: bytes) -> ParsedJsonBundle:
     if not raw or len(raw) > MAX_BUNDLE_BYTES:
         raise JsonImportError("FHIR JSON files must be between 1 byte and 2 MiB.")
     try:
-        bundle = json.loads(raw.decode("utf-8-sig"), object_pairs_hook=_object_no_duplicates)
+        bundle = json.loads(
+            raw.decode("utf-8-sig"), object_pairs_hook=_object_no_duplicates
+        )
     except (UnicodeDecodeError, ValueError, RecursionError) as error:
         if isinstance(error, JsonImportError):
             raise
@@ -172,7 +195,11 @@ def parse_json_bundle(raw: bytes) -> ParsedJsonBundle:
     if bundle.get("resourceType") != "Bundle" or bundle.get("type") != "collection":
         raise JsonImportError("A FHIR collection Bundle is required.")
     entries = bundle.get("entry")
-    if not isinstance(entries, list) or not entries or len(entries) > MAX_BUNDLE_ENTRIES:
+    if (
+        not isinstance(entries, list)
+        or not entries
+        or len(entries) > MAX_BUNDLE_ENTRIES
+    ):
         raise JsonImportError(f"Bundle must contain 1 to {MAX_BUNDLE_ENTRIES} entries.")
     try:
         Bundle.parse_obj(bundle)
@@ -186,10 +213,17 @@ def parse_json_bundle(raw: bytes) -> ParsedJsonBundle:
     by_type: dict[str, list[dict[str, Any]]] = {}
     references: dict[str, dict[str, Any]] = {}
     for entry in entries:
-        if not isinstance(entry, dict) or any(key in entry for key in ("request", "search", "response")):
-            raise JsonImportError("Bundle entries cannot contain request, search or response.")
+        if not isinstance(entry, dict) or any(
+            key in entry for key in ("request", "search", "response")
+        ):
+            raise JsonImportError(
+                "Bundle entries cannot contain request, search or response."
+            )
         resource = entry.get("resource")
-        if not isinstance(resource, dict) or resource.get("resourceType") not in ALLOWED_TYPES:
+        if (
+            not isinstance(resource, dict)
+            or resource.get("resourceType") not in ALLOWED_TYPES
+        ):
             raise JsonImportError("Bundle contains an unsupported resource type.")
         kind = resource["resourceType"]
         identifier_value = _text(resource.get("id"), f"{kind}.id")
@@ -199,16 +233,23 @@ def parse_json_bundle(raw: bytes) -> ParsedJsonBundle:
         try:
             UUID(full_url.removeprefix("urn:uuid:"))
         except ValueError as error:
-            raise JsonImportError("Bundle.entry.fullUrl must contain a UUID.") from error
+            raise JsonImportError(
+                "Bundle.entry.fullUrl must contain a UUID."
+            ) from error
         for reference in (full_url, f"{kind}/{identifier_value}"):
             if reference in references:
                 raise JsonImportError("Bundle entry identities must be unique.")
             references[reference] = resource
         by_type.setdefault(kind, []).append(resource)
-    if len(by_type.get("Patient", [])) != 1 or len(by_type.get("Practitioner", [])) != 1:
+    if (
+        len(by_type.get("Patient", [])) != 1
+        or len(by_type.get("Practitioner", [])) != 1
+    ):
         raise JsonImportError("Bundle requires exactly one Patient and Practitioner.")
     if by_type.get("ServiceRequest") and not by_type.get("MedicationRequest"):
-        raise JsonImportError("ServiceRequest requires a MedicationRequest in this profile.")
+        raise JsonImportError(
+            "ServiceRequest requires a MedicationRequest in this profile."
+        )
     if not by_type.get("ServiceRequest") and not by_type.get("Observation"):
         raise JsonImportError(
             "Bundle requires ServiceRequest with MedicationRequest or at least one Observation."
@@ -234,7 +275,9 @@ def parse_json_bundle(raw: bytes) -> ParsedJsonBundle:
     def target(resource: dict[str, Any], field: str, expected: dict[str, Any]) -> None:
         reference = (resource.get(field) or {}).get("reference")
         if not isinstance(reference, str) or references.get(reference) is not expected:
-            raise JsonImportError(f"{resource['resourceType']}.{field} must reference the Bundle {expected['resourceType']}.")
+            raise JsonImportError(
+                f"{resource['resourceType']}.{field} must reference the Bundle {expected['resourceType']}."
+            )
 
     for resource in by_type.get("ServiceRequest", []):
         target(resource, "subject", patient)
@@ -242,26 +285,38 @@ def parse_json_bundle(raw: bytes) -> ParsedJsonBundle:
         try:
             validate_service_request_resource(resource)
         except ValidationError as error:
-            raise JsonImportError("Invalid ServiceRequest: " + "; ".join(error.messages)) from error
+            raise JsonImportError(
+                "Invalid ServiceRequest: " + "; ".join(error.messages)
+            ) from error
     for resource in by_type.get("MedicationRequest", []):
         target(resource, "subject", patient)
         target(resource, "requester", practitioner)
         try:
             validate_medication_request_resource(resource)
         except ValidationError as error:
-            raise JsonImportError("Invalid MedicationRequest: " + "; ".join(error.messages)) from error
+            raise JsonImportError(
+                "Invalid MedicationRequest: " + "; ".join(error.messages)
+            ) from error
     for resource in by_type.get("Observation", []):
         target(resource, "subject", patient)
         if resource.get("performer"):
             for performer in resource["performer"]:
-                target({"resourceType": "Observation", "performer": performer}, "performer", practitioner)
+                target(
+                    {"resourceType": "Observation", "performer": performer},
+                    "performer",
+                    practitioner,
+                )
         _observation(resource)
     return ParsedJsonBundle(
         bundle_identifier=bundle_identifier,
-        patient=patient, practitioner=practitioner,
-        patient_dni=patient_dni, patient_first_name=patient_first,
-        patient_last_name=patient_last, patient_birth_date=birth_date,
-        patient_gender=gender, practitioner_dni=practitioner_dni,
+        patient=patient,
+        practitioner=practitioner,
+        patient_dni=patient_dni,
+        patient_first_name=patient_first,
+        patient_last_name=patient_last,
+        patient_birth_date=birth_date,
+        patient_gender=gender,
+        practitioner_dni=practitioner_dni,
         practitioner_first_name=practitioner_first,
         practitioner_last_name=practitioner_last,
         practitioner_license=license_number,

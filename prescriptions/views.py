@@ -79,14 +79,19 @@ def prescription_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
         PRESCRIPTIONS_PER_PAGE,
     ).get_page(request.GET.get("page"))
     imported_medications = Paginator(
-        ImportedMedicationRequest.objects.filter(patient=patient).select_related("requester"),
+        ImportedMedicationRequest.objects.filter(patient=patient).select_related(
+            "requester"
+        ),
         PRESCRIPTIONS_PER_PAGE,
     ).get_page(request.GET.get("medications_page"))
     return render(
         request,
         "prescriptions/list.html",
-        {"patient": patient, "prescriptions": prescriptions,
-         "imported_medications": imported_medications},
+        {
+            "patient": patient,
+            "prescriptions": prescriptions,
+            "imported_medications": imported_medications,
+        },
     )
 
 

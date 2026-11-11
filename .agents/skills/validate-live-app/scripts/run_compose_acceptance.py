@@ -198,9 +198,7 @@ def main() -> int:
         page.get_by_role("link", name="Record admission").click()
         expect(page.get_by_role("heading", name="Patient admission")).to_be_visible()
         expect(page.get_by_role("link", name="Medical images")).to_have_count(0)
-        page.get_by_label("Consultation reason").fill(
-            ADMINISTRATIVE_ADMISSION_REASON
-        )
+        page.get_by_label("Consultation reason").fill(ADMINISTRATIVE_ADMISSION_REASON)
         page.get_by_label("Systolic blood pressure").fill("251")
         page.get_by_label("Heart rate").fill("72")
         page.get_by_label("Temperature").fill("36.7")

@@ -76,10 +76,7 @@ def resolve_imported_professional(
     )
     if created:
         professional.full_clean()
-    elif (
-        professional.license_number
-        and professional.license_number != license_number
-    ):
+    elif professional.license_number and professional.license_number != license_number:
         raise ExternalIdentityConflict(
             "Practitioner DNI matches but license number differs."
         )

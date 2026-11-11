@@ -34,8 +34,14 @@ class JsonImportForm(forms.Form):
         if not value.name.lower().endswith(".json"):
             raise forms.ValidationError("Choose a .json file.")
         content_type = (value.content_type or "").split(";", 1)[0]
-        if content_type not in {"application/fhir+json", "application/json", "application/octet-stream"}:
+        if content_type not in {
+            "application/fhir+json",
+            "application/json",
+            "application/octet-stream",
+        }:
             raise forms.ValidationError("Upload a JSON file.")
         if not 0 < value.size <= MAX_IMPORT_BYTES:
-            raise forms.ValidationError("FHIR JSON files must be between 1 byte and 2 MiB.")
+            raise forms.ValidationError(
+                "FHIR JSON files must be between 1 byte and 2 MiB."
+            )
         return value

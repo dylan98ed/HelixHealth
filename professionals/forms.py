@@ -46,7 +46,9 @@ class ProfessionalRegistrationForm(forms.Form):
         super().__init__(*args, **kwargs)
         if professional is not None:
             self.initial.update(
-                username=professional.user.get_username() if professional.user is not None else "",
+                username=professional.user.get_username()
+                if professional.user is not None
+                else "",
                 dni=professional.dni,
                 license_number=professional.license_number,
                 first_name=professional.first_name,

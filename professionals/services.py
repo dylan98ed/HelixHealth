@@ -303,7 +303,11 @@ def reactivate_professional(
         .select_related("user", "specialty", "hospital_service")
         .get(pk=professional.pk)
     )
-    if not profile.is_registration_complete or profile.user is None or not profile.user.is_active:
+    if (
+        not profile.is_registration_complete
+        or profile.user is None
+        or not profile.user.is_active
+    ):
         raise ValidationError(
             {"__all__": "Profile and account must be eligible for reactivation."}
         )

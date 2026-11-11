@@ -43,7 +43,9 @@ def assign_care_relationship(
     dni = canonicalize_professional_dni(professional_dni)
     candidate = (
         Professional.objects.filter(
-            dni=dni, is_active=True, registration_completed_at__isnull=False,
+            dni=dni,
+            is_active=True,
+            registration_completed_at__isnull=False,
             user__isnull=False,
         )
         .order_by("pk")

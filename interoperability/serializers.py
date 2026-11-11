@@ -70,7 +70,9 @@ class JsonExportRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        has_medication = bool(attrs["medication_request_ids"] or attrs["prescription_ids"])
+        has_medication = bool(
+            attrs["medication_request_ids"] or attrs["prescription_ids"]
+        )
         has_observations = bool(attrs["admission_ids"] or attrs["observation_ids"])
         if (attrs["service_request_ids"] and not has_medication) or (
             not attrs["service_request_ids"] and not has_observations
@@ -79,10 +81,14 @@ class JsonExportRequestSerializer(serializers.Serializer):
                 "Select a requested procedure with medication, or at least one vital-sign observation."
             )
         if sum(len(values) for values in attrs.values()) + 2 > 500:
-            raise serializers.ValidationError("A Bundle may contain at most 500 entries.")
+            raise serializers.ValidationError(
+                "A Bundle may contain at most 500 entries."
+            )
         for values in attrs.values():
             if len(values) != len(set(values)):
-                raise serializers.ValidationError("Each clinical record may be selected once.")
+                raise serializers.ValidationError(
+                    "Each clinical record may be selected once."
+                )
         return attrs
 
 

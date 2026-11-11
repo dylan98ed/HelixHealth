@@ -32,15 +32,33 @@ def validate_medication_request_resource(resource: dict[str, Any]) -> None:
     """Validate medication directions before an import transaction begins."""
     _identity(resource, "https://validation.example", "MedicationRequest")
     _shared(resource, medication=True)
-    _coding(resource.get("medicationCodeableConcept"), "medicationCodeableConcept", required=False)
+    _coding(
+        resource.get("medicationCodeableConcept"),
+        "medicationCodeableConcept",
+        required=False,
+    )
     instructions = resource.get("dosageInstruction")
-    if not isinstance(instructions, list) or not instructions or not all(isinstance(item, dict) and isinstance(item.get("text"), str) and item["text"].strip() for item in instructions):
+    if (
+        not isinstance(instructions, list)
+        or not instructions
+        or not all(
+            isinstance(item, dict)
+            and isinstance(item.get("text"), str)
+            and item["text"].strip()
+            for item in instructions
+        )
+    ):
         raise ValidationError("dosageInstruction requires text directions.")
     dispense = resource.get("dispenseRequest") or {}
-    if not isinstance(dispense, dict) or (dispense.get("quantity") is not None and not isinstance(dispense["quantity"], dict)):
+    if not isinstance(dispense, dict) or (
+        dispense.get("quantity") is not None
+        and not isinstance(dispense["quantity"], dict)
+    ):
         raise ValidationError("dispenseRequest.quantity must be an object.")
     notes = resource.get("note") or []
-    if not isinstance(notes, list) or not all(isinstance(note, dict) and isinstance(note.get("text"), str) for note in notes):
+    if not isinstance(notes, list) or not all(
+        isinstance(note, dict) and isinstance(note.get("text"), str) for note in notes
+    ):
         raise ValidationError("note must be a list of text annotations.")
 
 

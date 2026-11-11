@@ -172,7 +172,11 @@ class Professional(models.Model):
         """A safe list label for complete and incomplete legacy profiles."""
         if self.first_name and self.last_name:
             return f"{self.last_name}, {self.first_name}"
-        return self.user.get_username() if self.user is not None else "Imported professional"
+        return (
+            self.user.get_username()
+            if self.user is not None
+            else "Imported professional"
+        )
 
     @property
     def registration_status(self) -> str:

@@ -13,7 +13,12 @@ def has_active_medical_professional_context(
     user: AbstractBaseUser | AnonymousUser | None,
 ) -> bool:
     """Return whether the user has a current, completed clinical identity."""
-    if user is None or not user.is_authenticated or not user.is_active or user.pk is None:
+    if (
+        user is None
+        or not user.is_authenticated
+        or not user.is_active
+        or user.pk is None
+    ):
         return False
 
     actor = actor_context_from_user(user)

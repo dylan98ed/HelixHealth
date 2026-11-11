@@ -29,7 +29,10 @@ def test_independent_json_bundle_is_r4_and_has_required_resources() -> None:
         for entry, resource in zip(entries, resources, strict=True)
     }
     targets.update(
-        {f'{resource["resourceType"]}/{resource["id"]}': resource for resource in resources}
+        {
+            f"{resource['resourceType']}/{resource['id']}": resource
+            for resource in resources
+        }
     )
     for resource in resources[2:]:
         assert targets[resource["subject"]["reference"]]["resourceType"] == "Patient"
@@ -48,6 +51,7 @@ def test_unresolved_reference_fixture_is_r4_but_violates_local_contract() -> Non
 def test_ambiguous_dni_fixture_is_r4_but_violates_local_contract() -> None:
     entries = _entries("invalid-ambiguous-dni.json")
     patient = entries[0]["resource"]
-    assert sum(
-        identifier["value"] == "12345678" for identifier in patient["identifier"]
-    ) == 2
+    assert (
+        sum(identifier["value"] == "12345678" for identifier in patient["identifier"])
+        == 2
+    )

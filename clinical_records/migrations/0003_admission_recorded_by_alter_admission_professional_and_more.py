@@ -6,27 +6,45 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('clinical_records', '0002_carerelationship'),
-        ('patients', '0003_defer_clinical_record_generation'),
-        ('professionals', '0007_specialty_unique_specialty_name_case_insensitive'),
+        ("clinical_records", "0002_carerelationship"),
+        ("patients", "0003_defer_clinical_record_generation"),
+        ("professionals", "0007_specialty_unique_specialty_name_case_insensitive"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='admission',
-            name='recorded_by',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='recorded_admissions', to=settings.AUTH_USER_MODEL),
+            model_name="admission",
+            name="recorded_by",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="recorded_admissions",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.AlterField(
-            model_name='admission',
-            name='professional',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='admissions', to='professionals.professional'),
+            model_name="admission",
+            name="professional",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="admissions",
+                to="professionals.professional",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='admission',
-            constraint=models.CheckConstraint(condition=models.Q(('professional__isnull', False), ('recorded_by__isnull', False), _connector='OR'), name='admission_has_recorder'),
+            model_name="admission",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("professional__isnull", False),
+                    ("recorded_by__isnull", False),
+                    _connector="OR",
+                ),
+                name="admission_has_recorder",
+            ),
         ),
     ]
