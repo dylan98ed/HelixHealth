@@ -156,10 +156,20 @@ def _observation(resource: dict[str, Any]) -> None:
     _timestamp(resource.get("effectiveDateTime"), "Observation.effectiveDateTime")
     if code == "85354-9":
         components = resource.get("component") or []
-        if sorted(
-            (item.get("code") or {}).get("coding", [{}])[0].get("code")
-            for item in components
-        ) != sorted(VITAL_CODES[code]):
+        component_codes = []
+        for item in components:
+            component_coding = (item.get("code") or {}).get("coding") or []
+            if len(component_coding) != 1:
+                raise JsonImportError(
+                    "Blood pressure requires systolic and diastolic components."
+                )
+            component_code = component_coding[0].get("code")
+            if component_code not in VITAL_CODES[code]:
+                raise JsonImportError(
+                    "Blood pressure requires systolic and diastolic components."
+                )
+            component_codes.append(component_code)
+        if sorted(component_codes) != sorted(VITAL_CODES[code]):
             raise JsonImportError(
                 "Blood pressure requires systolic and diastolic components."
             )

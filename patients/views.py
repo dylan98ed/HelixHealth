@@ -31,7 +31,7 @@ from patients.serializers import (
 )
 from patients.services import (
     DeactivationConfirmationRequiredError,
-    DuplicateActivePatientDNIError,
+    DuplicatePatientDNIError,
     create_patient,
     deactivate_patient,
     lookup_active_patient_by_dni,
@@ -88,7 +88,7 @@ def patient_registration(request: HttpRequest) -> HttpResponse:
         actor = actor_context_from_user(request.user)
         try:
             patient = create_patient(actor=actor, **form.cleaned_data)
-        except DuplicateActivePatientDNIError as error:
+        except DuplicatePatientDNIError as error:
             existing_patient = error.patient
             form.add_error("dni", str(error))
         else:
@@ -102,7 +102,7 @@ def patient_registration(request: HttpRequest) -> HttpResponse:
 
     if request.method == "POST" and existing_patient is None:
         submitted_dni = request.POST.get("dni", "")
-        existing_patient = Patient.objects.filter(dni=submitted_dni).first()
+        existing_patient = Patient.all_objects.filter(dni=submitted_dni).first()
 
     context = {"form": form, "existing_patient": existing_patient}
     if is_htmx(request) and request.method == "POST":
@@ -236,7 +236,7 @@ class PatientCreateAPIView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         try:
             patient = serializer.save()
-        except DuplicateActivePatientDNIError as error:
+        except DuplicatePatientDNIError as error:
             return Response(
                 {
                     "dni": [str(error)],

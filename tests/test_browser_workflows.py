@@ -22,15 +22,7 @@ from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROU
 from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission, CareRelationship
 from imaging.models import AnonymizedImage
-from interoperability.clinical_requests import (
-    save_imported_medication_request,
-    save_imported_service_request,
-)
 from interoperability.fhir_validation import validate_fhir_r4_bundle
-from interoperability.identity import (
-    resolve_imported_patient,
-    resolve_imported_professional,
-)
 from interoperability.json_importing import parse_json_bundle
 from interoperability.models import (
     ExternalClinicalRecord,
@@ -48,6 +40,25 @@ from tests.catalog_journeys import import_catalog_and_verify_retries
 from tests.professional_journeys import fill_professional_registration
 
 TEST_PASSWORD = "Browser-test-password-2026!"
+FHIR_JSON_FIXTURE = Path(
+    "docs/interoperability/fhir-r4/json-v2/fixtures/independent-valid-bundle.json"
+)
+
+
+def upload_fhir_json(
+    page: Page, document: dict, *, filename: str = "import.json"
+) -> None:
+    page.get_by_role("link", name="Import FHIR JSON", exact=True).click()
+    page.get_by_label("Source organization system").fill("https://partner.example")
+    page.get_by_label("FHIR JSON file").set_input_files(
+        {
+            "name": filename,
+            "mimeType": "application/fhir+json",
+            "buffer": json.dumps(document).encode(),
+        }
+    )
+    page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+    expect(page.get_by_role("heading", name="FHIR JSON import")).to_be_visible()
 
 
 @pytest.mark.browser
@@ -103,6 +114,28 @@ def test_json_import_reuses_active_then_inactive_people_from_visible_workflows(
             admin.get_by_role("link", name="Deactivate patient").click()
             admin.get_by_label("I confirm this patient should be deactivated.").check()
             admin.get_by_role("button", name="Deactivate patient").click()
+            expect(admin.get_by_text("Inactive", exact=True)).to_be_visible()
+
+            admin.get_by_role("link", name="Patient search", exact=True).click()
+            admin.get_by_label("DNI").fill("12345678")
+            admin.get_by_role("button", name="Search patient").click()
+            expect(
+                admin.get_by_text("No patient matches DNI 12345678.")
+            ).to_be_visible()
+            admin.get_by_role("link", name="Register a new patient").click()
+            admin.get_by_label("First name").fill("Alex")
+            admin.get_by_label("Last name").fill("Pérez")
+            admin.get_by_label("Date of birth").fill("1990-01-15")
+            admin.get_by_label("Sex").fill("unspecified")
+            admin.get_by_label("Phone").fill("+54 11 5555-0101")
+            admin.get_by_label("Email").fill("alex@example.test")
+            admin.get_by_label("Address").fill("123 Test Street")
+            admin.get_by_label("Health insurer").fill("Test Health")
+            admin.get_by_role("button", name="Register patient").click()
+            expect(
+                admin.get_by_text("An inactive patient with this DNI already exists.")
+            ).to_be_visible()
+            admin.get_by_role("link", name="Open the existing patient record").click()
             expect(admin.get_by_text("Inactive", exact=True)).to_be_visible()
 
             admin.get_by_role("link", name="Professionals", exact=True).click()
@@ -173,6 +206,7 @@ def test_json_import_reuses_active_then_inactive_people_from_visible_workflows(
                 ImportedServiceRequest.objects.filter(patient=patient).count(),
                 ImportedMedicationRequest.objects.filter(patient=patient).count(),
                 JsonImportBatch.objects.filter(patient=patient).count(),
+                Patient.all_objects.filter(dni="12345678").count(),
             )
         finally:
             connections.close_all()
@@ -189,6 +223,7 @@ def test_json_import_reuses_active_then_inactive_people_from_visible_workflows(
             1,
             1,
             3,
+            1,
         )
 
 
@@ -340,6 +375,40 @@ def test_doctor_imports_new_people_and_requests_from_fhir_json(
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             assert executor.submit(no_partial_state).result() == (0, 0)
+        malformed_observation = json.loads(raw)
+        malformed_observation["entry"].append(
+            {
+                "fullUrl": "urn:uuid:50000000-0000-4000-8000-000000000002",
+                "resource": {
+                    "resourceType": "Observation",
+                    "id": "blood-pressure-empty-coding",
+                    "status": "final",
+                    "code": {
+                        "coding": [{"system": "http://loinc.org", "code": "85354-9"}]
+                    },
+                    "subject": malformed_observation["entry"][2]["resource"]["subject"],
+                    "effectiveDateTime": "2026-10-27T14:30:00Z",
+                    "component": [
+                        {"code": {"coding": []}, "valueQuantity": {"value": 120}},
+                        {
+                            "code": {"coding": [{"code": "8462-4"}]},
+                            "valueQuantity": {"value": 80},
+                        },
+                    ],
+                },
+            }
+        )
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "empty-component-coding.json",
+                "mimeType": "application/fhir+json",
+                "buffer": json.dumps(malformed_observation).encode(),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(page.get_by_text("Blood pressure requires", exact=False)).to_be_visible()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(no_partial_state).result() == (0, 0)
         page.get_by_label("FHIR JSON file").set_input_files(
             {
                 "name": "independent-valid-bundle.json",
@@ -429,54 +498,16 @@ def test_medical_professional_reviews_received_requests_from_patient_search(
     live_server,
     browser_page,
 ):
-    """Stage 3 read workflow after an import; upload is introduced in stage 4."""
-    fixture_path = (
-        Path(__file__).resolve().parents[1]
-        / "docs/interoperability/fhir-r4/json-v2/fixtures/independent-valid-bundle.json"
-    )
-    import json
-
-    resources = json.loads(fixture_path.read_text(encoding="utf-8"))["entry"]
-
-    def provision_received_requests():
-        try:
-            patient, _ = resolve_imported_patient(
-                dni="12345678",
-                first_name="Alex",
-                last_name="Pérez",
-                date_of_birth=date(1990, 1, 15),
-                gender="unknown",
-            )
-            requester, _ = resolve_imported_professional(
-                dni="23456789",
-                first_name="Patricia",
-                last_name="Gómez",
-                license_number="MN 12345",
-            )
-            save_imported_service_request(
-                resource=resources[2]["resource"],
-                source_system="https://partner.example",
-                patient=patient,
-                requester=requester,
-            )
-            save_imported_medication_request(
-                resource=resources[3]["resource"],
-                source_system="https://partner.example",
-                patient=patient,
-                requester=requester,
-            )
-            return patient.pk
-        finally:
-            connections.close_all()
-
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        patient_pk = executor.submit(provision_received_requests).result()
+    """A doctor imports requests, then finds them through patient search."""
+    document = json.loads(FHIR_JSON_FIXTURE.read_text(encoding="utf-8"))
     login_through_application(
         browser_page,
         live_server.url,
         username=browser_medical_professional.username,
         password=TEST_PASSWORD,
     )
+    upload_fhir_json(browser_page, document)
+    browser_page.get_by_role("link", name="Clinical workspace", exact=True).click()
     browser_page.get_by_label("Name or surname").fill("Alex Pérez")
     browser_page.get_by_role("link", name="Record admission for Alex Pérez").click()
     expect(
@@ -504,16 +535,18 @@ def test_medical_professional_reviews_received_requests_from_patient_search(
 
     def persisted_counts():
         try:
+            patient = Patient.objects.get(dni="12345678")
             return (
-                ImportedServiceRequest.objects.filter(patient_id=patient_pk).count(),
-                ImportedMedicationRequest.objects.filter(patient_id=patient_pk).count(),
-                Prescription.objects.filter(patient_id=patient_pk).count(),
+                ImportedServiceRequest.objects.filter(patient=patient).count(),
+                ImportedMedicationRequest.objects.filter(patient=patient).count(),
+                Prescription.objects.filter(patient=patient).count(),
+                JsonImportBatch.objects.filter(patient=patient).count(),
             )
         finally:
             connections.close_all()
 
     with ThreadPoolExecutor(max_workers=1) as executor:
-        assert executor.submit(persisted_counts).result() == (1, 1, 0)
+        assert executor.submit(persisted_counts).result() == (1, 1, 0, 1)
 
 
 def read_image_records(patient_id):
@@ -1465,34 +1498,35 @@ def test_administrative_user_registers_patient_through_ui(
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
 def test_administrator_views_existing_imported_identity_markers(
+    browser_medical_professional,
     browser_patient_administrator,
     live_server,
+    browser,
     browser_page,
 ):
-    # This scenario targets display after import; the import UI is introduced later.
-    def provision_existing_imports():
-        try:
-            patient, _ = resolve_imported_patient(
-                dni="34567890",
-                first_name="María",
-                last_name="Externa",
-                date_of_birth=date(1988, 4, 12),
-                gender="female",
-            )
-            professional, _ = resolve_imported_professional(
-                dni="45678901",
-                first_name="Juan",
-                last_name="Externo",
-                license_number="MN 45678",
-            )
-            return patient.pk, professional.pk, patient.created_at, professional.user_id
-        finally:
-            connections.close_all()
-
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        patient_pk, professional_pk, patient_created_at, professional_user_id = (
-            executor.submit(provision_existing_imports).result()
+    document = json.loads(FHIR_JSON_FIXTURE.read_text(encoding="utf-8"))
+    document["entry"][0]["resource"]["identifier"][0]["value"] = "34567890"
+    document["entry"][0]["resource"].update(
+        name=[{"family": "Externa", "given": ["María"]}],
+        gender="female",
+        birthDate="1988-04-12",
+    )
+    document["entry"][1]["resource"]["identifier"][0]["value"] = "45678901"
+    document["entry"][1]["resource"]["name"] = [
+        {"family": "Externo", "given": ["Juan"]}
+    ]
+    document["entry"][1]["resource"]["qualification"][0]["identifier"][0]["value"] = (
+        "MN 45678"
+    )
+    with browser.new_context(java_script_enabled=False) as doctor_context:
+        doctor = doctor_context.new_page()
+        login_through_application(
+            doctor,
+            live_server.url,
+            username=browser_medical_professional.username,
+            password=TEST_PASSWORD,
         )
+        upload_fhir_json(doctor, document)
     login_through_application(
         browser_page,
         live_server.url,
@@ -1503,9 +1537,8 @@ def test_administrator_views_existing_imported_identity_markers(
     browser_page.get_by_role("button", name="Search patient").click()
     browser_page.get_by_role("link", name="Open patient record").click()
     expect(
-        browser_page.get_by_text("Imported from another system", exact=False)
+        browser_page.get_by_text("Imported from another system", exact=False).first
     ).to_be_visible()
-    assert patient_pk and patient_created_at
 
     browser_page.get_by_role("link", name="Professionals", exact=True).click()
     browser_page.get_by_role("navigation", name="Professional status").get_by_role(
@@ -1516,32 +1549,69 @@ def test_administrator_views_existing_imported_identity_markers(
         browser_page.get_by_text("Imported from another system", exact=False)
     ).to_be_visible()
     expect(browser_page.get_by_text("No login account", exact=True)).to_be_visible()
-    assert professional_pk and professional_user_id is None
+
+    def persisted_identity_state():
+        try:
+            patient = Patient.objects.get(dni="34567890")
+            professional = Professional.objects.get(dni="45678901")
+            return (
+                patient.is_external,
+                bool(patient.created_at),
+                professional.is_external,
+                professional.user_id,
+                JsonImportBatch.objects.filter(
+                    patient=patient, practitioner=professional
+                ).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_identity_state).result() == (
+            True,
+            True,
+            True,
+            None,
+            1,
+        )
 
 
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
 def test_administrator_links_imported_professional_to_operator_created_account(
     browser_superuser,
+    browser_medical_professional,
     browser_patient_administrator,
     browser_professional_references,
     live_server,
     browser,
 ):
-    def provision_imported_professional():
+    document = json.loads(FHIR_JSON_FIXTURE.read_text(encoding="utf-8"))
+    document["entry"][1]["resource"]["identifier"][0]["value"] = "56789012"
+    document["entry"][1]["resource"]["name"] = [
+        {"family": "Importada", "given": ["Laura"]}
+    ]
+    document["entry"][1]["resource"]["qualification"][0]["identifier"][0]["value"] = (
+        "MN 56789"
+    )
+    with browser.new_context(java_script_enabled=False) as doctor_context:
+        doctor = doctor_context.new_page()
+        login_through_application(
+            doctor,
+            live_server.url,
+            username=browser_medical_professional.username,
+            password=TEST_PASSWORD,
+        )
+        upload_fhir_json(doctor, document)
+
+    def imported_professional_pk():
         try:
-            professional, _ = resolve_imported_professional(
-                dni="56789012",
-                first_name="Laura",
-                last_name="Importada",
-                license_number="MN 56789",
-            )
-            return professional.pk
+            return Professional.objects.get(dni="56789012").pk
         finally:
             connections.close_all()
 
     with ThreadPoolExecutor(max_workers=1) as executor:
-        professional_pk = executor.submit(provision_imported_professional).result()
+        professional_pk = executor.submit(imported_professional_pk).result()
 
     with browser.new_context() as operator_context:
         operator = operator_context.new_page()

@@ -178,3 +178,29 @@ def test_rejects_wrong_observation_unit() -> None:
     )
     with pytest.raises(JsonImportError, match="UCUM"):
         parse_json_bundle(json.dumps(document).encode())
+
+
+def test_rejects_blood_pressure_component_with_empty_coding() -> None:
+    document = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    document["entry"].append(
+        {
+            "fullUrl": f"urn:uuid:{uuid4()}",
+            "resource": {
+                "resourceType": "Observation",
+                "id": "blood-pressure-empty-coding",
+                "status": "final",
+                "code": {"coding": [{"system": "http://loinc.org", "code": "85354-9"}]},
+                "subject": document["entry"][2]["resource"]["subject"],
+                "effectiveDateTime": "2026-10-27T14:30:00Z",
+                "component": [
+                    {"code": {"coding": []}, "valueQuantity": {"value": 120}},
+                    {
+                        "code": {"coding": [{"code": "8462-4"}]},
+                        "valueQuantity": {"value": 80},
+                    },
+                ],
+            },
+        }
+    )
+    with pytest.raises(JsonImportError, match="Blood pressure requires"):
+        parse_json_bundle(json.dumps(document).encode())
