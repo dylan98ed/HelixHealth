@@ -15,8 +15,16 @@ def test_professional_upgrade_preserves_legacy_profiles_and_admissions():
     latest_migrations = executor.loader.graph.leaf_nodes()
 
     try:
-        old_targets = [("clinical_records", "0001_initial"), OLD_PROFESSIONAL]
-        new_targets = [("clinical_records", "0001_initial"), NEW_PROFESSIONAL]
+        old_targets = [
+            ("clinical_records", "0001_initial"),
+            ("patients", "0003_defer_clinical_record_generation"),
+            OLD_PROFESSIONAL,
+        ]
+        new_targets = [
+            ("clinical_records", "0001_initial"),
+            ("patients", "0003_defer_clinical_record_generation"),
+            NEW_PROFESSIONAL,
+        ]
         executor.migrate(old_targets)
         old_apps = executor.loader.project_state(old_targets).apps
         user_model = old_apps.get_model("auth", "User")

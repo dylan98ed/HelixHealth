@@ -16,6 +16,8 @@ PATIENT_DETAIL_FIELDS = (
     "clinical_record_number",
     *PATIENT_MUTABLE_FIELDS,
     "is_active",
+    "is_external",
+    "created_at",
 )
 IMMUTABLE_PATIENT_FIELDS = frozenset({"id", "dni", "clinical_record_number"})
 
@@ -52,7 +54,13 @@ class PatientCreateSerializer(serializers.ModelSerializer):
         model = Patient
         fields = (*PATIENT_REGISTRATION_FIELDS,)
         validators: list[Any] = []
-        extra_kwargs = {"dni": {"validators": [validate_patient_dni]}}
+        extra_kwargs = {
+            "dni": {"validators": [validate_patient_dni]},
+            "phone": {"required": True, "allow_blank": False},
+            "email": {"required": True, "allow_blank": False},
+            "address": {"required": True, "allow_blank": False},
+            "health_insurer": {"required": True, "allow_blank": False},
+        }
 
     def create(self, validated_data: dict[str, Any]) -> Patient:
         request = self.context["request"]

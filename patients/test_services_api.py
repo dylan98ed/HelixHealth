@@ -14,6 +14,7 @@ from access_control.roles import ADMINISTRATIVE_GROUP
 from patients.models import Patient
 from patients.services import (
     DuplicateActivePatientDNIError,
+    DuplicateInactivePatientDNIError,
     create_patient,
     deactivate_patient,
     update_patient,
@@ -70,6 +71,19 @@ def test_patient_service_rejects_duplicate_dni_without_partial_write():
         )
 
     assert error.value.patient == existing
+    assert Patient.all_objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_patient_service_reports_inactive_dni_conflict_without_partial_write():
+    existing = create_patient(actor=administrative_actor(), **valid_patient_data())
+    deactivate_patient(actor=administrative_actor(), patient=existing, confirmed=True)
+
+    with pytest.raises(DuplicateInactivePatientDNIError) as error:
+        create_patient(actor=administrative_actor(), **valid_patient_data())
+
+    assert error.value.patient.pk == existing.pk
+    assert str(error.value) == "An inactive patient with this DNI already exists."
     assert Patient.all_objects.count() == 1
 
 
@@ -181,6 +195,8 @@ def test_patient_detail_api_contract_contains_only_specified_fields(user_factory
         "address",
         "health_insurer",
         "is_active",
+        "is_external",
+        "created_at",
     }
 
 

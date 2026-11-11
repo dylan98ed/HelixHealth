@@ -100,15 +100,12 @@ def test_license_number_allows_unknown_or_entered_text_but_rejects_blank():
 
 
 @pytest.mark.django_db
-def test_active_only_dni_uniqueness_allows_reuse_after_deactivation():
+def test_professional_dni_cannot_be_reused_after_deactivation():
     Professional.objects.create(
         user=create_user("inactive"), dni="12345678", is_active=False
     )
-    active = Professional.objects.create(user=create_user("active"), dni="12345678")
-
-    assert active.dni == "12345678"
     with pytest.raises(IntegrityError), transaction.atomic():
-        Professional.objects.create(user=create_user("duplicate"), dni="12345678")
+        Professional.objects.create(user=create_user("active"), dni="12345678")
 
 
 @pytest.mark.django_db

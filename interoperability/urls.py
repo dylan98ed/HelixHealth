@@ -6,6 +6,21 @@ app_name = "interoperability"
 
 urlpatterns = [
     path(
+        "interoperability/json/import/",
+        views.json_import_upload,
+        name="json-import-upload",
+    ),
+    path(
+        "interoperability/json/imports/<uuid:identifier>/",
+        views.json_import_detail,
+        name="json-import-detail",
+    ),
+    path(
+        "interoperability/json/imports/<uuid:identifier>/file/",
+        views.json_import_file,
+        name="json-import-file",
+    ),
+    path(
         "patients/<int:patient_pk>/interoperability/", views.exchange_home, name="home"
     ),
     path(
@@ -17,6 +32,11 @@ urlpatterns = [
         "patients/<int:patient_pk>/interoperability/export/",
         views.export_selected,
         name="export",
+    ),
+    path(
+        "patients/<int:patient_pk>/interoperability/export/json/",
+        views.export_selected_json_file,
+        name="json-export",
     ),
     path(
         "patients/<int:patient_pk>/interoperability/imports/<uuid:identifier>/",
@@ -47,5 +67,10 @@ urlpatterns = [
         "api/patients/<int:patient_pk>/exchange/export/",
         views.ExportAPIView.as_view(),
         name="api-export",
+    ),
+    path(
+        "api/patients/<int:patient_pk>/exchange/export/json/",
+        views.JsonExportAPIView.as_view(),
+        name="api-json-export",
     ),
 ]

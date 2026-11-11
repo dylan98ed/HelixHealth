@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import IsActiveMedicalProfessionalActor
 from clinical_records.views import medical_professional_required
+from interoperability.models import ImportedMedicationRequest
 from patients.models import Patient
 from prescriptions.forms import PrescriptionHeaderForm, PrescriptionItemForm
 from prescriptions.models import Prescription
@@ -77,10 +78,20 @@ def prescription_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
         Prescription.objects.filter(patient=patient).prefetch_related("items"),
         PRESCRIPTIONS_PER_PAGE,
     ).get_page(request.GET.get("page"))
+    imported_medications = Paginator(
+        ImportedMedicationRequest.objects.filter(patient=patient).select_related(
+            "requester"
+        ),
+        PRESCRIPTIONS_PER_PAGE,
+    ).get_page(request.GET.get("medications_page"))
     return render(
         request,
         "prescriptions/list.html",
-        {"patient": patient, "prescriptions": prescriptions},
+        {
+            "patient": patient,
+            "prescriptions": prescriptions,
+            "imported_medications": imported_medications,
+        },
     )
 
 

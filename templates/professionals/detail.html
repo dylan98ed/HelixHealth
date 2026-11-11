@@ -3,11 +3,11 @@
 {% block content %}
 <a class="quiet-link d-inline-block mb-4" href="{% url 'professionals:index' %}">Back to professionals</a>
 <header class="page-heading">
-  <div><p class="eyebrow">Professional record</p><h1>{{ professional.display_name }}</h1><p>Username: {{ professional.user.username }}</p></div>
+  <div><p class="eyebrow">Professional record</p><h1>{{ professional.display_name }}</h1><p>{% if professional.user_id %}Username: {{ professional.user.username }}{% else %}No login account{% endif %}</p><p>{% if professional.is_external %}Imported from another system{% else %}Created locally{% endif %} · Created {{ professional.created_at }}</p></div>
   <span class="workspace-badge">{{ professional.registration_status|capfirst }}</span>
 </header>
 {% if not professional.is_registration_complete %}
-  <p class="alert alert-info">Registration is incomplete. Complete the profile with the professional's details.</p>
+  <p class="alert alert-info">Registration is incomplete. Complete the profile with the professional's details{% if not professional.user_id %} and link an existing login account{% endif %}.</p>
 {% elif not professional.is_active %}
   <p class="alert alert-info">Registration complete; profile remains inactive. Reactivation requires confirmation.</p>
 {% endif %}

@@ -12,10 +12,20 @@ class PatientServiceError(ValueError):
     """Base error for patient application-service operations."""
 
 
-class DuplicateActivePatientDNIError(PatientServiceError):
-    def __init__(self, patient: Patient):
+class DuplicatePatientDNIError(PatientServiceError):
+    def __init__(self, patient: Patient, message: str):
         self.patient = patient
-        super().__init__("An active patient with this DNI already exists.")
+        super().__init__(message)
+
+
+class DuplicateActivePatientDNIError(DuplicatePatientDNIError):
+    def __init__(self, patient: Patient):
+        super().__init__(patient, "An active patient with this DNI already exists.")
+
+
+class DuplicateInactivePatientDNIError(DuplicatePatientDNIError):
+    def __init__(self, patient: Patient):
+        super().__init__(patient, "An inactive patient with this DNI already exists.")
 
 
 class DeactivationConfirmationRequiredError(PatientServiceError):
@@ -38,9 +48,19 @@ def create_patient(
 ) -> Patient:
     ADMINISTRATIVE_POLICY.require(actor)
 
-    existing_patient = Patient.objects.filter(dni=dni).first()
+    if not all((phone, email, address.strip(), health_insurer.strip())):
+        raise PatientServiceError(
+            "Local patient registration requires complete contact details."
+        )
+
+    existing_patient = Patient.all_objects.filter(dni=dni).first()
     if existing_patient is not None:
-        raise DuplicateActivePatientDNIError(existing_patient)
+        error_type = (
+            DuplicateActivePatientDNIError
+            if existing_patient.is_active
+            else DuplicateInactivePatientDNIError
+        )
+        raise error_type(existing_patient)
 
     patient = Patient(
         dni=dni,
@@ -53,7 +73,7 @@ def create_patient(
         address=address,
         health_insurer=health_insurer,
     )
-    # The partial unique constraint is enforced by PostgreSQL.  Checking it in
+    # The unique constraint is enforced by PostgreSQL. Checking it in
     # full_clean() would leave a race between this initial lookup and the
     # eventual INSERT, and surface a Django ValidationError instead of the
     # duplicate conflict understood by the UI and API.
@@ -63,9 +83,14 @@ def create_patient(
         with transaction.atomic():
             patient.save(force_insert=True)
     except IntegrityError as error:
-        existing_patient = Patient.objects.filter(dni=dni).first()
+        existing_patient = Patient.all_objects.filter(dni=dni).first()
         if existing_patient is not None:
-            raise DuplicateActivePatientDNIError(existing_patient) from error
+            error_type = (
+                DuplicateActivePatientDNIError
+                if existing_patient.is_active
+                else DuplicateInactivePatientDNIError
+            )
+            raise error_type(existing_patient) from error
         raise
 
     return patient

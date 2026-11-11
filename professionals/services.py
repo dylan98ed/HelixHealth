@@ -91,12 +91,12 @@ def _replacement_hospital_service(code: str, current_id: int | None) -> Hospital
     return cast(HospitalService, service)
 
 
-def _is_active_dni_constraint(error: IntegrityError) -> bool:
+def _is_dni_constraint(error: IntegrityError) -> bool:
     cause = error.__cause__
     return bool(
         getattr(cause, "sqlstate", getattr(cause, "pgcode", None)) == "23505"
         and getattr(getattr(cause, "diag", None), "constraint_name", None)
-        == "unique_active_professional_dni"
+        == "unique_professional_dni"
     )
 
 
@@ -160,6 +160,25 @@ def register_professional(
     if subject is None:
         raise ValidationError({"username": "Select an existing active account."})
     profile = Professional.objects.select_for_update().filter(user=subject).first()
+    matching_dni = (
+        Professional.objects.select_for_update().filter(dni=canonical_dni).first()
+    )
+    if matching_dni is not None and matching_dni != profile:
+        if matching_dni.is_external and matching_dni.user_id is None:
+            if profile is not None:
+                raise ProfessionalConflictError(
+                    "This account already has a different professional profile.",
+                    field="username",
+                    existing_professional_id=profile.pk,
+                )
+            profile = matching_dni
+            profile.user = subject
+        else:
+            raise ProfessionalConflictError(
+                "A professional already has this DNI.",
+                field="dni",
+                existing_professional_id=matching_dni.pk,
+            )
     if profile is not None and profile.is_registration_complete:
         raise ProfessionalConflictError(
             "This account already has a completed profile.",
@@ -167,18 +186,6 @@ def register_professional(
             existing_professional_id=profile.pk,
         )
     profile = profile or Professional(user=subject, is_active=True)
-    if profile.is_active:
-        duplicate = (
-            Professional.objects.filter(dni=canonical_dni, is_active=True)
-            .exclude(user=subject)
-            .first()
-        )
-        if duplicate is not None:
-            raise ProfessionalConflictError(
-                "An active professional already has this DNI.",
-                field="dni",
-                existing_professional_id=duplicate.pk,
-            )
     specialty, service = _references(specialty_code, hospital_service_code)
     profile.dni, profile.license_number, profile.first_name, profile.last_name = (
         canonical_dni,
@@ -202,12 +209,10 @@ def register_professional(
         with transaction.atomic():
             profile.save()
     except IntegrityError as error:
-        if _is_active_dni_constraint(error):
-            duplicate = Professional.objects.filter(
-                dni=canonical_dni, is_active=True
-            ).first()
+        if _is_dni_constraint(error):
+            duplicate = Professional.objects.filter(dni=canonical_dni).first()
             raise ProfessionalConflictError(
-                "An active professional already has this DNI.",
+                "A professional already has this DNI.",
                 field="dni",
                 existing_professional_id=duplicate.pk if duplicate else None,
             ) from error
@@ -270,7 +275,8 @@ def deactivate_professional(
             "Professional deactivation requires confirmation."
         )
     subject_id = Professional.objects.only("user_id").get(pk=professional.pk).user_id
-    get_user_model().objects.select_for_update().get(pk=subject_id)
+    if subject_id is not None:
+        get_user_model().objects.select_for_update().get(pk=subject_id)
     profile = Professional.objects.select_for_update().get(pk=professional.pk)
     if profile.is_active:
         profile.is_active = False
@@ -297,7 +303,11 @@ def reactivate_professional(
         .select_related("user", "specialty", "hospital_service")
         .get(pk=professional.pk)
     )
-    if not profile.is_registration_complete or not profile.user.is_active:
+    if (
+        not profile.is_registration_complete
+        or profile.user is None
+        or not profile.user.is_active
+    ):
         raise ValidationError(
             {"__all__": "Profile and account must be eligible for reactivation."}
         )
@@ -321,7 +331,7 @@ def reactivate_professional(
         with transaction.atomic():
             profile.save(update_fields=["is_active"])
     except IntegrityError as error:
-        if _is_active_dni_constraint(error):
+        if _is_dni_constraint(error):
             duplicate = (
                 Professional.objects.filter(dni=profile.dni, is_active=True)
                 .exclude(pk=profile.pk)

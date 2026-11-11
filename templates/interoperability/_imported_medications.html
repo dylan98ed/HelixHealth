@@ -1,0 +1,18 @@
+<section class="mt-5" aria-labelledby="imported-medications-heading">
+  <h2 class="h4" id="imported-medications-heading">Medication requests received</h2>
+  {% for medication in imported_medications %}
+    <article class="card mb-3"><div class="card-body">
+      <h3 class="h5">{{ medication.medication_display }}</h3>
+      <p class="mb-1">Imported from another system · Requested {{ medication.authored_on }} · {{ medication.status }}</p>
+      <p class="mb-1">Requester: {{ medication.requester.display_name }}</p>
+      {% if medication.medication_code %}<p class="mb-1">Medication code: {{ medication.medication_code_system }} · {{ medication.medication_code }}</p>{% endif %}
+      {% for direction in medication.dosage_instructions %}
+        <p class="mb-1">Directions: {{ direction.text }}{% if direction.route.text %} · Route: {{ direction.route.text }}{% endif %}{% for dose in direction.doseAndRate %}{% if dose.doseQuantity %} · Dose: {{ dose.doseQuantity.value }} {{ dose.doseQuantity.unit }}{% endif %}{% endfor %}</p>
+      {% endfor %}
+      {% if medication.dispense_quantity %}<p class="mb-1">Quantity: {{ medication.dispense_quantity.value }} {{ medication.dispense_quantity.unit }}</p>{% endif %}
+      {% for note in medication.notes %}<p class="mb-1">Note: {{ note.text }}</p>{% endfor %}
+      <p class="mb-0">Received request; no local prescription was issued.</p>
+    </div></article>
+  {% empty %}<p>No external medication requests received.</p>{% endfor %}
+  {% include "_pagination.html" with page_obj=imported_medications page_parameter="medications_page" label="Medication requests received" %}
+</section>

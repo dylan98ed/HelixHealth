@@ -260,6 +260,7 @@ class Command(BaseCommand):
             )
 
         for profile in legacy_profiles:
+            assert profile.user is not None
             patient = Patient.objects.get(dni=ACTIVE_PATIENT_DNI)
             Admission.objects.get_or_create(
                 patient=patient,

@@ -17,8 +17,8 @@ from rest_framework.response import Response
 from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import IsActiveMedicalProfessionalActor
 from access_control.policies import (
-    IsAdministrativeActor,
     MEDICAL_PROFESSIONAL_POLICY,
+    IsAdministrativeActor,
 )
 from clinical_records.forms import AdmissionForm, PatientAdmissionSearchForm
 from clinical_records.models import Admission
@@ -33,6 +33,7 @@ from clinical_records.services import (
     create_admission,
     lookup_active_patient_for_admission,
 )
+from interoperability.history import imported_request_history
 from patients.directory import patient_directory_context
 from patients.models import Patient
 
@@ -165,6 +166,7 @@ def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
         "form": form,
         "admissions": admissions,
         "admissions_page": admissions,
+        **imported_request_history(request, patient),
     }
     if is_htmx(request) and request.method == "POST":
         return render(

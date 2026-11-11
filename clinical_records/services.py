@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
@@ -15,7 +16,9 @@ class InactivePatientError(ValueError):
     """Raised when a clinical event targets an inactive patient."""
 
 
-def admission_author_for_actor(actor: ActorContext | None):
+def admission_author_for_actor(
+    actor: ActorContext | None,
+) -> tuple[User, Professional | None]:
     """Resolve the current recorder and any clinical professional identity."""
     if actor is None:
         MEDICAL_PROFESSIONAL_POLICY.require(actor)
@@ -27,6 +30,7 @@ def admission_author_for_actor(actor: ActorContext | None):
             if not actor.has_role(ActorRole.ADMINISTRATIVE):
                 raise
         else:
+            assert professional.user is not None
             return professional.user, professional
     ADMINISTRATIVE_POLICY.require(actor)
     administrator = (

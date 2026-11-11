@@ -33,6 +33,11 @@ class PatientRegistrationForm(forms.ModelForm):
         fields = PATIENT_REGISTRATION_FIELDS
         widgets = {"date_of_birth": forms.DateInput(attrs={"type": "date"})}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ("phone", "email", "address", "health_insurer"):
+            self.fields[name].required = True
+
 
 class PatientUpdateForm(forms.ModelForm):
     class Meta:

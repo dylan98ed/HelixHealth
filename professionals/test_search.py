@@ -218,7 +218,7 @@ def test_exact_active_dni_query_uses_partial_unique_index(search_setup):
         cursor.execute(f"EXPLAIN (FORMAT JSON) {sql}", params)
         explained = cursor.fetchone()[0]
 
-    assert "unique_active_professional_dni" in _plan_index_names(explained[0]["Plan"])
+    assert "unique_professional_dni" in _plan_index_names(explained[0]["Plan"])
     assert (
         lookup_professional_by_dni(actor=actor(admin), dni=target_dni).dni == target_dni
     )

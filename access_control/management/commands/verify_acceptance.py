@@ -5,9 +5,9 @@ from django.core.management.base import BaseCommand, CommandError
 
 from access_control.acceptance_personas import (
     ACTIVE_PATIENT_DNI,
+    ADMINISTRATIVE_ADMISSION_REASON,
     ADMINISTRATIVE_UPDATED_PHONE,
     ADMINISTRATOR_USERNAME,
-    ADMINISTRATIVE_ADMISSION_REASON,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
     CATALOG_MEDICATION_CODE,
@@ -35,7 +35,6 @@ from access_control.acceptance_personas import (
     PAGED_ACTIVE_USERNAME_PREFIX,
     PAGED_INACTIVE_USERNAME_PREFIX,
     PAGED_INCOMPLETE_USERNAME_PREFIX,
-    REACTIVATION_CONFLICT_LICENSE,
     REACTIVATION_CONFLICT_USERNAME,
     REGISTERED_PATIENT_DNI,
     REGISTERED_PROFESSIONAL_DNI,
@@ -264,7 +263,7 @@ class Command(BaseCommand):
                 LEGACY_COMPLETE_INACTIVE_USERNAME,
                 LEGACY_COMPLETE_INACTIVE_DNI,
                 LEGACY_COMPLETE_INACTIVE_REGISTRATION_NUMBER,
-                False,
+                True,
                 LEGACY_COMPLETE_INACTIVE_LICENSE,
             ),
         ):
@@ -288,6 +287,7 @@ class Command(BaseCommand):
                 or profile.specialty.code != "general-medicine"
                 or profile.hospital_service is None
                 or profile.hospital_service.code != "inpatient-ward"
+                or profile.user is None
                 or not profile.user.is_active
                 or profile.user.is_staff
                 or profile.user.is_superuser
@@ -308,15 +308,11 @@ class Command(BaseCommand):
                     f"completed legacy history was not preserved for {username}"
                 )
 
-        conflicting = Professional.objects.filter(
+        if Professional.objects.filter(
             user__username=REACTIVATION_CONFLICT_USERNAME,
             dni=LEGACY_COMPLETE_INACTIVE_DNI,
-            license_number=REACTIVATION_CONFLICT_LICENSE,
-            is_active=True,
-            registration_completed_at__isnull=False,
-        ).first()
-        if conflicting is None or not conflicting.registration_number:
-            failures.append("the visible DNI-conflict registration was not preserved")
+        ).exists():
+            failures.append("the inactive professional DNI was duplicated")
 
         if (
             Professional.objects.filter(

@@ -52,6 +52,46 @@ class ExportRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class JsonExportRequestSerializer(serializers.Serializer):
+    admission_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, default=list
+    )
+    service_request_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, default=list
+    )
+    medication_request_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, default=list
+    )
+    prescription_ids = serializers.ListField(
+        child=serializers.UUIDField(), required=False, default=list
+    )
+    observation_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, default=list
+    )
+
+    def validate(self, attrs):
+        has_medication = bool(
+            attrs["medication_request_ids"] or attrs["prescription_ids"]
+        )
+        has_observations = bool(attrs["admission_ids"] or attrs["observation_ids"])
+        if (attrs["service_request_ids"] and not has_medication) or (
+            not attrs["service_request_ids"] and not has_observations
+        ):
+            raise serializers.ValidationError(
+                "Select a requested procedure with medication, or at least one vital-sign observation."
+            )
+        if sum(len(values) for values in attrs.values()) + 2 > 500:
+            raise serializers.ValidationError(
+                "A Bundle may contain at most 500 entries."
+            )
+        for values in attrs.values():
+            if len(values) != len(set(values)):
+                raise serializers.ValidationError(
+                    "Each clinical record may be selected once."
+                )
+        return attrs
+
+
 class ExternalClinicalRecordSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalClinicalRecord

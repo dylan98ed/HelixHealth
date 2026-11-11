@@ -1,0 +1,12 @@
+<section class="mt-5" aria-labelledby="imported-services-heading">
+  <h2 class="h4" id="imported-services-heading">Requested procedures received</h2>
+  {% for service in imported_services %}
+    <article class="card mb-3"><div class="card-body">
+      <h3 class="h5">{{ service.description }}</h3>
+      <p class="mb-1">Imported from another system · Requested {{ service.authored_on }} · {{ service.get_status_display|default:service.status }}</p>
+      <p class="mb-1">{{ service.code_system }} · {{ service.code }} · Requester: {{ service.requester.display_name }}</p>
+      <p class="mb-0">This is a request, not a completed procedure.</p>
+    </div></article>
+  {% empty %}<p>No external procedure requests received.</p>{% endfor %}
+  {% include "_pagination.html" with page_obj=imported_services page_parameter="services_page" label="Requested procedures received" %}
+</section>

@@ -49,6 +49,8 @@ PROFESSIONAL_DETAIL_FIELDS = (
     "registration_completed_at",
     "is_active",
     "is_clinically_eligible",
+    "is_external",
+    "created_at",
 )
 IMMUTABLE_PROFESSIONAL_FIELDS = frozenset(
     {
@@ -59,6 +61,8 @@ IMMUTABLE_PROFESSIONAL_FIELDS = frozenset(
         "dni",
         "registration_number",
         "registration_completed_at",
+        "is_external",
+        "created_at",
         "is_active",
         "is_clinically_eligible",
     }
@@ -94,7 +98,7 @@ class RejectUnknownFieldsMixin:
 
 
 class ProfessionalDetailSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source="user.username", read_only=True)
+    username = serializers.SerializerMethodField()
     specialty_code = serializers.CharField(
         source="specialty.code", read_only=True, allow_null=True
     )
@@ -110,6 +114,11 @@ class ProfessionalDetailSerializer(serializers.ModelSerializer):
 
     def get_is_clinically_eligible(self, professional: Professional) -> bool:
         return has_active_medical_professional_context(professional.user)
+
+    def get_username(self, professional: Professional) -> str | None:
+        return (
+            professional.user.get_username() if professional.user is not None else None
+        )
 
 
 class ProfessionalSearchResultSerializer(serializers.ModelSerializer):

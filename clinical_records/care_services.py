@@ -43,12 +43,15 @@ def assign_care_relationship(
     dni = canonicalize_professional_dni(professional_dni)
     candidate = (
         Professional.objects.filter(
-            dni=dni, is_active=True, registration_completed_at__isnull=False
+            dni=dni,
+            is_active=True,
+            registration_completed_at__isnull=False,
+            user__isnull=False,
         )
         .order_by("pk")
         .first()
     )
-    if candidate is None:
+    if candidate is None or candidate.user_id is None:
         raise ValidationError(
             {"professional_dni": "Select an eligible professional by DNI."}
         )

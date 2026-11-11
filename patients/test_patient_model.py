@@ -84,11 +84,10 @@ def test_database_rejects_duplicate_clinical_record_number():
 
 
 @pytest.mark.django_db
-def test_inactive_patient_dni_can_be_reused_by_an_active_patient():
+def test_inactive_patient_dni_cannot_be_reused_by_an_active_patient():
     Patient.objects.create(**patient_attributes(is_active=False))
 
-    active_patient = Patient.objects.create(
-        **patient_attributes(clinical_record_number="HC-00000002")
-    )
-
-    assert active_patient.is_active is True
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Patient.objects.create(
+            **patient_attributes(clinical_record_number="HC-00000002")
+        )

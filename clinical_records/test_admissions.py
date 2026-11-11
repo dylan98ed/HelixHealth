@@ -461,9 +461,7 @@ def test_administrator_api_records_admission_and_rejects_spoofed_author(
     client.force_login(administrator)
     url = reverse("clinical_records:api-create-admission", args=[patient.pk])
 
-    spoofed = client.post(
-        url, {**admission_data(), "recorded_by_id": other_user.pk}
-    )
+    spoofed = client.post(url, {**admission_data(), "recorded_by_id": other_user.pk})
     assert spoofed.status_code == status.HTTP_400_BAD_REQUEST
     assert "recorded_by_id" in spoofed.json()
     assert Admission.objects.count() == 0
@@ -488,9 +486,12 @@ def test_administrator_cannot_record_admission_for_inactive_patient(
     url = reverse("clinical_records:api-create-admission", args=[patient.pk])
 
     assert client.post(url, admission_data()).status_code == status.HTTP_404_NOT_FOUND
-    assert client.get(
-        reverse("clinical_records:patient-admissions", args=[patient.pk])
-    ).status_code == status.HTTP_404_NOT_FOUND
+    assert (
+        client.get(
+            reverse("clinical_records:patient-admissions", args=[patient.pk])
+        ).status_code
+        == status.HTTP_404_NOT_FOUND
+    )
     assert Admission.objects.count() == 0
 
 

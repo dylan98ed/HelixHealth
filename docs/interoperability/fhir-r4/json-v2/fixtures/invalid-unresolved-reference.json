@@ -1,0 +1,147 @@
+{
+  "resourceType": "Bundle",
+  "id": "c0000000-0000-4000-8000-000000000002",
+  "identifier": {
+    "system": "https://partner.example/identifiers/bundle",
+    "value": "week11-example-1"
+  },
+  "type": "collection",
+  "timestamp": "2026-10-27T15:00:00Z",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:10000000-0000-4000-8000-000000000002",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "10000000-0000-4000-8000-000000000002",
+        "identifier": [
+          {
+            "system": "https://partner.example/identifiers/dni",
+            "value": "12345678"
+          }
+        ],
+        "name": [
+          {
+            "family": "Pérez",
+            "given": [
+              "Alex"
+            ]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1990-01-15"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:20000000-0000-4000-8000-000000000002",
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "20000000-0000-4000-8000-000000000002",
+        "identifier": [
+          {
+            "system": "https://partner.example/identifiers/dni",
+            "value": "23456789"
+          }
+        ],
+        "name": [
+          {
+            "family": "Gómez",
+            "given": [
+              "Patricia"
+            ]
+          }
+        ],
+        "qualification": [
+          {
+            "identifier": [
+              {
+                "value": "MN 12345"
+              }
+            ],
+            "code": {
+              "text": "Matrícula profesional"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:30000000-0000-4000-8000-000000000002",
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "30000000-0000-4000-8000-000000000002",
+        "status": "active",
+        "intent": "order",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "24627-2",
+              "display": "Chest X-ray"
+            }
+          ],
+          "text": "Radiografía de tórax"
+        },
+        "subject": {
+          "reference": "Patient/missing"
+        },
+        "requester": {
+          "reference": "Practitioner/20000000-0000-4000-8000-000000000002"
+        },
+        "authoredOn": "2026-10-27"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:40000000-0000-4000-8000-000000000002",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "40000000-0000-4000-8000-000000000002",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "https://partner.example/codes/medications",
+              "code": "MED-001",
+              "display": "Medicamento de demostración"
+            }
+          ],
+          "text": "Medicamento de demostración"
+        },
+        "subject": {
+          "reference": "urn:uuid:10000000-0000-4000-8000-000000000002"
+        },
+        "requester": {
+          "reference": "urn:uuid:20000000-0000-4000-8000-000000000002"
+        },
+        "authoredOn": "2026-10-27T14:30:00Z",
+        "dosageInstruction": [
+          {
+            "text": "Una dosis diaria",
+            "route": {
+              "text": "Oral"
+            },
+            "doseAndRate": [
+              {
+                "doseQuantity": {
+                  "value": 1,
+                  "unit": "comprimido"
+                }
+              }
+            ]
+          }
+        ],
+        "dispenseRequest": {
+          "quantity": {
+            "value": 10,
+            "unit": "comprimidos"
+          }
+        },
+        "note": [
+          {
+            "text": "Ejemplo académico"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
@@ -22,7 +23,14 @@ from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.models import Admission, CareRelationship
 from imaging.models import AnonymizedImage
 from interoperability.fhir_validation import validate_fhir_r4_bundle
-from interoperability.models import ExternalClinicalRecord, ImportBatch
+from interoperability.json_importing import parse_json_bundle
+from interoperability.models import (
+    ExternalClinicalRecord,
+    ImportBatch,
+    ImportedMedicationRequest,
+    ImportedServiceRequest,
+    JsonImportBatch,
+)
 from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
 from prescriptions.models import Prescription, PrescriptionItem
@@ -32,6 +40,513 @@ from tests.catalog_journeys import import_catalog_and_verify_retries
 from tests.professional_journeys import fill_professional_registration
 
 TEST_PASSWORD = "Browser-test-password-2026!"
+FHIR_JSON_FIXTURE = Path(
+    "docs/interoperability/fhir-r4/json-v2/fixtures/independent-valid-bundle.json"
+)
+
+
+def upload_fhir_json(
+    page: Page, document: dict, *, filename: str = "import.json"
+) -> None:
+    page.get_by_role("link", name="Import FHIR JSON", exact=True).click()
+    page.get_by_label("Source organization system").fill("https://partner.example")
+    page.get_by_label("FHIR JSON file").set_input_files(
+        {
+            "name": filename,
+            "mimeType": "application/fhir+json",
+            "buffer": json.dumps(document).encode(),
+        }
+    )
+    page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+    expect(page.get_by_role("heading", name="FHIR JSON import")).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_json_import_reuses_active_then_inactive_people_from_visible_workflows(
+    browser_medical_professional, browser_patient_administrator, browser, live_server
+):
+    bundle = json.loads(
+        Path(
+            "docs/interoperability/fhir-r4/json-v2/fixtures/independent-valid-bundle.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    def upload(page: Page, day: int) -> None:
+        bundle["timestamp"] = f"2026-10-{day:02d}T15:00:00Z"
+        page.get_by_role("link", name="Import FHIR JSON", exact=True).click()
+        page.get_by_label("Source organization system").fill("https://partner.example")
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": f"bundle-{day}.json",
+                "mimeType": "application/fhir+json",
+                "buffer": json.dumps(bundle).encode(),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(page.get_by_role("heading", name="FHIR JSON import")).to_be_visible()
+
+    with browser.new_context(java_script_enabled=False) as doctor_context:
+        doctor = doctor_context.new_page()
+        login_through_application(
+            doctor,
+            live_server.url,
+            username=browser_medical_professional.username,
+            password=TEST_PASSWORD,
+        )
+        upload(doctor, 27)
+        expect(doctor.get_by_text("Created as external")).to_have_count(2)
+        upload(doctor, 28)
+        expect(doctor.get_by_text("Reused existing record")).to_have_count(2)
+        expect(doctor.get_by_text("Inactive", exact=True)).to_have_count(0)
+
+        with browser.new_context(java_script_enabled=False) as admin_context:
+            admin = admin_context.new_page()
+            login_through_application(
+                admin,
+                live_server.url,
+                username=browser_patient_administrator.username,
+                password=TEST_PASSWORD,
+            )
+            admin.get_by_label("DNI").fill("12345678")
+            admin.get_by_role("button", name="Search patient").click()
+            admin.get_by_role("link", name="Open patient record").click()
+            admin.get_by_role("link", name="Deactivate patient").click()
+            admin.get_by_label("I confirm this patient should be deactivated.").check()
+            admin.get_by_role("button", name="Deactivate patient").click()
+            expect(admin.get_by_text("Inactive", exact=True)).to_be_visible()
+
+            admin.get_by_role("link", name="Patient search", exact=True).click()
+            admin.get_by_label("DNI").fill("12345678")
+            admin.get_by_role("button", name="Search patient").click()
+            expect(
+                admin.get_by_text("No patient matches DNI 12345678.")
+            ).to_be_visible()
+            admin.get_by_role("link", name="Register a new patient").click()
+            admin.get_by_label("First name").fill("Alex")
+            admin.get_by_label("Last name").fill("Pérez")
+            admin.get_by_label("Date of birth").fill("1990-01-15")
+            admin.get_by_label("Sex").fill("unspecified")
+            admin.get_by_label("Phone").fill("+54 11 5555-0101")
+            admin.get_by_label("Email").fill("alex@example.test")
+            admin.get_by_label("Address").fill("123 Test Street")
+            admin.get_by_label("Health insurer").fill("Test Health")
+            admin.get_by_role("button", name="Register patient").click()
+            expect(
+                admin.get_by_text("An inactive patient with this DNI already exists.")
+            ).to_be_visible()
+            admin.get_by_role("link", name="Open the existing patient record").click()
+            expect(admin.get_by_text("Inactive", exact=True)).to_be_visible()
+
+            admin.get_by_role("link", name="Professionals", exact=True).click()
+            admin.get_by_role("navigation", name="Professional status").get_by_role(
+                "link", name="Incomplete", exact=True
+            ).click()
+            admin.get_by_role("link", name="Gómez, Patricia", exact=True).click()
+            expect(admin.get_by_text("No login account", exact=True)).to_be_visible()
+            admin.get_by_role("link", name="Deactivate professional").click()
+            admin.get_by_label(
+                "I confirm this change to the professional's status."
+            ).check()
+            admin.get_by_role("button", name="Deactivate professional").click()
+            expect(admin.get_by_text("No", exact=True)).to_be_visible()
+
+        upload(doctor, 29)
+        expect(doctor.get_by_text("Reused existing record")).to_have_count(2)
+        expect(doctor.get_by_role("region", name="Import summary")).to_contain_text(
+            "Inactive"
+        )
+
+        bundle["timestamp"] = "2026-10-30T15:00:00Z"
+        bundle["entry"][0]["resource"]["birthDate"] = "1989-01-15"
+        doctor.get_by_role("link", name="Import FHIR JSON", exact=True).click()
+        doctor.get_by_label("Source organization system").fill(
+            "https://partner.example"
+        )
+        doctor.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "contradictory-patient.json",
+                "mimeType": "application/fhir+json",
+                "buffer": json.dumps(bundle).encode(),
+            }
+        )
+        doctor.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(
+            doctor.get_by_text("Patient DNI matches but birth date differs.")
+        ).to_be_visible()
+
+        bundle["entry"][0]["resource"]["birthDate"] = "1990-01-15"
+        bundle["entry"][1]["resource"]["qualification"][0]["identifier"][0]["value"] = (
+            "MN 99999"
+        )
+        doctor.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "contradictory-practitioner.json",
+                "mimeType": "application/fhir+json",
+                "buffer": json.dumps(bundle).encode(),
+            }
+        )
+        doctor.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(
+            doctor.get_by_text("Practitioner DNI matches but license number differs.")
+        ).to_be_visible()
+
+    def persisted():
+        try:
+            patient = Patient.all_objects.get(dni="12345678")
+            practitioner = Professional.objects.get(dni="23456789")
+            return (
+                patient.is_external,
+                patient.is_active,
+                bool(patient.created_at),
+                practitioner.is_external,
+                practitioner.is_active,
+                bool(practitioner.created_at),
+                practitioner.user_id,
+                ImportedServiceRequest.objects.filter(patient=patient).count(),
+                ImportedMedicationRequest.objects.filter(patient=patient).count(),
+                JsonImportBatch.objects.filter(patient=patient).count(),
+                Patient.all_objects.filter(dni="12345678").count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted).result() == (
+            True,
+            False,
+            True,
+            True,
+            False,
+            True,
+            None,
+            1,
+            1,
+            3,
+            1,
+        )
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_exports_and_reimports_selected_fhir_json(
+    browser_medical_professional, browser, live_server
+):
+    source_bundle = json.loads(
+        Path(
+            "docs/interoperability/fhir-r4/json-v2/fixtures/independent-valid-bundle.json"
+        ).read_bytes()
+    )
+    source_bundle["entry"].append(
+        {
+            "fullUrl": "urn:uuid:50000000-0000-4000-8000-000000000002",
+            "resource": {
+                "resourceType": "Observation",
+                "id": "pulse-stage-six",
+                "status": "final",
+                "code": {"coding": [{"system": "http://loinc.org", "code": "8867-4"}]},
+                "subject": source_bundle["entry"][2]["resource"]["subject"],
+                "performer": [source_bundle["entry"][2]["resource"]["requester"]],
+                "effectiveDateTime": "2026-10-27T14:30:00Z",
+                "valueQuantity": {
+                    "value": 72,
+                    "system": "http://unitsofmeasure.org",
+                    "code": "/min",
+                },
+            },
+        }
+    )
+    source = json.dumps(source_bundle).encode()
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        login_through_application(
+            page,
+            live_server.url,
+            username=browser_medical_professional.username,
+            password=TEST_PASSWORD,
+        )
+        page.get_by_role("link", name="Import FHIR JSON", exact=True).click()
+        page.get_by_label("Source organization system").fill("https://partner.example")
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "source.json",
+                "mimeType": "application/fhir+json",
+                "buffer": source,
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        page.get_by_role("link", name="Open patient clinical record").click()
+        page.get_by_role("link", name="Interoperability", exact=True).click()
+        expect(page.get_by_role("heading", name="Export FHIR JSON")).to_be_visible()
+        page.get_by_role("button", name="Download FHIR JSON").click()
+        expect(
+            page.get_by_text(
+                "Select a requested procedure with medication, or at least one vital-sign observation."
+            )
+        ).to_be_visible()
+        page.get_by_label("Radiografía de tórax", exact=False).check()
+        page.get_by_label("Received: Medicamento de demostración", exact=False).check()
+        page.get_by_label("Observation pulse-stage-six", exact=False).check()
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Download FHIR JSON").click()
+        download = download_info.value
+        assert download.suggested_filename == "FHIR_12345678_23456789_Professional.json"
+        exported = Path(download.path()).read_bytes()
+        parsed = parse_json_bundle(exported)
+        assert parsed.patient_dni == "12345678"
+        assert len(parsed.service_requests) == len(parsed.medication_requests) == 1
+        assert len(parsed.observations) == 1
+
+        page.get_by_role("link", name="Import FHIR JSON", exact=True).click()
+        page.get_by_label("Source organization system").fill(
+            "https://helixhealth.local/interoperability/json-export"
+        )
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "round-trip.json",
+                "mimeType": "application/fhir+json",
+                "buffer": exported,
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(page.get_by_role("heading", name="FHIR JSON import")).to_be_visible()
+
+    def persisted():
+        try:
+            patient = Patient.objects.get(dni="12345678")
+            return (
+                ImportedServiceRequest.objects.filter(patient=patient).count(),
+                ImportedMedicationRequest.objects.filter(patient=patient).count(),
+                ExternalClinicalRecord.objects.filter(
+                    patient=patient, resource_type="Observation"
+                ).count(),
+                JsonImportBatch.objects.filter(patient=patient).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted).result() == (2, 2, 2, 2)
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_doctor_imports_new_people_and_requests_from_fhir_json(
+    browser_medical_professional, browser, live_server
+):
+    raw = Path(
+        "docs/interoperability/fhir-r4/json-v2/fixtures/independent-valid-bundle.json"
+    ).read_bytes()
+    broken = json.loads(raw)
+    broken["entry"][2]["resource"]["subject"]["reference"] = "Patient/missing"
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
+        page = context.new_page()
+        login_through_application(
+            page,
+            live_server.url,
+            username=browser_medical_professional.username,
+            password=TEST_PASSWORD,
+        )
+        page.get_by_role("link", name="Import FHIR JSON", exact=True).click()
+        page.get_by_label("Source organization system").fill("https://partner.example")
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "broken.json",
+                "mimeType": "application/fhir+json",
+                "buffer": json.dumps(broken).encode(),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(
+            page.get_by_text("ServiceRequest.subject must reference", exact=False)
+        ).to_be_visible()
+
+        def no_partial_state():
+            try:
+                return Patient.objects.filter(
+                    dni="12345678"
+                ).count(), JsonImportBatch.objects.count()
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(no_partial_state).result() == (0, 0)
+        malformed_observation = json.loads(raw)
+        malformed_observation["entry"].append(
+            {
+                "fullUrl": "urn:uuid:50000000-0000-4000-8000-000000000002",
+                "resource": {
+                    "resourceType": "Observation",
+                    "id": "blood-pressure-empty-coding",
+                    "status": "final",
+                    "code": {
+                        "coding": [{"system": "http://loinc.org", "code": "85354-9"}]
+                    },
+                    "subject": malformed_observation["entry"][2]["resource"]["subject"],
+                    "effectiveDateTime": "2026-10-27T14:30:00Z",
+                    "component": [
+                        {"code": {"coding": []}, "valueQuantity": {"value": 120}},
+                        {
+                            "code": {"coding": [{"code": "8462-4"}]},
+                            "valueQuantity": {"value": 80},
+                        },
+                    ],
+                },
+            }
+        )
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "empty-component-coding.json",
+                "mimeType": "application/fhir+json",
+                "buffer": json.dumps(malformed_observation).encode(),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(page.get_by_text("Blood pressure requires", exact=False)).to_be_visible()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(no_partial_state).result() == (0, 0)
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "independent-valid-bundle.json",
+                "mimeType": "application/fhir+json",
+                "buffer": raw,
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(page.get_by_role("heading", name="FHIR JSON import")).to_be_visible()
+        expect(page.get_by_text("Created as external")).to_have_count(2)
+        with page.expect_download() as download_info:
+            page.get_by_role("link", name="Download original JSON").click()
+        assert Path(download_info.value.path()).read_bytes() == raw
+        detail_url = page.url
+        page.get_by_role("link", name="Retry this import").click()
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "retry.json",
+                "mimeType": "application/fhir+json",
+                "buffer": raw,
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(page).to_have_url(detail_url)
+
+        changed = json.loads(raw)
+        changed["entry"][3]["resource"]["note"] = [{"text": "Changed external note"}]
+        page.get_by_role("link", name="Import another file").click()
+        page.get_by_label("Source organization system").fill("https://partner.example")
+        page.get_by_label("FHIR JSON file").set_input_files(
+            {
+                "name": "conflict.json",
+                "mimeType": "application/fhir+json",
+                "buffer": json.dumps(changed).encode(),
+            }
+        )
+        page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        expect(page.get_by_text("different content", exact=False)).to_be_visible()
+        page.goto(detail_url)
+        page.get_by_role("link", name="Open patient clinical record").click()
+        expect(page.get_by_text("Alex Pérez")).to_be_visible()
+
+    def persisted():
+        try:
+            patient = Patient.objects.get(dni="12345678")
+            practitioner = Professional.objects.get(dni="23456789")
+            return (
+                patient.is_external,
+                bool(patient.created_at),
+                practitioner.is_external,
+                bool(practitioner.created_at),
+                practitioner.user_id,
+                ImportedServiceRequest.objects.filter(
+                    patient=patient, requester=practitioner
+                ).count(),
+                ImportedMedicationRequest.objects.filter(
+                    patient=patient, requester=practitioner
+                ).count(),
+                JsonImportBatch.objects.filter(
+                    patient=patient, practitioner=practitioner
+                ).count(),
+                Admission.objects.filter(patient=patient).count(),
+                Prescription.objects.filter(patient=patient).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted).result() == (
+            True,
+            True,
+            True,
+            True,
+            None,
+            1,
+            1,
+            1,
+            0,
+            0,
+        )
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_medical_professional_reviews_received_requests_from_patient_search(
+    browser_medical_professional,
+    live_server,
+    browser_page,
+):
+    """A doctor imports requests, then finds them through patient search."""
+    document = json.loads(FHIR_JSON_FIXTURE.read_text(encoding="utf-8"))
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_medical_professional.username,
+        password=TEST_PASSWORD,
+    )
+    upload_fhir_json(browser_page, document)
+    browser_page.get_by_role("link", name="Clinical workspace", exact=True).click()
+    browser_page.get_by_label("Name or surname").fill("Alex Pérez")
+    browser_page.get_by_role("link", name="Record admission for Alex Pérez").click()
+    expect(
+        browser_page.get_by_role("heading", name="Patient admission")
+    ).to_be_visible()
+    expect(
+        browser_page.get_by_role("heading", name="Requested procedures received")
+    ).to_be_visible()
+    expect(browser_page.get_by_text("Radiografía de tórax")).to_be_visible()
+    expect(
+        browser_page.get_by_text("This is a request, not a completed procedure.")
+    ).to_be_visible()
+    expect(
+        browser_page.get_by_role("heading", name="Medication requests received")
+    ).to_be_visible()
+    expect(browser_page.get_by_text("Medicamento de demostración")).to_be_visible()
+    expect(browser_page.get_by_text("Una dosis diaria", exact=False)).to_be_visible()
+    browser_page.get_by_role("link", name="Prescriptions", exact=True).click()
+    expect(
+        browser_page.get_by_role("heading", name="Medication requests received")
+    ).to_be_visible()
+    expect(
+        browser_page.get_by_text("Received request; no local prescription was issued.")
+    ).to_be_visible()
+
+    def persisted_counts():
+        try:
+            patient = Patient.objects.get(dni="12345678")
+            return (
+                ImportedServiceRequest.objects.filter(patient=patient).count(),
+                ImportedMedicationRequest.objects.filter(patient=patient).count(),
+                Prescription.objects.filter(patient=patient).count(),
+                JsonImportBatch.objects.filter(patient=patient).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_counts).result() == (1, 1, 0, 1)
 
 
 def read_image_records(patient_id):
@@ -936,6 +1451,7 @@ def test_administrative_user_registers_patient_through_ui(
     expect(browser_page.get_by_text("24681357", exact=True)).to_be_visible()
     expect(browser_page.get_by_text(re.compile(r"HC-\d{8,}"))).to_be_visible()
     expect(browser_page.get_by_text("Active", exact=True)).to_be_visible()
+    expect(browser_page.get_by_text("Created locally", exact=False)).to_be_visible()
     browser_page.get_by_role("link", name="Edit patient").click()
     expect(browser_page.get_by_role("heading", name="Edit patient")).to_be_visible()
     browser_page.get_by_label("Phone").fill("+54 11 5555-0123")
@@ -977,6 +1493,177 @@ def test_administrative_user_registers_patient_through_ui(
                 name=re.compile(r"HC-\d+ 24681357 Patient Browser False"),
             )
         ).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_administrator_views_existing_imported_identity_markers(
+    browser_medical_professional,
+    browser_patient_administrator,
+    live_server,
+    browser,
+    browser_page,
+):
+    document = json.loads(FHIR_JSON_FIXTURE.read_text(encoding="utf-8"))
+    document["entry"][0]["resource"]["identifier"][0]["value"] = "34567890"
+    document["entry"][0]["resource"].update(
+        name=[{"family": "Externa", "given": ["María"]}],
+        gender="female",
+        birthDate="1988-04-12",
+    )
+    document["entry"][1]["resource"]["identifier"][0]["value"] = "45678901"
+    document["entry"][1]["resource"]["name"] = [
+        {"family": "Externo", "given": ["Juan"]}
+    ]
+    document["entry"][1]["resource"]["qualification"][0]["identifier"][0]["value"] = (
+        "MN 45678"
+    )
+    with browser.new_context(java_script_enabled=False) as doctor_context:
+        doctor = doctor_context.new_page()
+        login_through_application(
+            doctor,
+            live_server.url,
+            username=browser_medical_professional.username,
+            password=TEST_PASSWORD,
+        )
+        upload_fhir_json(doctor, document)
+    login_through_application(
+        browser_page,
+        live_server.url,
+        username=browser_patient_administrator.username,
+        password=TEST_PASSWORD,
+    )
+    browser_page.get_by_label("DNI").fill("34567890")
+    browser_page.get_by_role("button", name="Search patient").click()
+    browser_page.get_by_role("link", name="Open patient record").click()
+    expect(
+        browser_page.get_by_text("Imported from another system", exact=False).first
+    ).to_be_visible()
+
+    browser_page.get_by_role("link", name="Professionals", exact=True).click()
+    browser_page.get_by_role("navigation", name="Professional status").get_by_role(
+        "link", name="Incomplete", exact=True
+    ).click()
+    browser_page.get_by_role("link", name="Externo, Juan", exact=True).click()
+    expect(
+        browser_page.get_by_text("Imported from another system", exact=False)
+    ).to_be_visible()
+    expect(browser_page.get_by_text("No login account", exact=True)).to_be_visible()
+
+    def persisted_identity_state():
+        try:
+            patient = Patient.objects.get(dni="34567890")
+            professional = Professional.objects.get(dni="45678901")
+            return (
+                patient.is_external,
+                bool(patient.created_at),
+                professional.is_external,
+                professional.user_id,
+                JsonImportBatch.objects.filter(
+                    patient=patient, practitioner=professional
+                ).count(),
+            )
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(persisted_identity_state).result() == (
+            True,
+            True,
+            True,
+            None,
+            1,
+        )
+
+
+@pytest.mark.browser
+@pytest.mark.django_db(transaction=True)
+def test_administrator_links_imported_professional_to_operator_created_account(
+    browser_superuser,
+    browser_medical_professional,
+    browser_patient_administrator,
+    browser_professional_references,
+    live_server,
+    browser,
+):
+    document = json.loads(FHIR_JSON_FIXTURE.read_text(encoding="utf-8"))
+    document["entry"][1]["resource"]["identifier"][0]["value"] = "56789012"
+    document["entry"][1]["resource"]["name"] = [
+        {"family": "Importada", "given": ["Laura"]}
+    ]
+    document["entry"][1]["resource"]["qualification"][0]["identifier"][0]["value"] = (
+        "MN 56789"
+    )
+    with browser.new_context(java_script_enabled=False) as doctor_context:
+        doctor = doctor_context.new_page()
+        login_through_application(
+            doctor,
+            live_server.url,
+            username=browser_medical_professional.username,
+            password=TEST_PASSWORD,
+        )
+        upload_fhir_json(doctor, document)
+
+    def imported_professional_pk():
+        try:
+            return Professional.objects.get(dni="56789012").pk
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        professional_pk = executor.submit(imported_professional_pk).result()
+
+    with browser.new_context() as operator_context:
+        operator = operator_context.new_page()
+        login_through_admin(
+            operator,
+            live_server.url,
+            username=browser_superuser.username,
+            password=TEST_PASSWORD,
+        )
+        operator.get_by_role("link", name="Users", exact=True).click()
+        operator.get_by_role("link", name="Add user", exact=True).click()
+        operator.get_by_label("Username").fill("imported-professional-account")
+        operator.locator("#id_password1").fill(TEST_PASSWORD)
+        operator.locator("#id_password2").fill(TEST_PASSWORD)
+        operator.get_by_role("button", name="Save", exact=True).click()
+        expect(
+            operator.get_by_text(re.compile("was added successfully"))
+        ).to_be_visible()
+
+    with browser.new_context() as context:
+        page = context.new_page()
+        login_through_application(
+            page,
+            live_server.url,
+            username=browser_patient_administrator.username,
+            password=TEST_PASSWORD,
+        )
+        page.get_by_role("link", name="Professionals", exact=True).click()
+        page.get_by_role("navigation", name="Professional status").get_by_role(
+            "link", name="Incomplete", exact=True
+        ).click()
+        page.get_by_role("link", name="Importada, Laura", exact=True).click()
+        page.get_by_role("link", name="Complete registration", exact=True).click()
+        page.get_by_label("Username", exact=True).fill("imported-professional-account")
+        page.get_by_label("Date of birth", exact=True).fill("1984-03-05")
+        page.get_by_label("Specialty", exact=True).select_option("general-medicine")
+        page.get_by_label("Hospital service", exact=True).select_option(
+            "inpatient-ward"
+        )
+        page.get_by_role("button", name="Complete registration", exact=True).click()
+        expect(page.get_by_text("Professional registered")).to_be_visible()
+        page.get_by_role("link", name="Open professional record").click()
+        expect(
+            page.get_by_text("Imported from another system", exact=False)
+        ).to_be_visible()
+        expect(
+            page.get_by_text("Username: imported-professional-account")
+        ).to_be_visible()
+        assert (
+            read_professional_state("imported-professional-account")["pk"]
+            == professional_pk
+        )
 
 
 @pytest.mark.browser
@@ -1130,9 +1817,7 @@ def test_administrator_records_admission_from_visible_patient_record(
         username=browser_patient_administrator.username,
         password=TEST_PASSWORD,
     )
-    expect(browser_page).to_have_url(
-        f"{live_server.url}{reverse('patients:search')}"
-    )
+    expect(browser_page).to_have_url(f"{live_server.url}{reverse('patients:search')}")
     browser_page.get_by_label("Name or surname").fill("Searchable Patient")
     browser_page.get_by_role(
         "link", name="Open patient record for Searchable Patient"
@@ -1143,7 +1828,9 @@ def test_administrator_records_admission_from_visible_patient_record(
     browser_page.get_by_role("link", name="Record admission").click()
     admission_url = reverse("clinical_records:patient-admissions", args=[patient.pk])
     expect(browser_page).to_have_url(f"{live_server.url}{admission_url}")
-    expect(browser_page.get_by_role("heading", name="Patient admission")).to_be_visible()
+    expect(
+        browser_page.get_by_role("heading", name="Patient admission")
+    ).to_be_visible()
     expect(browser_page.get_by_role("link", name="Medical images")).to_have_count(0)
 
     browser_page.get_by_label("Consultation reason").fill("Administrative intake")
@@ -1160,7 +1847,9 @@ def test_administrator_records_admission_from_visible_patient_record(
     browser_page.get_by_label("Diastolic blood pressure").fill("80")
     browser_page.get_by_role("button", name="Record admission").click()
     expect(browser_page.get_by_role("status")).to_contain_text("Admission recorded")
-    expect(browser_page.get_by_text("Administrative intake", exact=True)).to_be_visible()
+    expect(
+        browser_page.get_by_text("Administrative intake", exact=True)
+    ).to_be_visible()
     expect(
         browser_page.locator("#admission-workflow").get_by_text(
             browser_patient_administrator.username, exact=True
@@ -1770,10 +2459,10 @@ def test_admin_maintains_and_reactivates_professional_through_visible_controls(
         hospital_service_code=replacement_service.code,
     )
     browser_page.get_by_role("button", name="Register professional", exact=True).click()
-    expect(browser_page.get_by_role("status")).to_contain_text(
-        "Professional registered"
-    )
-    browser_page.get_by_role("link", name="Open professional record").click()
+    expect(
+        browser_page.get_by_text("A professional already has this DNI")
+    ).to_be_visible()
+    assert read_professional_state(replacement_account.username)["pk"] is None
 
     browser_page.get_by_role("link", name="Back to professionals").click()
     browser_page.get_by_role("navigation", name="Professional status").get_by_role(
@@ -1785,11 +2474,9 @@ def test_admin_maintains_and_reactivates_professional_through_visible_controls(
         "I confirm this change to the professional's status."
     ).check()
     browser_page.get_by_role("button", name="Reactivate professional").click()
-    expect(
-        browser_page.get_by_text("An active professional already has this DNI")
-    ).to_be_visible()
+    expect(browser_page.get_by_text("Active", exact=True)).to_be_visible()
     saved = read_professional_state(username)
-    assert saved["active"] is False
+    assert saved["active"] is True
     assert saved["pk"] == original["pk"]
     assert saved["number"] == original["number"]
     assert saved["admissions"] == original["admissions"]
@@ -2128,6 +2815,18 @@ def test_doctor_exports_a_visible_admission_through_no_javascript_workflow(
             sum(entry.resource.resource_type == "Observation" for entry in bundle.entry)
             == 3
         )
+        page.locator('input[name="json_admission_ids"]').check()
+        with page.expect_download() as json_download_info:
+            page.get_by_role("button", name="Download FHIR JSON", exact=True).click()
+        assert json_download_info.value.suggested_filename == (
+            "FHIR_11223344_06789012_Professional.json"
+        )
+        parsed_json = parse_json_bundle(
+            Path(json_download_info.value.path()).read_bytes()
+        )
+        assert len(parsed_json.observations) == 3
+        assert len(parsed_json.service_requests) == 0
+        assert len(parsed_json.medication_requests) == 0
 
     def persisted_admission_count() -> int:
         try:
@@ -2154,7 +2853,9 @@ def test_doctor_sees_an_inline_error_for_mixed_fhir_export_selection(
     """A clinician corrects a mixed export selection through visible controls."""
 
     patient_id = browser_admission_patient.pk
-    with browser.new_context(java_script_enabled=False) as context:
+    with browser.new_context(
+        java_script_enabled=False, accept_downloads=True
+    ) as context:
         page = context.new_page()
         page.goto(f"{live_server.url}{reverse('home')}")
         page.get_by_role("link", name="Open your workspace").click()
@@ -2198,6 +2899,20 @@ def test_doctor_sees_an_inline_error_for_mixed_fhir_export_selection(
         )
         expect(page.locator('input[name="admission_ids"]')).to_be_checked()
         expect(page.locator('input[name="prescription_ids"]')).to_be_checked()
+
+        page.locator('input[name="json_admission_ids"]').check()
+        page.locator('input[name="json_prescription_ids"]').check()
+        with page.expect_download() as json_download_info:
+            page.get_by_role("button", name="Download FHIR JSON", exact=True).click()
+        assert json_download_info.value.suggested_filename == (
+            "FHIR_11223344_06789012_Professional.json"
+        )
+        parsed_json = parse_json_bundle(
+            Path(json_download_info.value.path()).read_bytes()
+        )
+        assert len(parsed_json.observations) == 3
+        assert len(parsed_json.medication_requests) == 1
+        assert len(parsed_json.service_requests) == 0
 
     def persisted_records() -> tuple[int, int]:
         try:
@@ -2437,7 +3152,7 @@ def test_existing_admission_export_selection_errors_are_recoverable(
             "link", name="Record admission for Admission Patient", exact=True
         ).click()
         page.get_by_role("link", name="Interoperability", exact=True).click()
-        selection = page.get_by_role("checkbox")
+        selection = page.locator('input[name="admission_ids"]')
         for checkbox in selection.all():
             checkbox.check()
         page.get_by_role("button", name="Export selected XML", exact=True).click()

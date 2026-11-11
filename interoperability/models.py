@@ -120,3 +120,114 @@ class ImportBatchRecord(models.Model):
 
     def __str__(self) -> str:
         return f"{self.batch_id}:{self.record_id}"
+
+
+class ImportedServiceRequest(models.Model):
+    """A requested procedure received from FHIR, never a performed procedure."""
+
+    patient = models.ForeignKey(
+        Patient, on_delete=models.PROTECT, related_name="imported_service_requests"
+    )
+    requester = models.ForeignKey(
+        Professional, on_delete=models.PROTECT, related_name="imported_service_requests"
+    )
+    source_system = models.URLField(max_length=500)
+    external_identifier = models.CharField(max_length=255)
+    content_digest = models.CharField(max_length=64, editable=False)
+    code_system = models.URLField(max_length=500)
+    code = models.CharField(max_length=100)
+    description = models.CharField(max_length=500)
+    status = models.CharField(max_length=30)
+    intent = models.CharField(max_length=30)
+    authored_on = models.CharField(max_length=32)
+    received_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ("-authored_on", "-id")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("source_system", "external_identifier"),
+                name="interop_service_source_identifier_unique",
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"ServiceRequest {self.external_identifier}"
+
+
+class ImportedMedicationRequest(models.Model):
+    """A received medication order, separate from locally issued prescriptions."""
+
+    patient = models.ForeignKey(
+        Patient, on_delete=models.PROTECT, related_name="imported_medication_requests"
+    )
+    requester = models.ForeignKey(
+        Professional,
+        on_delete=models.PROTECT,
+        related_name="imported_medication_requests",
+    )
+    source_system = models.URLField(max_length=500)
+    external_identifier = models.CharField(max_length=255)
+    content_digest = models.CharField(max_length=64, editable=False)
+    medication_display = models.CharField(max_length=500)
+    medication_code_system = models.URLField(max_length=500, blank=True)
+    medication_code = models.CharField(max_length=100, blank=True)
+    status = models.CharField(max_length=30)
+    intent = models.CharField(max_length=30)
+    authored_on = models.CharField(max_length=32)
+    dosage_instructions = models.JSONField()
+    dispense_quantity = models.JSONField(null=True, blank=True)
+    notes = models.JSONField(default=list)
+    received_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ("-authored_on", "-id")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("source_system", "external_identifier"),
+                name="interop_medication_source_identifier_unique",
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"MedicationRequest {self.external_identifier}"
+
+
+class JsonImportBatch(models.Model):
+    """A privately retained FHIR JSON file and its transactional import result."""
+
+    identifier = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    patient = models.ForeignKey(
+        Patient, on_delete=models.PROTECT, related_name="json_import_batches"
+    )
+    practitioner = models.ForeignKey(
+        Professional, on_delete=models.PROTECT, related_name="json_import_batches"
+    )
+    submitted_by = models.ForeignKey(
+        Professional,
+        on_delete=models.PROTECT,
+        related_name="submitted_json_import_batches",
+    )
+    source_system = models.URLField(max_length=500)
+    bundle_identifier = models.CharField(max_length=500)
+    request_key = models.UUIDField(editable=False)
+    input_digest = models.CharField(max_length=64, editable=False)
+    raw_json = models.BinaryField(editable=False)
+    summary = models.JSONField(editable=False)
+    received_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ("-received_at", "-id")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("submitted_by", "request_key"),
+                name="interop_json_submitter_request_key_unique",
+            ),
+            models.UniqueConstraint(
+                fields=("source_system", "input_digest"),
+                name="interop_json_source_digest_unique",
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"JSON import {self.identifier}"
