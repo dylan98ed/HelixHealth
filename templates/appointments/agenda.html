@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load static tz %}
+{% block title %}Daily agenda · HelixHealth{% endblock %}
+{% block content %}
+<header class="page-heading"><div><h1>Daily agenda</h1><p>Clinic time · {{ zone }}</p></div>
+<div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-secondary" href="{% url 'appointments:requests' %}">Request inbox</a>
+<a class="btn btn-primary" href="{% url 'appointments:slots' %}">Find an opening</a></div></header>
+{% include "appointments/_messages.html" %}
+<form class="search-panel mb-4" method="get">{{ form.as_p }}<button class="btn btn-outline-secondary">Show agenda</button></form>
+{% if form.is_valid %}
+{% timezone zone %}
+<div class="form-panel table-responsive"><table class="table" data-agenda-time="{{ now|date:'c' }}">
+<thead><tr><th>Time</th><th>Patient</th><th>Professional</th><th>Status</th><th>Actions</th></tr></thead>
+<tbody>{% for row, token in bookings %}<tr>
+  <td>{{ row.start|time:"H:i" }}–{{ row.end|time:"H:i" }}</td>
+  <td>{{ row.patient }}</td><td>{{ row.professional }}</td><td>{{ row.get_state_display }}
+    {% for event in row.final_events %}<small class="d-block">{{ event.operator.username }} · <time datetime="{{ event.recorded_at|date:'c' }}">{{ event.recorded_at|date:"Y-m-d H:i" }}</time></small>{% endfor %}
+    {% for reminder in row.reminders.all %}{% if reminder.status != "obsolete" and reminder.schedule_revision == row.schedule_revision or reminder.status == "review" %}
+      <small class="d-block">Email reminder{% if reminder.schedule_revision != row.schedule_revision %} (previous schedule){% endif %}: {{ reminder.get_status_display }}{% if reminder.sent_at %} · {{ reminder.sent_at|date:"Y-m-d H:i" }}{% endif %}</small>
+      {% if reminder.status == "review" %}<small class="d-block">Message ID <code>{{ reminder.mail_message_id }}</code></small>{% endif %}
+    {% endif %}{% endfor %}</td>
+  <td>{% if row.request_id %}<a href="{% url 'appointments:request-detail' row.request_id %}">Open request</a>{% endif %}
+    {% if row.state == 'confirmed' or row.state == 'pending' %}
+    <a href="{% url 'appointments:arrival' row.pk %}?version={{ row.version }}">Check in patient</a>
+    <a href="{% url 'appointments:move' row.pk %}?version={{ row.version }}">Reschedule</a>
+    <form method="post" action="{% url 'appointments:absence' row.pk %}">{% csrf_token %}
+      <input type="hidden" name="version" value="{{ row.version }}"><input type="hidden" name="token" value="{{ token }}">
+      <button class="btn btn-sm btn-outline-secondary" {% if row.start > now %}disabled data-absence-start="{{ row.start|date:'c' }}" title="Available from the appointment start"{% endif %}>Mark absent</button>
+    </form>
+    <form method="post" action="{% url 'appointments:cancel' row.pk %}">{% csrf_token %}
+      <input type="hidden" name="version" value="{{ row.version }}"><input type="hidden" name="token" value="{{ token }}">
+      <button class="btn btn-sm btn-outline-secondary">Cancel appointment</button>
+    </form>{% endif %}</td>
+</tr>{% empty %}<tr><td colspan="5">No appointments for this day.</td></tr>{% endfor %}</tbody></table></div>
+{% endtimezone %}{% endif %}
+{% endblock %}
+{% block extra_scripts %}<script src="{% static 'agenda.js' %}"></script>{% endblock %}

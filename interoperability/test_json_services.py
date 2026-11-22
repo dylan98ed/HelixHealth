@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from access_control.actors import ActorContext, ActorRole
 from access_control.roles import MEDICAL_PROFESSIONAL_GROUP
+from audit.models import ClinicalAuditEvent
 from interoperability.json_services import JsonImportConflict, import_json_bundle
 from interoperability.models import (
     ExternalClinicalRecord,
@@ -121,6 +122,36 @@ def test_replay_observation_deduplication_and_atomic_conflict(importing_actor):
         ExternalClinicalRecord.objects.count(),
         JsonImportBatch.objects.count(),
     ) == (1, 2)
+
+    expected = {
+        (
+            model._meta.label_lower,
+            str(record.pk),
+            record.patient_id,
+            record.source_system,
+            record.content_digest,
+            importing_actor.user_id,
+        )
+        for model in (
+            ImportedServiceRequest,
+            ImportedMedicationRequest,
+            ExternalClinicalRecord,
+        )
+        for record in model.objects.all()
+    }
+    assert (
+        set(
+            ClinicalAuditEvent.objects.values_list(
+                "source_type",
+                "source_key",
+                "patient_id",
+                "external_origin",
+                "operation_key",
+                "actor_id",
+            )
+        )
+        == expected
+    )
 
     document["timestamp"] = "2026-10-29T15:00:00Z"
     document["entry"][2]["resource"]["id"] = "new-service-before-conflict"

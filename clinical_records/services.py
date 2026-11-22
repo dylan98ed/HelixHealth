@@ -1,12 +1,14 @@
 from decimal import Decimal
+from uuid import UUID
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from access_control.actors import ActorContext, ActorRole
 from access_control.policies import ADMINISTRATIVE_POLICY, MEDICAL_PROFESSIONAL_POLICY
+from audit.services import record_clinical_change
 from clinical_records.models import Admission
 from patients.models import Patient
 from professionals.models import Professional
@@ -82,6 +84,7 @@ def create_admission(
     diastolic_blood_pressure: int,
     heart_rate: int,
     temperature: Decimal,
+    request_key: UUID | None = None,
 ) -> Admission:
     recorder, professional = admission_author_for_actor(actor)
     locked_patient = (
@@ -90,16 +93,47 @@ def create_admission(
     if locked_patient is None or not locked_patient.is_active:
         raise InactivePatientError("Admissions require an active patient.")
 
-    admission = Admission(
-        patient=locked_patient,
-        professional=professional,
-        recorded_by=recorder,
+    values = dict(
         consultation_reason=consultation_reason.strip(),
         systolic_blood_pressure=systolic_blood_pressure,
         diastolic_blood_pressure=diastolic_blood_pressure,
         heart_rate=heart_rate,
         temperature=temperature,
     )
+    if request_key is not None:
+        replay = Admission.objects.filter(
+            patient=locked_patient, recorded_by=recorder, request_key=request_key
+        ).first()
+        if replay is not None:
+            if any(getattr(replay, field) != value for field, value in values.items()):
+                raise ValidationError(
+                    {
+                        "request_key": "This submission already recorded a different admission."
+                    }
+                )
+            return replay
+    admission = Admission(
+        patient=locked_patient,
+        professional=professional,
+        recorded_by=recorder,
+        request_key=request_key,
+        **values,
+    )
     admission.full_clean()
     admission.save(force_insert=True)
+    record_clinical_change(
+        source=admission,
+        actor_id=recorder.pk,
+        operation="create",
+        operation_key=str(request_key) if request_key is not None else "initial",
+        after={
+            "consultation_reason": admission.consultation_reason,
+            "systolic_blood_pressure": systolic_blood_pressure,
+            "diastolic_blood_pressure": diastolic_blood_pressure,
+            "heart_rate": heart_rate,
+            "temperature": temperature,
+            "professional_id": admission.professional_id,
+            "created_at": admission.created_at,
+        },
+    )
     return admission

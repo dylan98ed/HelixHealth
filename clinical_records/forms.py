@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django import forms
 
 from clinical_records.models import Admission
@@ -22,6 +24,10 @@ class PatientAdmissionSearchForm(forms.Form):
 
 
 class AdmissionForm(forms.ModelForm):
+    request_key = forms.UUIDField(
+        initial=uuid4, required=False, widget=forms.HiddenInput
+    )
+
     class Meta:
         model = Admission
         fields = ADMISSION_INPUT_FIELDS

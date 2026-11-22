@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Consultation · {{ patient.clinical_record_number }}{% endblock %}
+{% block content %}
+<a href="{% url 'clinical_records:chart' patient.pk %}">Back to patient chart</a>
+<h1>{{ consultation.reason }}</h1>{% include "clinical_records/_chart_identity.html" %}
+<section class="form-panel"><h2>Initial evolution</h2>
+<p>{{ consultation.visited_at|date:"Y-m-d H:i" }} · {{ clinic_zone }} · {{ consultation.author.display_name }}</p>
+{{ consultation.initial_evolution|linebreaks }}</section>
+<h2>Progress notes</h2>
+{% for note in notes %}<article id="note-{{ note.pk }}" class="form-panel"><p>{{ note.recorded_at|date:"Y-m-d H:i" }} · {{ clinic_zone }} · {{ note.author.display_name }}</p>{{ note.text|linebreaks }}</article>
+{% empty %}<p>No progress notes recorded.</p>{% endfor %}
+<form method="post" class="form-panel">{% csrf_token %}{{ form.as_p }}<button type="submit" class="btn btn-primary">Add progress note</button></form>
+{% endblock %}

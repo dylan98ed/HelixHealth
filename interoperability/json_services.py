@@ -13,6 +13,7 @@ from django.db import IntegrityError, transaction
 
 from access_control.actors import ActorContext
 from clinical_records.services import active_professional_for_actor
+from interoperability.clinical_audit import record_import
 from interoperability.clinical_requests import (
     ImportedRequestConflict,
     save_imported_medication_request,
@@ -40,7 +41,12 @@ class JsonImportResult:
 
 
 def _save_observation(
-    *, resource: dict, source: str, patient: Patient, practitioner: Professional
+    *,
+    resource: dict,
+    source: str,
+    patient: Patient,
+    practitioner: Professional,
+    actor_id: int | None,
 ) -> bool:
     digest = hashlib.sha256(
         json.dumps(
@@ -74,6 +80,8 @@ def _save_observation(
         raise JsonImportConflict(
             "Observation identifier already has different content or patient."
         )
+    if created:
+        record_import(record, actor_id)
     return created
 
 
@@ -130,6 +138,7 @@ def import_json_bundle(
             new_observations = 0
             for resource in parsed.service_requests:
                 _, created = save_imported_service_request(
+                    actor_id=submitter.user_id,
                     resource=resource,
                     source_system=source,
                     patient=patient,
@@ -138,6 +147,7 @@ def import_json_bundle(
                 new_services += created
             for resource in parsed.medication_requests:
                 _, created = save_imported_medication_request(
+                    actor_id=submitter.user_id,
                     resource=resource,
                     source_system=source,
                     patient=patient,
@@ -150,6 +160,7 @@ def import_json_bundle(
                     source=source,
                     patient=patient,
                     practitioner=practitioner,
+                    actor_id=submitter.user_id,
                 )
             summary = {
                 "patient": {

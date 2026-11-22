@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% load tz %}
+{% block title %}{{ person }} · Appointment · HelixHealth{% endblock %}
+{% block content %}
+<header class="page-heading"><div><h1>{% if moving %}Confirm new opening{% else %}Identify the patient{% endif %}</h1>
+{% timezone zone %}<p>{{ person }} · {{ slot.start|date:"Y-m-d H:i" }}–{{ slot.end|time:"H:i" }} · Clinic time</p>{% endtimezone %}</div></header>
+{% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+{% if moving %}<form class="form-panel" method="post">{% csrf_token %}<p>{{ moving.patient }}</p>
+<input type="hidden" name="token" value="{{ token }}"><button class="btn btn-primary">Move appointment</button></form>
+{% else %}
+<form class="search-panel mb-4" method="post">{% csrf_token %}{{ lookup.as_p }}<button class="btn btn-outline-secondary">Find patient</button></form>
+{% if patient %}<section class="form-panel"><h2>{{ patient.first_name }} {{ patient.last_name }}</h2>
+<p>DNI {{ patient.dni }}{% if patient.phone %} · {{ patient.phone }}{% endif %}{% if patient.email %} · {{ patient.email }}{% endif %}</p>
+<form method="post">{% csrf_token %}{{ reservation.as_p }}<button class="btn btn-primary">Reserve appointment</button></form></section>{% endif %}
+{% endif %}{% endblock %}

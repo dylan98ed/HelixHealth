@@ -39,6 +39,7 @@ class RolePolicy:
 
 ADMINISTRATIVE_POLICY = RolePolicy(ActorRole.ADMINISTRATIVE)
 MEDICAL_PROFESSIONAL_POLICY = RolePolicy(ActorRole.MEDICAL_PROFESSIONAL)
+RECEPTION_POLICY = RolePolicy(ActorRole.RECEPTION)
 
 
 class RolePermission(BasePermission):

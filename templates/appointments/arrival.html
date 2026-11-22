@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% load tz %}
+{% block title %}Patient arrival · HelixHealth{% endblock %}
+{% block content %}<a href="{{ agenda_url }}">Back to daily agenda</a>
+<header class="page-heading"><div><h1>Check in patient</h1>
+<p>{{ booking.patient.first_name }} {{ booking.patient.last_name }} · {{ booking.professional }}</p>
+{% timezone zone %}<p>{{ booking.start|date:"Y-m-d H:i" }}–{{ booking.end|time:"H:i" }} · {{ booking.get_state_display }}</p>{% endtimezone %}</div></header>
+<form method="post" class="form-panel">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Record arrival</button></form>
+{% endblock %}

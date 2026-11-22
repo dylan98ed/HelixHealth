@@ -10,6 +10,7 @@ from rest_framework import status
 
 from access_control.actors import ActorContext, ActorRole
 from access_control.roles import MEDICAL_PROFESSIONAL_GROUP
+from audit.models import ClinicalAuditEvent
 from catalogs.models import MedicationEntry
 from patients.models import Patient
 from prescriptions.models import Prescription, PrescriptionItem
@@ -111,6 +112,14 @@ def test_issuance_is_immutable_atomic_and_replays_exact_request(user_factory):
     assert replay.prescription.pk == result.prescription.pk
     assert Prescription.objects.count() == 1
     assert PrescriptionItem.objects.count() == 1
+    event = ClinicalAuditEvent.objects.get()
+    assert (event.source_type, event.source_key, event.patient, event.actor) == (
+        "prescriptions.prescription",
+        str(result.prescription.pk),
+        target,
+        user,
+    )
+    assert event.after["snapshot"] == result.prescription.snapshot
     assert result.prescription.prescriber == professional
     assert result.prescription.fhir_xml.startswith(b"<?xml")
     assert result.prescription.snapshot["patient"]["dni"] == target.dni

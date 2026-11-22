@@ -5,7 +5,7 @@ from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import (
     has_active_medical_professional_context,
 )
-from access_control.policies import ADMINISTRATIVE_POLICY
+from access_control.policies import ADMINISTRATIVE_POLICY, RECEPTION_POLICY
 
 
 class ApplicationLoginView(LoginView):
@@ -29,4 +29,6 @@ class ApplicationLoginView(LoginView):
             return reverse("clinical_records:dashboard")
         if ADMINISTRATIVE_POLICY.allows(actor):
             return reverse("patients:search")
+        if RECEPTION_POLICY.allows(actor):
+            return reverse("appointments:agenda")
         return reverse("home")

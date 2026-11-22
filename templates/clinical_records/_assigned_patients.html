@@ -1,0 +1,10 @@
+{% if name_form.errors %}<div role="alert">{{ name_form.q.errors }}</div>{% else %}
+<ul class="list-group">{% for patient in active_patients %}
+  <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+    <div><strong>{{ patient.first_name }} {{ patient.last_name }}</strong><small class="d-block">DNI {{ patient.dni }} · Clinical record {{ patient.clinical_record_number }}</small></div>
+    <a href="{% url 'clinical_records:chart' patient.pk %}" aria-label="Open chart for {{ patient.first_name }} {{ patient.last_name }}">Open chart</a>
+  </li>{% empty %}
+  <li class="list-group-item">{% if name_query %}No assigned patients match this search.{% else %}You have no assigned patients.{% endif %}</li>{% endfor %}
+</ul>
+{% include "_pagination.html" with page_obj=active_patients_page page_parameter="page" label="Assigned patients" query_q=name_query %}
+{% endif %}

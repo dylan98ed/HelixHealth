@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Assigned patient charts · HelixHealth{% endblock %}
+{% block content %}
+<header class="page-heading"><h1>Assigned patient charts</h1></header>
+<section class="search-panel mb-4" aria-label="Find an assigned patient">{% include "patients/_name_search.html" %}</section>
+<section id="patient-directory" aria-label="Assigned patients" aria-live="polite">{% include "clinical_records/_assigned_patients.html" %}</section>
+{% endblock %}

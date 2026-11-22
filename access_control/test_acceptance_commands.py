@@ -1,13 +1,15 @@
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
+from django.utils import timezone
 
 from access_control.acceptance_personas import (
     ACCEPTANCE_PASSWORD_ENV,
@@ -17,11 +19,14 @@ from access_control.acceptance_personas import (
     ADMINISTRATOR_USERNAME,
     ADMISSION_REASON,
     BROWSER_CREATED_USERNAME,
+    CARE_COORDINATOR,
     CATALOG_MEDICATION_CODE,
     CATALOG_MEDICATION_SYSTEM,
     CATALOG_MEDICATION_VERSION,
     CATALOG_SPECIALTY_CODE,
     CATALOG_TERMINOLOGY_CODE,
+    CHART_REASON,
+    CHECK_IN_OPERATOR,
     COMPLETED_ACTIVE_PROFESSIONAL_DNI,
     COMPLETED_INACTIVE_PROFESSIONAL_DNI,
     DJANGO_ADMIN_USERNAME,
@@ -46,20 +51,43 @@ from access_control.acceptance_personas import (
     PAGED_ACTIVE_USERNAME_PREFIX,
     PAGED_INACTIVE_USERNAME_PREFIX,
     PAGED_INCOMPLETE_USERNAME_PREFIX,
+    PAGINATION_SECOND_PAGE_DNI,
     REACTIVATION_CONFLICT_LICENSE,
     REACTIVATION_CONFLICT_USERNAME,
+    RECEPTIONIST,
     REGISTERED_PATIENT_DNI,
     REGISTERED_PROFESSIONAL_DNI,
 )
 from access_control.actors import actor_context_from_user
-from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
+from access_control.roles import (
+    ADMINISTRATIVE_GROUP,
+    MEDICAL_PROFESSIONAL_GROUP,
+    RECEPTION_GROUP,
+)
+from appointments.availability import clinic_today, free_slots
+from appointments.models import AppointmentState, WeeklyRule
+from appointments.services import (
+    change_booking,
+    confirm_request,
+    create_request,
+    record_attendance,
+    record_unanswered,
+    reserve,
+)
 from catalogs.models import MedicationEntry, TerminologyEntry
 from catalogs.services import create_catalog_entry, create_specialty, delete_specialty
 from clinical_records.care_services import (
     assign_care_relationship,
     revoke_care_relationship,
 )
+from clinical_records.documentation import (
+    add_progress_note,
+    save_consultation,
+    save_history,
+)
 from clinical_records.models import Admission
+from clinical_records.services import create_admission
+from interoperability.json_services import import_json_bundle
 from interoperability.models import ExternalClinicalRecord, ImportBatch
 from interoperability.services import import_external_bundle
 from patients.models import Patient
@@ -72,6 +100,7 @@ from professionals.services import (
     register_professional,
     update_professional,
 )
+from tests.chart_review_journey import EXCHANGE_SOURCE, chart_exchange_file
 
 ACCEPTANCE_PASSWORD = "Acceptance-test-password-2026!"
 
@@ -224,6 +253,258 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
     managed_patient = Patient.all_objects.get(dni=ACTIVE_PATIENT_DNI)
     care_actor = actor_context_from_user(
         user_model.objects.get(username=ADMINISTRATOR_USERNAME)
+    )
+    receptionist = user_model.objects.create_user(username=RECEPTIONIST)
+    receptionist.groups.add(Group.objects.get(name=RECEPTION_GROUP))
+    booking_day = clinic_today() + timedelta(days=7)
+    for offset in range(2):
+        doctor = Professional.objects.get(
+            user__username=f"{PAGED_ACTIVE_USERNAME_PREFIX}-{offset:02d}"
+        )
+        WeeklyRule.objects.create(
+            professional=doctor,
+            weekday=booking_day.weekday(),
+            opens=time(19),
+            closes=time(20),
+            minutes=30,
+            effective_from=booking_day,
+        )
+    reserve(
+        user_id=receptionist.pk,
+        slot=free_slots(booking_day, [doctor])[0],
+        dni=managed_patient.dni,
+        birth_date=managed_patient.date_of_birth,
+        confirmed=True,
+        token=uuid4(),
+    )
+    for weeks, channel in enumerate(("phone", "whatsapp"), start=1):
+        intake = create_request(
+            user_id=receptionist.pk,
+            dni=managed_patient.dni,
+            channel=channel,
+            contact="555-0130",
+            preference="Evening",
+            token=uuid4(),
+        )
+        record_unanswered(user_id=receptionist.pk, request_id=intake.pk, token=uuid4())
+        linked = reserve(
+            user_id=receptionist.pk,
+            request_id=intake.pk,
+            slot=free_slots(booking_day + timedelta(weeks=weeks), [doctor])[0],
+            dni=managed_patient.dni,
+            birth_date=managed_patient.date_of_birth,
+            confirmed=channel == "whatsapp",
+            token=uuid4(),
+        )
+        if channel == "phone":
+            confirm_request(
+                user_id=receptionist.pk,
+                request_id=intake.pk,
+                dni=managed_patient.dni,
+                birth_date=managed_patient.date_of_birth,
+                version=linked.version,
+                token=uuid4(),
+            )
+    check_in = user_model.objects.create_user(username=CHECK_IN_OPERATOR)
+    check_in.groups.add(Group.objects.get(name=RECEPTION_GROUP))
+    visitor = Patient.objects.get(dni=PAGINATION_SECOND_PAGE_DNI)
+    for weeks, (confirmed, state) in enumerate(
+        [
+            (False, AppointmentState.ATTENDED),
+            (True, AppointmentState.ATTENDED),
+            (True, AppointmentState.ABSENT),
+            (True, AppointmentState.CANCELED),
+        ],
+        start=4,
+    ):
+        slot = free_slots(booking_day + timedelta(weeks=weeks), [doctor])[0]
+        visit = reserve(
+            user_id=receptionist.pk,
+            slot=slot,
+            dni=visitor.dni,
+            birth_date=visitor.date_of_birth,
+            confirmed=confirmed,
+            token=uuid4(),
+        )
+        if state == AppointmentState.CANCELED:
+            change_booking(
+                user_id=receptionist.pk,
+                booking_id=visit.pk,
+                version=1,
+                token=uuid4(),
+                destination=None,
+            )
+        else:
+            with monkeypatch.context() as clock:
+                clock.setattr(timezone, "now", lambda instant=slot.start: instant)
+                record_attendance(
+                    user_id=check_in.pk,
+                    booking_id=visit.pk,
+                    version=1,
+                    token=uuid4(),
+                    state=state,
+                    dni=visitor.dni,
+                    birth_date=visitor.date_of_birth,
+                )
+    for weeks, (dni, outcome) in enumerate(
+        [("20000017", "missing"), ("20000018", "sent"), ("20000019", "review")], start=9
+    ):
+        patient = Patient.objects.get(dni=dni)
+        request_id = None
+        if outcome == "sent":
+            intake = create_request(
+                user_id=receptionist.pk,
+                dni=dni,
+                channel="phone",
+                contact="555-0118",
+                preference="Next available appointment",
+                token=uuid4(),
+            )
+            request_id = intake.pk
+            record_unanswered(
+                user_id=receptionist.pk, request_id=request_id, token=uuid4()
+            )
+        visit = reserve(
+            user_id=receptionist.pk,
+            slot=free_slots(booking_day + timedelta(weeks=weeks), [doctor])[0],
+            dni=dni,
+            birth_date=patient.date_of_birth,
+            request_id=request_id,
+            confirmed=request_id is None,
+            token=uuid4(),
+        )
+        if request_id is not None:
+            confirm_request(
+                user_id=receptionist.pk,
+                request_id=request_id,
+                dni=dni,
+                birth_date=patient.date_of_birth,
+                version=visit.version,
+                token=uuid4(),
+            )
+            visit.refresh_from_db()
+        visit.reminders.update(
+            status=outcome,
+            attempts=int(outcome != "missing"),
+            attempted_at=timezone.now() if outcome != "missing" else None,
+            sent_at=timezone.now() if outcome == "sent" else None,
+        )
+        if outcome == "sent":
+            record_attendance(
+                user_id=check_in.pk,
+                booking_id=visit.pk,
+                version=visit.version,
+                token=uuid4(),
+                state=AppointmentState.ATTENDED,
+                dni=dni,
+                birth_date=patient.date_of_birth,
+            )
+    coordinator = user_model.objects.create_user(username=CARE_COORDINATOR)
+    coordinator.groups.add(Group.objects.get(name=ADMINISTRATIVE_GROUP))
+    chart_actor = actor_context_from_user(coordinator)
+    chart_patient = Patient.objects.get(dni="20000016")
+    create_admission(
+        patient=chart_patient,
+        actor=chart_actor,
+        consultation_reason=CHART_REASON,
+        systolic_blood_pressure=118,
+        diastolic_blood_pressure=76,
+        heart_rate=68,
+        temperature=Decimal("36.6"),
+    )
+    assign_care_relationship(
+        actor=chart_actor,
+        patient=Patient.objects.get(dni="20000015"),
+        professional_dni="31000000",
+    )
+    assign_care_relationship(
+        actor=chart_actor, patient=chart_patient, professional_dni="31000001"
+    )
+    assignment, _ = assign_care_relationship(
+        actor=chart_actor, patient=chart_patient, professional_dni="31000000"
+    )
+    chart_doctor = assignment.professional
+    primary = dict(
+        actor=actor_context_from_user(chart_doctor.user), patient_pk=chart_patient.pk
+    )
+    colleague = dict(
+        actor=actor_context_from_user(Professional.objects.get(dni="31000001").user),
+        patient_pk=chart_patient.pk,
+    )
+    import_json_bundle(
+        actor=primary["actor"],
+        source_system=EXCHANGE_SOURCE,
+        request_key=uuid4(),
+        raw_json=chart_exchange_file(),
+    )
+    consultation = save_consultation(
+        **primary,
+        reason="Follow-up after arrival",
+        initial_evolution="Reviewed symptoms at the visit.",
+        visited_at=datetime(2026, 1, 15, 12, 45, tzinfo=UTC),
+        operation_key=uuid4(),
+    )
+    add_progress_note(
+        **colleague,
+        consultation_pk=consultation.pk,
+        text="Follow-up completed by the second physician.",
+        operation_key=uuid4(),
+    )
+    save_history(
+        **primary,
+        category="personal",
+        relationship="",
+        description="Previous outpatient follow-up.",
+        expected_version=0,
+        operation_key=uuid4(),
+    )
+    family = save_history(
+        **primary,
+        category="family",
+        relationship="Mother",
+        description="Family history reported at intake.",
+        expected_version=0,
+        operation_key=uuid4(),
+    )
+    save_history(
+        **colleague,
+        entry_pk=family.pk,
+        category="family",
+        relationship="Sister",
+        description="Family history clarified at follow-up.",
+        expected_version=1,
+        operation_key=uuid4(),
+    )
+    for slot, attended in zip(
+        free_slots(booking_day + timedelta(weeks=6), [chart_doctor]),
+        [True, False],
+        strict=True,
+    ):
+        visit = reserve(
+            user_id=receptionist.pk,
+            slot=slot,
+            dni=chart_patient.dni,
+            birth_date=chart_patient.date_of_birth,
+            confirmed=True,
+            token=uuid4(),
+        )
+        action = dict(
+            user_id=receptionist.pk, booking_id=visit.pk, version=1, token=uuid4()
+        )
+        if attended:
+            record_attendance(
+                **action,
+                state=AppointmentState.ATTENDED,
+                dni=chart_patient.dni,
+                birth_date=chart_patient.date_of_birth,
+            )
+        else:
+            change_booking(**action, destination=None)
+    revoke_care_relationship(
+        actor=chart_actor,
+        patient=chart_patient,
+        relationship=assignment,
+        confirmed=True,
     )
     assignment, _ = assign_care_relationship(
         actor=care_actor,

@@ -10,6 +10,7 @@ from django.db import IntegrityError, transaction
 
 from access_control.actors import ActorContext
 from clinical_records.services import active_professional_for_actor
+from interoperability.clinical_audit import record_import
 from interoperability.importing import (
     ExternalImportError,
     parse_external_bundle,
@@ -139,6 +140,7 @@ def import_external_bundle(
                 if record._state.adding:
                     record.full_clean()
                     record.save(force_insert=True)
+                    record_import(record, professional.user_id)
                 ImportBatchRecord.objects.create(batch=batch, record=record)
     except IntegrityError as error:
         replay = ImportBatch.objects.filter(

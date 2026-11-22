@@ -56,9 +56,11 @@ class AdmissionDetailSerializer(serializers.ModelSerializer):
 
 
 class AdmissionCreateSerializer(serializers.ModelSerializer):
+    request_key = serializers.UUIDField(required=False, write_only=True)
+
     class Meta:
         model = Admission
-        fields = ADMISSION_INPUT_FIELDS
+        fields = (*ADMISSION_INPUT_FIELDS, "request_key")
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         if isinstance(data, Mapping):

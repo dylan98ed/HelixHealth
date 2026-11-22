@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · {{ patient.clinical_record_number }}{% endblock %}
+{% block content %}
+<a href="{% url 'clinical_records:chart' patient.pk %}">Back to patient chart</a>
+<h1>{{ title }}</h1>{% include "clinical_records/_chart_identity.html" %}
+<form method="post" class="form-panel">{% csrf_token %}
+{% if clinic_zone %}<p>Enter the visit time in {{ clinic_zone }}.</p>{% endif %}
+{{ form.as_p }}
+<button type="submit" class="btn btn-primary">{{ title }}</button>
+</form>
+{% if prior_revisions %}<h2>Prior revisions</h2>{% for revision in prior_revisions %}<article>
+<h3>Revision {{ revision.version }}</h3><p>{{ revision.author.display_name }} · {{ revision.recorded_at|date:"Y-m-d H:i T" }}</p>
+{% if revision.relationship %}<p>{{ revision.relationship }}</p>{% endif %}{{ revision.description|linebreaks }}
+</article>{% endfor %}{% endif %}
+{% endblock %}

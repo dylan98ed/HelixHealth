@@ -12,6 +12,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import transaction
 
+from interoperability.clinical_audit import record_import
 from interoperability.models import ImportedMedicationRequest, ImportedServiceRequest
 from patients.models import Patient
 from professionals.models import Professional
@@ -167,6 +168,7 @@ def _save_request(
     patient: Patient,
     requester: Professional,
     values: dict[str, Any],
+    actor_id: int | None,
 ) -> tuple[Any, bool]:
     record, created = model.objects.get_or_create(
         source_system=source,
@@ -186,6 +188,8 @@ def _save_request(
         raise ImportedRequestConflict(
             "This external request identifier already has different content or people."
         )
+    if created:
+        record_import(record, actor_id)
     return record, created
 
 
@@ -196,6 +200,7 @@ def save_imported_service_request(
     source_system: str,
     patient: Patient,
     requester: Professional,
+    actor_id: int | None = None,
 ) -> tuple[ImportedServiceRequest, bool]:
     """Keep the request and its original date precision; do not record performance."""
     source, identifier, digest = _identity(resource, source_system, "ServiceRequest")
@@ -206,6 +211,7 @@ def save_imported_service_request(
     return _save_request(
         ImportedServiceRequest,
         source=source,
+        actor_id=actor_id,
         identifier=identifier,
         digest=digest,
         patient=patient,
@@ -228,6 +234,7 @@ def save_imported_medication_request(
     source_system: str,
     patient: Patient,
     requester: Professional,
+    actor_id: int | None = None,
 ) -> tuple[ImportedMedicationRequest, bool]:
     """Keep medication directions without local catalog, issue, or XML invariants."""
     source, identifier, digest = _identity(resource, source_system, "MedicationRequest")
@@ -263,6 +270,7 @@ def save_imported_medication_request(
     return _save_request(
         ImportedMedicationRequest,
         source=source,
+        actor_id=actor_id,
         identifier=identifier,
         digest=digest,
         patient=patient,

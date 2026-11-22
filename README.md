@@ -164,11 +164,21 @@ To run both Django and PostgreSQL through Compose:
 docker compose build
 docker compose up -d --wait db
 docker compose run --rm web python manage.py migrate --noinput
-docker compose up web
+docker compose up web scheduler
 ```
 
 Open <http://localhost:8000>. Press `Ctrl+C` to stop the foreground web
-service.
+service and reminder scheduler.
+
+The scheduler runs `python manage.py send_appointment_reminders --watch` after
+migrations. It polls every 60 seconds for confirmed visits starting within the
+next 24 hours. Use `python manage.py send_appointment_reminders` for one pass.
+Configure the SMTP relay with `EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL`,
+and, if required, `EMAIL_HOST_USER` and `EMAIL_HOST_PASSWORD`. Choose STARTTLS
+with `EMAIL_USE_TLS=true` or implicit TLS with `EMAIL_USE_SSL=true`.
+`REMINDER_POLL_SECONDS` controls the interval. Reception can see delivery
+results on the daily agenda. If a delivery is uncertain, check the mail relay
+before contacting the patient. The scheduler keeps that revision out of retries.
 
 ## Production container
 
@@ -200,7 +210,7 @@ the application through HTTPS. Static assets are served from `/static/` by
 WhiteNoise. Before releasing an image, run:
 
 ```text
-docker compose -f compose.yaml -f compose.production.yaml build web
+docker compose -f compose.yaml -f compose.production.yaml build web scheduler
 docker compose -f compose.yaml -f compose.production.yaml run --rm web python manage.py check --deploy --fail-level WARNING
 ```
 
@@ -212,7 +222,7 @@ and apply pending migrations before starting the web service:
 ```text
 docker compose -f compose.yaml -f compose.production.yaml up -d --wait db
 docker compose -f compose.yaml -f compose.production.yaml run --rm web python manage.py migrate --noinput
-docker compose -f compose.yaml -f compose.production.yaml up -d --wait web
+docker compose -f compose.yaml -f compose.production.yaml up -d --wait web scheduler
 ```
 
 If a trusted reverse proxy terminates TLS and forwards requests over HTTP, set

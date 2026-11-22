@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load tz %}
+{% block title %}Patient chart · {{ patient.clinical_record_number }}{% endblock %}
+{% block content %}
+<a href="{% url 'clinical_records:assigned-charts' %}">Assigned patient charts</a>
+<h1>Patient chart</h1>{% include "clinical_records/_chart_identity.html" %}
+{% if perms.clinical_records.review_chart_audit %}<p><a href="{% url 'audit:chart' patient.pk %}">Review chart audit</a></p>{% endif %}
+<a href="{% url 'clinical_records:new-consultation' patient.pk %}">Record consultation</a>
+<h2>Personal and family history</h2>
+<p><a href="{% url 'clinical_records:new-history' patient.pk 'personal' %}">Add personal history</a> · <a href="{% url 'clinical_records:new-history' patient.pk 'family' %}">Add family history</a></p>
+{% for item in history_entries %}{% with current=item.current.0 %}<article class="form-panel mb-3">
+<h3>{{ item.get_category_display }} history{% if current.relationship %} · {{ current.relationship }}{% endif %}</h3>
+{{ current.description|linebreaks }}
+<p>Revision {{ current.version }} · {{ current.author.display_name }} · {{ current.recorded_at|date:"Y-m-d H:i T" }}</p>
+<a href="{% url 'clinical_records:edit-history' patient.pk item.category item.pk %}">Edit {{ item.category }} history</a>
+</article>{% endwith %}{% endfor %}
+<h2>Clinical timeline</h2>
+{% if timeline %}<ol class="list-unstyled" aria-label="Clinical timeline">
+{% for entry in timeline %}<li class="form-panel mb-3">
+<p class="mb-1">{{ entry.date }} · {{ entry.label }}</p>
+<h3 class="h5"><a href="{{ entry.url }}">{{ entry.title }}</a></h3>
+{% if entry.summary %}<p>{{ entry.summary|truncatechars:240 }}</p>{% endif %}
+{% include "clinical_records/_timeline_origin.html" %}
+</li>{% endfor %}</ol>
+{% include "_pagination.html" with page_obj=timeline page_parameter="page" label="Clinical timeline" %}
+{% else %}<p>No clinical records have been recorded for this patient.</p>{% endif %}
+{% endblock %}

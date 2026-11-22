@@ -1,0 +1,6 @@
+<p>Status: {{ record.status }} · Intent: {{ record.intent }}</p>
+{% if record.medication_code %}<p>{{ record.medication_code_system }} · {{ record.medication_code }}</p>{% endif %}
+{% for direction in record.dosage_instructions %}<p>{{ direction.text }}{% if direction.route.text %} · {{ direction.route.text }}{% endif %}
+{% for dose in direction.doseAndRate %}{% if dose.doseQuantity %} · {{ dose.doseQuantity.value }} {{ dose.doseQuantity.unit }}{% endif %}{% endfor %}</p>{% endfor %}
+{% if record.dispense_quantity %}<p>Quantity: {{ record.dispense_quantity.value }} {{ record.dispense_quantity.unit }}</p>{% endif %}
+{% for note in record.notes %}<p>{{ note.text }}</p>{% endfor %}

@@ -14,6 +14,7 @@ from rest_framework import status
 
 from access_control.actors import ActorContext, ActorRole
 from access_control.roles import MEDICAL_PROFESSIONAL_GROUP
+from audit.models import ClinicalAuditEvent
 from clinical_records.models import Admission
 from interoperability.importing import ExternalImportError, parse_external_bundle
 from interoperability.models import ExternalClinicalRecord, ImportBatch
@@ -94,6 +95,21 @@ def test_import_is_atomic_idempotent_and_retains_external_provenance(user_factor
     assert ImportBatch.objects.count() == 1
     assert ExternalClinicalRecord.objects.count() == 1
     record = ExternalClinicalRecord.objects.get()
+    event = ClinicalAuditEvent.objects.get()
+    assert (
+        event.source_type,
+        event.source_key,
+        event.patient,
+        event.actor,
+        event.external_origin,
+    ) == (
+        "interoperability.externalclinicalrecord",
+        str(record.pk),
+        target,
+        user,
+        record.source_system,
+    )
+    assert event.operation_key == record.content_digest
     assert record.patient == target
     assert record.external_author["identifier_value"] == "EXT-001"
     assert record.content["coding"]["code"] == "8867-4"

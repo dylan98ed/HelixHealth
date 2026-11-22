@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% load tz %}
+{% block title %}Clinical audit{% endblock %}
+{% block content %}
+{% if clinical %}<a href="{% url 'clinical_records:chart' patient.pk %}">Back to patient chart</a>{% endif %}
+<h1>Clinical audit</h1>
+{% if patient %}{% include "clinical_records/_chart_identity.html" %}{% endif %}
+<form method="get" class="form-panel">{{ form.as_p }}<button class="btn btn-primary">Filter events</button></form>
+{% if rows %}<div class="table-responsive"><table class="table"><thead><tr><th>Event time ({{ zone }})</th><th>Patient</th><th>Record type</th><th>Operation</th><th>Actor or origin</th></tr></thead><tbody>
+{% for event,label in rows %}<tr>
+<td>{{ event.recorded_at|timezone:zone|date:"Y-m-d H:i:s" }}</td><td>{{ event.patient }} · {{ event.patient.clinical_record_number }}</td>
+<td><a href="{% if clinical %}{% url 'audit:chart-detail' patient.pk event.pk %}{% else %}{% url 'audit:detail' event.patient_id event.pk %}{% endif %}">{{ label }}</a></td>
+<td>{{ event.operation }}</td><td>{{ event.actor.username }} {{ event.external_origin }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% if page.has_other_pages %}<nav aria-label="Clinical audit pagination">
+{% if page.has_previous %}<a href="{% querystring page=page.previous_page_number %}">Previous</a>{% endif %}
+Page {{ page.number }} of {{ page.paginator.num_pages }}
+{% if page.has_next %}<a href="{% querystring page=page.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
+{% elif not form.errors %}<p>No audit events match these filters.</p>{% endif %}
+{% endblock %}

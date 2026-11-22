@@ -645,7 +645,9 @@ def main() -> int:
         expect(page.get_by_role("link", name="Clinical workspace")).to_be_visible()
         expect(page.get_by_role("link", name="Catalogs")).to_have_count(0)
 
+    booking = importlib.import_module("tests.appointment_journeys")
     journeys: list[tuple[str, Journey]] = [
+        *booking.scheduling_journeys(base_url, password),
         ("medical-missing-profile-denied", missing_profile_medical_is_denied),
         (
             "medical-legacy-staff-missing-profile-denied",

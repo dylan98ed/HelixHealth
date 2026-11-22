@@ -1,6 +1,6 @@
 services:
   web:
-    environment:
+    environment: &production_environment
       DJANGO_ENVIRONMENT: production
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY for production}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set DJANGO_ALLOWED_HOSTS for production}
@@ -13,3 +13,6 @@ services:
       DJANGO_TRUST_X_FORWARDED_PROTO: ${DJANGO_TRUST_X_FORWARDED_PROTO:-false}
     volumes: !reset []
     command: !reset null
+
+  scheduler:
+    environment: *production_environment

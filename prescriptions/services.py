@@ -16,6 +16,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from access_control.actors import ActorContext
+from audit.services import record_clinical_change
 from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.services import active_professional_for_actor
 from interoperability.fhir_export import (
@@ -310,5 +311,12 @@ def issue_prescription(
             )
             for sequence, item in enumerate(normalized_items, start=1)
         ]
+    )
+    record_clinical_change(
+        source=prescription,
+        actor_id=professional.user_id,
+        operation="issue",
+        operation_key=str(request_key),
+        after={"identifier": str(identifier), "snapshot": snapshot},
     )
     return IssuanceResult(prescription, True)

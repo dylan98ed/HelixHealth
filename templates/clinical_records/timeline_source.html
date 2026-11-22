@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.title }} · Patient chart{% endblock %}
+{% block content %}
+<a href="{% url 'clinical_records:chart' patient.pk %}">Back to patient chart</a>
+<h1>{{ entry.title }}</h1>{% include "clinical_records/_chart_identity.html" %}
+<section class="form-panel"><h2>{{ entry.label }}</h2><p>{{ entry.date }}</p>
+{% include "clinical_records/_timeline_origin.html" %}
+{% if entry.received %}<p>Received {{ entry.received|date:"c" }} · External identifier {{ entry.external_id }}</p>{% endif %}
+{% if entry.kind == "procedure" %}
+<p>{{ record.code_system }} · {{ record.code }}</p><p>Status: {{ record.status }} · Intent: {{ record.intent }}</p>
+{% elif entry.kind == "medication" %}
+{% include "clinical_records/_medication_order.html" %}
+{% elif entry.kind == "prescription" %}
+<p>Prescription {{ record.identifier }}</p>{% if record.snapshot.reason %}<p>{{ record.snapshot.reason.display }}</p>{% endif %}
+{% for item in record.snapshot.items %}<h3>{{ item.medication.display }}</h3>
+<p>{{ item.dose_value }} {{ item.dose_unit }} · {{ item.route }} · {{ item.frequency }} · {{ item.duration_days }} days</p>
+{% if item.instructions %}<p>{{ item.instructions }}</p>{% endif %}{% endfor %}
+{% else %}{% if entry.measurements %}<dl>{% for label,value in entry.measurements %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>{% endif %}
+{% with direction=record.content.directions %}{% if direction %}<p>{{ direction.text }}</p><p>{{ direction.dose_value }} {{ direction.dose_unit }} · {{ direction.route }} · {{ direction.frequency }}</p>{% endif %}{% endwith %}
+{% endif %}</section>{% endblock %}

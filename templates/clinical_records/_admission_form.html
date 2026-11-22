@@ -13,7 +13,8 @@
     <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
   {% endif %}
   <div class="form-grid">
-  {% for field in form %}
+  {% for field in form.hidden_fields %}{{ field }}{{ field.errors }}{% endfor %}
+  {% for field in form.visible_fields %}
     <div class="mb-3">
       <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
       {{ field }}

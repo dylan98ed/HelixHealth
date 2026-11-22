@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 from threading import Event, Thread
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth.models import Group
@@ -16,6 +17,7 @@ from access_control.roles import (
     ADMINISTRATIVE_GROUP,
     MEDICAL_PROFESSIONAL_GROUP,
 )
+from audit.models import ClinicalAuditEvent
 from clinical_records.forms import AdmissionForm
 from clinical_records.models import Admission
 from clinical_records.services import InactivePatientError, create_admission
@@ -103,12 +105,40 @@ def test_admission_persists_patient_professional_vitals_and_server_timestamp(
     assert admission.patient == patient
     assert admission.professional == professional
     assert admission.recorded_by == user
+    event = ClinicalAuditEvent.objects.get()
+    assert (event.source_type, event.source_key, event.patient, event.actor) == (
+        "clinical_records.admission",
+        str(admission.pk),
+        patient,
+        user,
+    )
+    assert event.after["heart_rate"] == admission.heart_rate
     assert admission.consultation_reason == "Persistent headache"
     assert admission.systolic_blood_pressure == 120
     assert admission.diastolic_blood_pressure == 80
     assert admission.heart_rate == 72
     assert admission.temperature == Decimal("36.7")
     assert before_creation <= admission.created_at <= after_creation
+
+
+@pytest.mark.django_db
+def test_admission_form_retry_reuses_source_and_audit_event(user_factory, client):
+    patient = Patient.objects.create(**patient_attributes())
+    user, _ = create_professional_user(user_factory)
+    client.force_login(user)
+    url = reverse("clinical_records:patient-admissions", args=[patient.pk])
+    key = client.get(url).context["form"]["request_key"].value()
+    assert key
+    values = {"request_key": key, **admission_data()}
+    for _ in range(2):
+        assert client.post(url, values).status_code == 302
+    api = reverse("clinical_records:api-create-admission", args=[patient.pk])
+    assert client.post(api, {**values, "heart_rate": 90}).status_code == 400
+    assert ClinicalAuditEvent.objects.get().source_key == str(
+        Admission.objects.get().pk
+    )
+    assert client.post(api, {**values, "request_key": uuid4()}).status_code == 201
+    assert Admission.objects.count() == ClinicalAuditEvent.objects.count() == 2
 
 
 @pytest.mark.django_db
