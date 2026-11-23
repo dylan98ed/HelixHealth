@@ -181,7 +181,7 @@ def test_anonymous_html_prescription_routes_redirect_to_sign_in(client):
 
 
 @pytest.mark.django_db
-def test_report_and_xml_recheck_current_access(client, user_factory):
+def test_report_and_xml_recheck_current_access(assign_patient, client, user_factory):
     target = patient()
     user, professional = prescriber(user_factory)
     entry = medication(user)
@@ -192,6 +192,7 @@ def test_report_and_xml_recheck_current_access(client, user_factory):
         reason_entry_id=None,
         items=data(entry),
     ).prescription
+    assign_patient(target, professional)
     client.force_login(user)
     report = reverse("prescriptions:report", args=[target.pk, prescription.identifier])
     xml = reverse("prescriptions:xml", args=[target.pk, prescription.identifier])

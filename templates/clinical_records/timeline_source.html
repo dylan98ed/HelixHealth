@@ -16,5 +16,5 @@
 <p>{{ item.dose_value }} {{ item.dose_unit }} · {{ item.route }} · {{ item.frequency }} · {{ item.duration_days }} days</p>
 {% if item.instructions %}<p>{{ item.instructions }}</p>{% endif %}{% endfor %}
 {% else %}{% if entry.measurements %}<dl>{% for label,value in entry.measurements %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>{% endif %}
-{% with direction=record.content.directions %}{% if direction %}<p>{{ direction.text }}</p><p>{{ direction.dose_value }} {{ direction.dose_unit }} · {{ direction.route }} · {{ direction.frequency }}</p>{% endif %}{% endwith %}
+{% with direction=record.content.directions %}{% if direction %}<p>{{ direction.text }}</p><p>{{ direction.dose_value }} {{ direction.dose_unit }} · {{ direction.route }} · {{ direction.frequency }}{% if direction.duration_days %} · {{ direction.duration_days }} day{{ direction.duration_days|pluralize }}{% endif %}</p>{% endif %}{% endwith %}
 {% endif %}</section>{% endblock %}

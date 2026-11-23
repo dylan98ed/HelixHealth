@@ -3,8 +3,10 @@
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
+from django.http import HttpRequest
+from django.shortcuts import get_object_or_404
 
-from access_control.actors import ActorContext, ActorRole
+from access_control.actors import ActorContext, ActorRole, actor_context_from_user
 from clinical_records.models import CareRelationship
 from patients.models import Patient
 from professionals.models import Professional
@@ -24,6 +26,17 @@ def chart_assignments(actor: ActorContext | None) -> QuerySet[CareRelationship]:
     )
 
 
+def can_read_patient_history(actor: ActorContext | None, patient: Patient) -> bool:
+    return chart_assignments(actor).filter(patient=patient).exists()
+
+
+def assigned_patient(request: HttpRequest, patient_pk: int) -> Patient:
+    patient = get_object_or_404(Patient.objects, pk=patient_pk)
+    if not can_read_patient_history(actor_context_from_user(request.user), patient):
+        raise PermissionDenied
+    return patient
+
+
 def chart_assignment(
     actor: ActorContext | None, patient_pk: int, *, for_update: bool = False
 ) -> CareRelationship:
@@ -33,13 +46,13 @@ def chart_assignment(
         assert actor is not None
         # Match assignment and identity lifecycle lock order, then recheck scope.
         if (
-            not User.objects.select_for_update()
+            not User.objects.select_for_update(no_key=True)
             .filter(pk=actor.user_id, is_active=True)
             .exists()
         ):
             raise PermissionDenied
         if (
-            not Professional.objects.select_for_update()
+            not Professional.objects.select_for_update(no_key=True)
             .filter(user_id=actor.user_id, is_active=True)
             .exists()
         ):

@@ -185,6 +185,12 @@ def chart_documentation_verified() -> bool:
         and visit.author.dni == "31000000"
         and visit.visited_at == datetime(2026, 1, 15, 12, 45, tzinfo=UTC)
         and notes == [("31000001", "Follow-up completed by the second physician.")]
+        and ExternalClinicalRecord.objects.filter(
+            patient=visit.patient,
+            resource_type="MedicationRequest",
+            content__directions__duration_days="5",
+            content__directions__text="Take with food",
+        ).exists()
         and list(
             revisions.values_list(
                 "entry__category",
@@ -213,6 +219,7 @@ def chart_documentation_verified() -> bool:
             ("clinical_records.historyentry", "create"),
             ("clinical_records.historyentry", "revise"),
             ("clinical_records.progressnote", "create"),
+            ("interoperability.externalclinicalrecord", "import"),
             ("interoperability.importedmedicationrequest", "import"),
             ("interoperability.importedservicerequest", "import"),
         ]

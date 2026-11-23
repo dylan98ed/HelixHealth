@@ -431,6 +431,13 @@ def test_verify_acceptance_checks_persisted_browser_outcomes(monkeypatch):
         actor=actor_context_from_user(Professional.objects.get(dni="31000001").user),
         patient_pk=chart_patient.pk,
     )
+    import_external_bundle(
+        actor=primary["actor"],
+        patient=chart_patient,
+        source_system="https://external.example/identifiers/institution",
+        request_key=uuid4(),
+        xml=Path("tests/chart-medication.xml").read_bytes(),
+    )
     import_json_bundle(
         actor=primary["actor"],
         source_system=EXCHANGE_SOURCE,

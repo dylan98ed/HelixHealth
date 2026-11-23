@@ -2,6 +2,7 @@
 
 from contextlib import ExitStack
 from datetime import timedelta
+from urllib.parse import urljoin
 
 from playwright.sync_api import expect
 
@@ -30,6 +31,28 @@ def assigned_chart_journey(page, login, schedule_day, doctor):
         admin.get_by_label("DNI", exact=True).fill(identifier)
         admin.get_by_role("button", name="Search patient").click()
         admin.get_by_role("link", name="Open patient record", exact=True).click()
+
+    def open_intake(tab):
+        tab.get_by_role("link", name="Clinical workspace", exact=True).click()
+        tab.get_by_label("DNI", exact=True).fill(dni)
+        tab.get_by_role("button", name="Find patient").click()
+        tab.get_by_role(
+            "link", name="Record admission for Patient 16 Zpagination"
+        ).click()
+        expect(tab.get_by_role("button", name="Record admission")).to_be_visible()
+
+    def expect_intake_only(tab):
+        expect(tab.get_by_role("heading", name="Admission history")).to_have_count(0)
+        expect(tab.get_by_text(CHART_REASON, exact=True)).to_have_count(0)
+        expect(
+            tab.get_by_role("heading", name="Medication requests received")
+        ).to_have_count(0)
+        expect(
+            tab.get_by_role("link", name="Interoperability", exact=True)
+        ).to_have_count(0)
+        expect(tab.get_by_role("link", name="Prescriptions", exact=True)).to_have_count(
+            0
+        )
 
     def assign(admin, patient_dni, professional_dni):
         patient_record(admin, patient_dni)
@@ -97,6 +120,9 @@ def assigned_chart_journey(page, login, schedule_day, doctor):
 
         login(page, f"{PAGED_ACTIVE_USERNAME_PREFIX}-00")
         expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
+        open_intake(page)
+        expect_intake_only(page)
+        page.get_by_role("link", name="Clinical workspace", exact=True).click()
         page.get_by_role("link", name="Assigned patient charts").click()
         directory = page.url
         page.get_by_role("link", name=empty).click()
@@ -148,6 +174,16 @@ def assigned_chart_journey(page, login, schedule_day, doctor):
         expect(previous).to_contain_text("Mother")
         expect(previous).to_contain_text("Zpagination active, Paged 00")
         reviewer = review_chart(signed_in, accounts, colleague, reception, populated)
+        intake = signed_in(f"{PAGED_ACTIVE_USERNAME_PREFIX}-00")
+        open_intake(intake)
+        expect(intake.get_by_text(CHART_REASON, exact=True)).to_be_visible()
+        expect(
+            intake.get_by_role("heading", name="Medication requests received")
+        ).to_be_visible()
+        history_links = [
+            intake.get_by_role("link", name=label, exact=True).get_attribute("href")
+            for label in ("Prescriptions", "Interoperability")
+        ]
         admin.get_by_role(
             "link", name="Revoke assignment for Paged 00 Zpagination active"
         ).click()
@@ -158,6 +194,10 @@ def assigned_chart_journey(page, login, schedule_day, doctor):
         ) as denied:
             page.get_by_role("button", name="Add progress note").click()
         assert denied.value.status == 403
+        intake.reload()
+        expect_intake_only(intake)
+        for href in history_links:
+            assert intake.goto(urljoin(chart_url, href)).status == 403
         assert reviewer.reload().status == 403
         assert page.goto(detail_url).status == 403
         assert page.goto(chart_url).status == 403

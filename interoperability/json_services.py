@@ -93,7 +93,7 @@ def import_json_bundle(
     raw_json: bytes,
 ) -> JsonImportResult:
     """Validate first, then reconcile identities and persist everything atomically."""
-    submitter = active_professional_for_actor(actor)
+    active_professional_for_actor(actor)
     source = source_system.strip().rstrip("/")
     try:
         URLValidator()(source)
@@ -103,8 +103,7 @@ def import_json_bundle(
     digest = hashlib.sha256(raw_json).hexdigest()
     try:
         with transaction.atomic():
-            Professional.objects.select_for_update().get(pk=submitter.pk)
-            active_professional_for_actor(actor)
+            submitter = active_professional_for_actor(actor, for_update=True)
             replay = JsonImportBatch.objects.filter(
                 submitted_by=submitter, request_key=request_key
             ).first()

@@ -46,8 +46,38 @@ def grant_audit(accounts, username):
 
 def review_chart(signed_in, accounts, colleague, reception, populated):
     first_doctor = f"{PAGED_ACTIVE_USERNAME_PREFIX}-00"
-    # Reimport through the same visible flow, then find the order in the chart.
     importer = signed_in(first_doctor)
+    importer.get_by_label("DNI", exact=True).fill("20000016")
+    importer.get_by_role("button", name="Find patient").click()
+    importer.get_by_role(
+        "link", name="Record admission for Patient 16 Zpagination"
+    ).click()
+    importer.get_by_role("link", name="Interoperability", exact=True).click()
+    importer.get_by_role("link", name="Import FHIR XML", exact=True).click()
+    importer.get_by_label("Source organization system").fill(
+        "https://external.example/identifiers/institution"
+    )
+    importer.get_by_label("FHIR XML file").set_input_files(
+        {
+            "name": "chart-medication.xml",
+            "mimeType": "application/fhir+xml",
+            "buffer": Path(__file__).with_name("chart-medication.xml").read_bytes(),
+        }
+    )
+    importer.get_by_role("button", name="Import FHIR XML", exact=True).click()
+    expect(
+        importer.get_by_role("heading", name="External clinical import")
+    ).to_be_visible()
+    importer.get_by_role("link", name="Clinical workspace", exact=True).click()
+    importer.get_by_role("link", name="Assigned patient charts").click()
+    importer.get_by_role("link", name=populated).click()
+    importer.get_by_role("link", name="External tablet", exact=True).click()
+    expect(importer.get_by_text("Take with food", exact=True)).to_be_visible()
+    expect(
+        importer.get_by_text("1 tablet · oral · daily · 5 days", exact=True)
+    ).to_be_visible()
+
+    # Reimport through the same visible flow, then find the order in the chart.
     for _ in range(2):
         importer.get_by_role("link", name="Import FHIR JSON", exact=True).click()
         importer.get_by_label("Source organization system").fill(EXCHANGE_SOURCE)

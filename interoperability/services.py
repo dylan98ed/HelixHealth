@@ -22,7 +22,6 @@ from interoperability.models import (
     ImportBatchRecord,
 )
 from patients.models import Patient
-from professionals.models import Professional
 
 
 class ImportConflictError(ValueError):
@@ -53,7 +52,7 @@ def import_external_bundle(
     xml: bytes,
 ) -> ImportResult:
     """Validate all input first, then atomically retain external provenance only."""
-    professional = active_professional_for_actor(actor)
+    active_professional_for_actor(actor)
     normalized_source = source_system.strip().rstrip("/")
     if not normalized_source:
         raise ExternalImportError("A source system is required.")
@@ -61,13 +60,12 @@ def import_external_bundle(
     _validate_patient_match(xml, patient)
     digest = hashlib.sha256(xml).hexdigest()
 
-    professional = Professional.objects.select_for_update().get(pk=professional.pk)
+    professional = active_professional_for_actor(actor, for_update=True)
     locked_patient = (
         Patient.all_objects.select_for_update().filter(pk=patient.pk).first()
     )
     if locked_patient is None or not locked_patient.is_active:
         raise ExternalImportError("Imports require an active patient.")
-    active_professional_for_actor(actor)
 
     request_replay = ImportBatch.objects.filter(
         submitted_by=professional, patient=locked_patient, request_key=request_key

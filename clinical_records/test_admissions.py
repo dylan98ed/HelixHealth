@@ -607,11 +607,12 @@ def test_non_htmx_admission_uses_post_redirect_get(client, user_factory):
     destination = client.get(response.url)
     assert destination.status_code == 200
     assert b"<!doctype html>" in destination.content
-    assert b"Persistent headache" in destination.content
+    assert b"Admission recorded." in destination.content
+    assert b"Admission history" not in destination.content
 
 
 @pytest.mark.django_db
-def test_patient_admission_history_is_paginated(client, user_factory):
+def test_patient_admission_history_is_paginated(assign_patient, client, user_factory):
     patient = Patient.objects.create(**patient_attributes())
     user, professional = create_professional_user(user_factory)
     for offset in range(21):
@@ -620,6 +621,7 @@ def test_patient_admission_history_is_paginated(client, user_factory):
             professional=professional,
             **admission_data(consultation_reason=f"History {offset}"),
         )
+    assign_patient(patient, professional)
     client.force_login(user)
     url = reverse("clinical_records:patient-admissions", args=[patient.pk])
 

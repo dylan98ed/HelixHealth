@@ -8,6 +8,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from access_control.actors import actor_context_from_user
+from clinical_records.chart_access import assigned_patient, can_read_patient_history
 from clinical_records.services import active_professional_for_actor
 from clinical_records.views import medical_professional_required
 from imaging.forms import ImageUploadForm
@@ -76,6 +77,11 @@ def image_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
     images = AnonymizedImage.objects.filter(patient=patient).defer(
         "dicom_bytes", "preview_png"
     )
+    read_history = can_read_patient_history(
+        actor_context_from_user(request.user), patient
+    )
+    if not read_history:
+        images = images.none()
     created_pk = request.GET.get("created", "")
     created = images.filter(pk=created_pk).first() if created_pk.isdecimal() else None
     images_page = Paginator(images, IMAGES_PER_PAGE).get_page(request.GET.get("page"))
@@ -85,6 +91,7 @@ def image_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
         {
             "patient": patient,
             "form": form,
+            "read_history": read_history,
             "images": images_page,
             "created": created,
         },
@@ -99,7 +106,9 @@ def image_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
 def download_image(
     request: HttpRequest, patient_pk: int, image_pk: int
 ) -> HttpResponse:
-    image = get_object_or_404(AnonymizedImage, pk=image_pk, patient_id=patient_pk)
+    image = get_object_or_404(
+        AnonymizedImage, pk=image_pk, patient=assigned_patient(request, patient_pk)
+    )
     response = HttpResponse(image.dicom_bytes, content_type="application/dicom")
     response.headers["Content-Disposition"] = (
         f'attachment; filename="anonymized-image-{image.pk}.dcm"'
@@ -114,7 +123,7 @@ def preview_image(request: HttpRequest, patient_pk: int, image_pk: int) -> HttpR
     image = get_object_or_404(
         AnonymizedImage.objects.defer("dicom_bytes"),
         pk=image_pk,
-        patient_id=patient_pk,
+        patient=assigned_patient(request, patient_pk),
     )
     preview = image.preview_png
     if preview is None:

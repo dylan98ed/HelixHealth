@@ -49,10 +49,22 @@ def admission_author_for_actor(
     return administrator, None
 
 
-def active_professional_for_actor(actor: ActorContext | None) -> Professional:
+def active_professional_for_actor(
+    actor: ActorContext | None, *, for_update: bool = False
+) -> Professional:
     actor = MEDICAL_PROFESSIONAL_POLICY.require(actor)
+    profiles = Professional.objects.all()
+    if for_update:
+        # Lifecycle changes acquire the account before its professional profile.
+        if (
+            not User.objects.select_for_update(no_key=True)
+            .filter(pk=actor.user_id, is_active=True)
+            .exists()
+        ):
+            raise PermissionDenied("An active account is required.")
+        profiles = profiles.select_for_update(no_key=True, of=("self",))
     try:
-        return Professional.objects.get(
+        return profiles.get(
             user_id=actor.user_id,
             user__is_active=True,
             is_active=True,

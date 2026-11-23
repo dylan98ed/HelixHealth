@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Bundle xmlns="http://hl7.org/fhir">
+  <id value="c0000000-0000-4000-8000-000000000001"/>
+  <identifier><system value="https://external.example/identifiers/bundle"/><value value="chart-medication-1"/></identifier>
+  <type value="collection"/><timestamp value="2026-09-15T12:30:00Z"/>
+  <entry><fullUrl value="urn:uuid:10000000-0000-4000-8000-000000000001"/><resource><Patient><id value="10000000-0000-4000-8000-000000000001"/><identifier><system value="https://helixhealth.local/interoperability/identifiers/dni"/><value value="20000016"/></identifier><name><family value="García"/><given value="Ana"/></name><birthDate value="1990-01-01"/></Patient></resource></entry>
+  <entry><fullUrl value="urn:uuid:20000000-0000-4000-8000-000000000001"/><resource><Organization><id value="20000000-0000-4000-8000-000000000001"/><identifier><system value="https://external.example/identifiers/institution"/><value value="external-hospital"/></identifier><name value="External Hospital"/></Organization></resource></entry>
+  <entry><fullUrl value="urn:uuid:30000000-0000-4000-8000-000000000001"/><resource><Practitioner><id value="30000000-0000-4000-8000-000000000001"/><identifier><system value="https://external.example/identifiers/professional"/><value value="EXT-001"/></identifier><name><family value="Médica"/><given value="Eva"/></name></Practitioner></resource></entry>
+  <entry>
+    <fullUrl value="urn:uuid:40000000-0000-4000-8000-000000000002"/>
+    <resource><MedicationRequest>
+      <id value="40000000-0000-4000-8000-000000000002"/>
+      <status value="active"/><intent value="order"/>
+      <medicationCodeableConcept><coding><system value="https://external.example/medications"/><code value="TAB-1"/><display value="External tablet"/></coding></medicationCodeableConcept>
+      <subject><reference value="urn:uuid:10000000-0000-4000-8000-000000000001"/></subject>
+      <authoredOn value="2026-09-15T12:00:00Z"/>
+      <requester><reference value="urn:uuid:30000000-0000-4000-8000-000000000001"/></requester>
+      <groupIdentifier><value value="chart-medication-1"/></groupIdentifier>
+      <dosageInstruction>
+        <text value="Take with food"/>
+        <timing><repeat><boundsDuration><value value="5"/><unit value="days"/><system value="http://unitsofmeasure.org"/><code value="d"/></boundsDuration></repeat><code><text value="daily"/></code></timing>
+        <route><text value="oral"/></route>
+        <doseAndRate><doseQuantity><value value="1"/><unit value="tablet"/></doseQuantity></doseAndRate>
+      </dosageInstruction>
+    </MedicationRequest></resource>
+  </entry>
+</Bundle>

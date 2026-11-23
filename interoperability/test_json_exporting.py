@@ -153,7 +153,7 @@ def test_rejects_incomplete_and_wrong_patient_selections(export_records):
 
 
 @pytest.mark.django_db
-def test_optional_vital_sign_and_api_download(export_records, client):
+def test_optional_vital_sign_and_api_download(assign_patient, export_records, client):
     patient, practitioner, procedure, medication, _ = export_records
     observation = {
         "resourceType": "Observation",
@@ -189,6 +189,7 @@ def test_optional_vital_sign_and_api_download(export_records, client):
         401,
         403,
     )
+    assign_patient(patient, practitioner)
     client.force_login(practitioner.user)
     response = client.post(url, json.dumps(payload), content_type="application/json")
     assert response.status_code == 200
@@ -249,7 +250,7 @@ def test_api_denies_missing_role_and_inactive_profile(
 
 @pytest.mark.django_db
 def test_local_admission_exports_three_vitals_alone_and_with_prescription(
-    export_records, client
+    export_records, client, assign_patient
 ):
     patient, practitioner, _, _, prescription = export_records
     admission = Admission.objects.create(
@@ -281,6 +282,7 @@ def test_local_admission_exports_three_vitals_alone_and_with_prescription(
     combined = parse_json_bundle(export_selected_json(**selection))
     assert len(combined.observations) == 3
     assert len(combined.medication_requests) == 1
+    assign_patient(patient, practitioner)
     client.force_login(practitioner.user)
     response = client.post(
         reverse("interoperability:api-json-export", args=[patient.pk]),

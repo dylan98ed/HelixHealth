@@ -8,10 +8,14 @@
     <p class="lead mb-1">{{ patient.first_name }} {{ patient.last_name }}</p>
     <p>Clinical record number: {{ patient.clinical_record_number }}</p>
     {% if is_administrative_actor %}<a href="{% url 'patients:detail' patient.pk %}">Back to patient record</a>{% else %}<a href="{% url 'clinical_records:admission-search' %}">Find another patient</a>{% endif %}
-    {% if is_medical_professional_actor %}
+    {% if is_medical_professional_actor and read_history %}
       <a class="ms-3" href="{% url 'imaging:list' patient.pk %}">Medical images</a>
       <a class="ms-3" href="{% url 'prescriptions:list' patient.pk %}">Prescriptions</a>
       <a class="ms-3" href="{% url 'interoperability:home' patient.pk %}">Interoperability</a>
+    {% elif is_medical_professional_actor %}
+      <a class="ms-3" href="{% url 'imaging:list' patient.pk %}">Upload medical image</a>
+      <a class="ms-3" href="{% url 'prescriptions:issue' patient.pk %}">New prescription</a>
+      <a class="ms-3" href="{% url 'interoperability:import-upload' patient.pk %}">Import FHIR XML</a>
     {% endif %}
   </header>
 
@@ -40,8 +44,10 @@
     </aside>
 
     <main class="admission-content">
+      {% for message in messages %}<p role="status">{{ message }}</p>{% endfor %}
       {% include "clinical_records/_admission_form.html" %}
 
+      {% if read_history %}
       <section class="mt-5" aria-labelledby="history-heading">
         <h2 id="history-heading">Admission history</h2>
         {% for admission in admissions %}
@@ -53,6 +59,7 @@
       </section>
       {% include "interoperability/_imported_services.html" %}
       {% include "interoperability/_imported_medications.html" %}
+      {% endif %}
     </main>
   </div>
 {% endblock %}

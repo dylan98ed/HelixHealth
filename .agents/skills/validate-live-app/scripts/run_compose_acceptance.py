@@ -335,6 +335,15 @@ def main() -> int:
             page.get_by_text("No professionals are currently assigned.")
         ).to_be_visible()
 
+        page.get_by_label("Professional DNI").fill(
+            personas.COMPLETED_ACTIVE_PROFESSIONAL_DNI
+        )
+        page.get_by_role("button", name="Search professional").click()
+        page.get_by_role("button", name="Assign professional").click()
+        expect(
+            page.get_by_role("link", name=re.compile("Revoke assignment for"))
+        ).to_have_count(1)
+
     def paginated_workspace(page: Page) -> None:
         application_login(page, base_url, MEDICAL_ACTIVE_USERNAME, password)
         expect(page).to_have_url(f"{base_url}/clinical-records/")
@@ -964,10 +973,10 @@ def main() -> int:
                     False,
                 ),
             ),
+            ("administrative-care-assignment", assign_and_revoke_care),
             ("medical-admission", record_admission),
             ("administrative-admission", record_administrative_admission),
             ("medical-image-conversion", save_medical_image),
-            ("administrative-care-assignment", assign_and_revoke_care),
             ("administrative-catalog-management", manage_catalogs),
             ("medical-prescription-issue", issue_prescription),
             ("medical-admission-fhir-export", export_recorded_admission),

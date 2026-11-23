@@ -63,7 +63,7 @@ def lock_schedule(user_id: int, professional_ids: set[int]) -> User:
     subject_ids = Professional.objects.filter(pk__in=professional_ids).values("user_id")
     accounts = {
         u.pk: u
-        for u in User.objects.select_for_update()
+        for u in User.objects.select_for_update(no_key=True)
         .filter(Q(pk=user_id) | Q(pk__in=subject_ids))
         .order_by("pk")
     }
@@ -71,7 +71,7 @@ def lock_schedule(user_id: int, professional_ids: set[int]) -> User:
     if user is None or not user.is_active:
         raise PermissionDenied
     list(
-        Professional.objects.select_for_update()
+        Professional.objects.select_for_update(no_key=True)
         .filter(pk__in=professional_ids)
         .order_by("pk")
     )
@@ -191,14 +191,42 @@ def affected_bookings(professional_id: int) -> list[Appointment]:
         .exclude(state=AppointmentState.CANCELED)
         .select_related("patient")
     )
-    outside = []
-    slots: set[Slot] = set()
-    last_day = None
+    by_day: dict[date, list[Appointment]] = defaultdict(list)
+    zone = clinic_zone()
     for booking in bookings:
-        day = booking.start.astimezone(clinic_zone()).date()
-        if day != last_day:
-            slots = set(schedule_slots(day, [professional_id]))
-            last_day = day
-        if Slot(professional_id, booking.start, booking.end) not in slots:
-            outside.append(booking)
+        by_day[booking.start.astimezone(zone).date()].append(booking)
+    if not by_day:
+        return []
+
+    exceptions = {
+        window.day: window
+        for window in ScheduleException.objects.filter(
+            professional_id=professional_id, day__in=by_day.keys()
+        )
+    }
+    by_weekday: dict[int, list[WeeklyRule]] = defaultdict(list)
+    for rule in WeeklyRule.objects.filter(
+        Q(effective_until=None) | Q(effective_until__gte=min(by_day)),
+        professional_id=professional_id,
+        effective_from__lte=max(by_day),
+    ):
+        by_weekday[rule.weekday].append(rule)
+
+    outside: list[Appointment] = []
+    for day, daily_bookings in by_day.items():
+        if day in exceptions:
+            slots = set(window_slots(day, exceptions[day]))
+        else:
+            slots = {
+                slot
+                for rule in by_weekday[day.weekday()]
+                if rule.effective_from <= day
+                and (rule.effective_until is None or day <= rule.effective_until)
+                for slot in window_slots(day, rule)
+            }
+        outside.extend(
+            booking
+            for booking in daily_bookings
+            if Slot(professional_id, booking.start, booking.end) not in slots
+        )
     return outside

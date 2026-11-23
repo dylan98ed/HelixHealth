@@ -230,6 +230,31 @@ def test_intervals_requests_retries_and_atomic_moves(practice):
     assert moved.operator == operator and moved.recorded_at
 
 
+def test_affected_bookings_load_schedule_once_across_dates(
+    practice, django_assert_num_queries
+):
+    manager, operator, doctors, patient, day = practice
+    doctor = doctors[0]
+    dates = [day + timedelta(weeks=i) for i in range(4)]
+    bookings = [book(operator, patient, free_slots(d, [doctor])[-1]) for d in dates]
+    rule = WeeklyRule.objects.get(professional=doctor)
+    rule.effective_until = dates[1]
+    save_window(manager.pk, rule)
+    save_window(manager.pk, ScheduleException(professional=doctor, day=dates[0]))
+    save_window(
+        manager.pk,
+        ScheduleException(
+            professional=doctor,
+            day=dates[3],
+            opens=time(22),
+            closes=time(23),
+            minutes=30,
+        ),
+    )
+    with django_assert_num_queries(3):
+        assert affected_bookings(doctor.pk) == [bookings[0], bookings[2]]
+
+
 def test_availability_dates_exceptions_and_retained_bookings(practice, monkeypatch):
     manager, operator, doctors, patient, day = practice
     doctor = doctors[0]

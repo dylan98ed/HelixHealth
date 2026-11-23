@@ -1,12 +1,16 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from queue import Queue
 from uuid import uuid4
 
 import pytest
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection, transaction
 from django.urls import reverse
 from django.utils import timezone
 from lxml import etree
@@ -22,6 +26,7 @@ from interoperability.services import ImportConflictError, import_external_bundl
 from patients.models import Patient
 from prescriptions.models import Prescription
 from professionals.models import HospitalService, Professional, Specialty
+from professionals.services import deactivate_professional
 
 FIXTURE = Path(
     "docs/interoperability/fhir-r4/fixtures/independent-valid-observation.xml"
@@ -46,7 +51,7 @@ def patient() -> Patient:
 
 def professional(user_factory):
     user = user_factory(username="interop-doctor")
-    user.groups.add(Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP))
+    user.groups.add(Group.objects.get_or_create(name=MEDICAL_PROFESSIONAL_GROUP)[0])
     specialty = Specialty.objects.create(code="interop", name="Interoperability")
     service = HospitalService.objects.create(code="interop", name="Interoperability")
     profile = Professional.objects.create(
@@ -68,6 +73,49 @@ def actor(user) -> ActorContext:
     return ActorContext(
         user_id=user.pk, roles=frozenset({ActorRole.MEDICAL_PROFESSIONAL})
     )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_xml_import_waits_for_actor_before_locking_profile(user_factory):
+    user, profile = professional(user_factory)
+    admin = user_factory()
+    admin.groups.add(
+        Group.objects.get_or_create(name=ActorRole.ADMINISTRATIVE.value)[0]
+    )
+    operator = ActorContext(admin.pk, frozenset({ActorRole.ADMINISTRATIVE}))
+    target = patient()
+    first_lock = Queue()
+
+    def observe_lock(execute, sql, params, many, context):
+        if "FOR " in sql and "UPDATE" in sql:
+            first_lock.put(sql)
+        return execute(sql, params, many, context)
+
+    def import_on_other_connection():
+        try:
+            with connection.execute_wrapper(observe_lock):
+                import_external_bundle(
+                    actor=actor(user),
+                    patient=target,
+                    source_system=SOURCE_SYSTEM,
+                    request_key=uuid4(),
+                    xml=FIXTURE.read_bytes(),
+                )
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with transaction.atomic():
+            type(user).objects.select_for_update().get(pk=user.pk)
+            worker = pool.submit(import_on_other_connection)
+            assert '"auth_user"' in first_lock.get(timeout=10).split(" WHERE ")[0]
+            deactivate_professional(
+                actor=operator, professional=profile, confirmed=True
+            )
+        with pytest.raises(PermissionDenied):
+            worker.result(timeout=10)
+    assert not ImportBatch.objects.exists()
+    assert not ClinicalAuditEvent.objects.exists()
 
 
 @pytest.mark.django_db
@@ -190,9 +238,11 @@ def test_import_api_rejects_unsafe_or_wrong_mime_without_writes(client, user_fac
 
 
 @pytest.mark.django_db
-def test_html_import_retry_reuses_the_original_request_key(client, user_factory):
+def test_html_import_retry_reuses_the_original_request_key(
+    assign_patient, client, user_factory
+):
     target = patient()
-    user, _ = professional(user_factory)
+    user, profile = professional(user_factory)
     original = import_external_bundle(
         actor=actor(user),
         patient=target,
@@ -200,6 +250,7 @@ def test_html_import_retry_reuses_the_original_request_key(client, user_factory)
         request_key=uuid4(),
         xml=FIXTURE.read_bytes(),
     )
+    assign_patient(target, profile)
     client.force_login(user)
     upload_url = reverse("interoperability:import-upload", args=[target.pk])
 
@@ -245,7 +296,7 @@ def test_import_rejects_wrong_patient_before_writing(user_factory):
 
 @pytest.mark.django_db
 def test_selected_admission_export_is_patient_scoped_and_has_fhir_mime(
-    client, user_factory
+    assign_patient, client, user_factory
 ):
     target = patient()
     user, profile = professional(user_factory)
@@ -258,6 +309,7 @@ def test_selected_admission_export_is_patient_scoped_and_has_fhir_mime(
         heart_rate=72,
         temperature=Decimal("36.7"),
     )
+    assign_patient(target, profile)
     client.force_login(user)
     response = client.post(
         reverse("interoperability:api-export", args=[target.pk]),
@@ -344,7 +396,9 @@ def _export_admission(target, profile):
 
 
 @pytest.mark.django_db
-def test_export_reports_different_authors_in_html_and_api(client, user_factory):
+def test_export_reports_different_authors_in_html_and_api(
+    assign_patient, client, user_factory
+):
     target = patient()
     user, profile = professional(user_factory)
     other = Professional.objects.create(
@@ -353,6 +407,7 @@ def test_export_reports_different_authors_in_html_and_api(client, user_factory):
     admissions = Admission.objects.bulk_create(
         [_export_admission(target, profile), _export_admission(target, other)]
     )
+    assign_patient(target, profile)
     client.force_login(user)
     payload = {"admission_ids": [record.pk for record in admissions]}
     for route in ("api-export", "export"):
@@ -369,12 +424,15 @@ def test_export_reports_different_authors_in_html_and_api(client, user_factory):
 
 
 @pytest.mark.django_db
-def test_export_admission_boundary_produces_an_importable_bundle(client, user_factory):
+def test_export_admission_boundary_produces_an_importable_bundle(
+    assign_patient, client, user_factory
+):
     target = patient()
     user, profile = professional(user_factory)
     admissions = Admission.objects.bulk_create(
         [_export_admission(target, profile) for _ in range(166)]
     )
+    assign_patient(target, profile)
     client.force_login(user)
     url = reverse("interoperability:api-export", args=[target.pk])
     accepted = client.post(
@@ -399,11 +457,14 @@ def test_export_admission_boundary_produces_an_importable_bundle(client, user_fa
 
 
 @pytest.mark.django_db
-def test_export_byte_limit_returns_feedback(client, user_factory, monkeypatch):
+def test_export_byte_limit_returns_feedback(
+    assign_patient, client, user_factory, monkeypatch
+):
     target = patient()
     user, profile = professional(user_factory)
     admission = _export_admission(target, profile)
     admission.save()
+    assign_patient(target, profile)
     client.force_login(user)
     monkeypatch.setattr("interoperability.fhir_export.MAX_BUNDLE_BYTES", 100)
     response = client.post(

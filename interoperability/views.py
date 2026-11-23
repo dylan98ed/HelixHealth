@@ -5,9 +5,12 @@ from __future__ import annotations
 from io import BytesIO
 from uuid import uuid4
 
+from django.contrib import messages
 from django.core.paginator import Paginator
+from django.db.models import QuerySet
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -22,6 +25,11 @@ from rest_framework.response import Response
 
 from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import IsActiveMedicalProfessionalActor
+from clinical_records.chart_access import (
+    assigned_patient,
+    can_read_patient_history,
+    chart_assignments,
+)
 from clinical_records.models import Admission
 from clinical_records.services import active_professional_for_actor
 from clinical_records.views import medical_professional_required
@@ -56,13 +64,23 @@ from prescriptions.models import Prescription
 IMPORTS_PER_PAGE = 20
 
 
+def assigned_json_batches(request: HttpRequest) -> QuerySet[JsonImportBatch]:
+    assignments = chart_assignments(actor_context_from_user(request.user))
+    return JsonImportBatch.objects.filter(
+        patient_id__in=assignments.values("patient_id")
+    )
+
+
+@never_cache
 @medical_professional_required
 @require_http_methods(["GET", "POST"])
 def json_import_upload(request: HttpRequest) -> HttpResponse:
     initial: dict[str, object] = {"request_key": uuid4()}
     retry_identifier = request.GET.get("retry")
     if retry_identifier:
-        prior = get_object_or_404(JsonImportBatch, identifier=retry_identifier)
+        prior = get_object_or_404(
+            assigned_json_batches(request), identifier=retry_identifier
+        )
         initial = {
             "request_key": prior.request_key,
             "source_system": prior.source_system,
@@ -79,11 +97,22 @@ def json_import_upload(request: HttpRequest) -> HttpResponse:
         except (JsonImportError, JsonImportConflict) as error:
             form.add_error(None, str(error))
         else:
+            if not assigned_json_batches(request).filter(pk=result.batch.pk).exists():
+                if result.created:
+                    return render(
+                        request,
+                        "interoperability/json_import_detail.html",
+                        {"batch": result.batch, "receipt_only": True},
+                    )
+                messages.success(request, "FHIR JSON import already received.")
+                return redirect("interoperability:json-import-upload")
             return redirect(
                 "interoperability:json-import-detail",
                 identifier=result.batch.identifier,
             )
-    recent = JsonImportBatch.objects.select_related("patient", "practitioner")[:20]
+    recent = assigned_json_batches(request).select_related("patient", "practitioner")[
+        :20
+    ]
     return render(
         request,
         "interoperability/json_import_form.html",
@@ -95,7 +124,7 @@ def json_import_upload(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def json_import_detail(request: HttpRequest, identifier: str) -> HttpResponse:
     batch = get_object_or_404(
-        JsonImportBatch.objects.select_related("patient", "practitioner"),
+        assigned_json_batches(request).select_related("patient", "practitioner"),
         identifier=identifier,
     )
     response = render(
@@ -108,7 +137,7 @@ def json_import_detail(request: HttpRequest, identifier: str) -> HttpResponse:
 @medical_professional_required
 @require_http_methods(["GET"])
 def json_import_file(request: HttpRequest, identifier: str) -> FileResponse:
-    batch = get_object_or_404(JsonImportBatch, identifier=identifier)
+    batch = get_object_or_404(assigned_json_batches(request), identifier=identifier)
     response = FileResponse(
         BytesIO(bytes(batch.raw_json)),
         as_attachment=True,
@@ -117,10 +146,6 @@ def json_import_file(request: HttpRequest, identifier: str) -> FileResponse:
     )
     response["Cache-Control"] = "no-store"
     return response
-
-
-def _patient_or_404(patient_pk: int) -> Patient:
-    return get_object_or_404(Patient.objects, pk=patient_pk)
 
 
 def _batch_or_404(patient: Patient, identifier: str) -> ImportBatch:
@@ -186,21 +211,22 @@ def _render_exchange_home(
     )
 
 
+@never_cache
 @medical_professional_required
 @require_http_methods(["GET"])
 def exchange_home(request: HttpRequest, patient_pk: int) -> HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     return _render_exchange_home(request, patient)
 
 
 @medical_professional_required
 @require_http_methods(["GET", "POST"])
 def import_upload(request: HttpRequest, patient_pk: int) -> HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = get_object_or_404(Patient.objects, pk=patient_pk)
     initial: dict[str, object] = {"request_key": uuid4()}
     retry_identifier = request.GET.get("retry")
     if retry_identifier:
-        retry = _batch_or_404(patient, retry_identifier)
+        retry = _batch_or_404(assigned_patient(request, patient_pk), retry_identifier)
         initial = {
             "request_key": retry.request_key,
             "source_system": retry.source_system,
@@ -224,6 +250,11 @@ def import_upload(request: HttpRequest, patient_pk: int) -> HttpResponse:
         except ImportConflictError as error:
             form.add_error(None, str(error))
         else:
+            if not can_read_patient_history(
+                actor_context_from_user(request.user), patient
+            ):
+                messages.success(request, "FHIR XML import received.")
+                return redirect("clinical_records:patient-admissions", patient.pk)
             return redirect(
                 "interoperability:import-detail",
                 patient_pk=patient.pk,
@@ -234,12 +265,13 @@ def import_upload(request: HttpRequest, patient_pk: int) -> HttpResponse:
     )
 
 
+@never_cache
 @medical_professional_required
 @require_http_methods(["GET"])
 def import_detail(
     request: HttpRequest, patient_pk: int, identifier: str
 ) -> HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     return render(
         request,
         "interoperability/import_detail.html",
@@ -250,7 +282,7 @@ def import_detail(
 @medical_professional_required
 @require_http_methods(["GET"])
 def import_xml(request: HttpRequest, patient_pk: int, identifier: str) -> FileResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     batch = _batch_or_404(patient, identifier)
     response = FileResponse(
         BytesIO(bytes(batch.raw_xml)),
@@ -267,7 +299,7 @@ def import_xml(request: HttpRequest, patient_pk: int, identifier: str) -> FileRe
 def export_selected(
     request: HttpRequest, patient_pk: int
 ) -> FileResponse | HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     admission_ids = tuple(request.POST.getlist("admission_ids"))
     prescription_ids = tuple(request.POST.getlist("prescription_ids"))
     serializer = ExportRequestSerializer(
@@ -316,7 +348,7 @@ def export_selected(
 def export_selected_json_file(
     request: HttpRequest, patient_pk: int
 ) -> FileResponse | HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     selections = {
         "admission_ids": tuple(request.POST.getlist("json_admission_ids")),
         "service_request_ids": tuple(request.POST.getlist("service_request_ids")),
@@ -364,16 +396,13 @@ class ImportCollectionAPIView(GenericAPIView):
     permission_classes = [IsActiveMedicalProfessionalActor]
     serializer_class = ImportRequestSerializer
 
-    def _patient(self, patient_pk: int) -> Patient:
-        return _patient_or_404(patient_pk)
-
     @extend_schema(
         operation_id="external_import_history",
         description="Return external-import summaries in stable 20-item pages.",
         responses={200: ImportBatchPageSerializer},
     )
     def get(self, request: Request, patient_pk: int) -> Response:
-        patient = self._patient(patient_pk)
+        patient = assigned_patient(request, patient_pk)
         page = Paginator(
             ImportBatch.objects.filter(patient=patient).prefetch_related("records"),
             IMPORTS_PER_PAGE,
@@ -436,7 +465,7 @@ class ImportCollectionAPIView(GenericAPIView):
         },
     )
     def post(self, request: Request, patient_pk: int) -> Response:
-        patient = self._patient(patient_pk)
+        patient = get_object_or_404(Patient.objects, pk=patient_pk)
         uploaded_file = request.FILES.get("file")
         if uploaded_file is not None:
             content_type = (uploaded_file.content_type or "").split(";", 1)[0]
@@ -460,6 +489,10 @@ class ImportCollectionAPIView(GenericAPIView):
             return Response({"file": [str(error)]}, status=status.HTTP_400_BAD_REQUEST)
         except ImportConflictError as error:
             return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        if not result.created and not can_read_patient_history(
+            actor_context_from_user(request.user), patient
+        ):
+            return Response({"identifier": result.batch.identifier})
         return Response(
             ImportBatchSerializer(result.batch).data,
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
@@ -474,7 +507,7 @@ class ImportDetailAPIView(GenericAPIView):
     def get(self, request: Request, patient_pk: int, identifier: str) -> Response:
         return Response(
             ImportBatchSerializer(
-                _batch_or_404(_patient_or_404(patient_pk), identifier)
+                _batch_or_404(assigned_patient(request, patient_pk), identifier)
             ).data
         )
 
@@ -528,7 +561,8 @@ class ExportAPIView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         try:
             xml = export_selected_records(
-                patient=_patient_or_404(patient_pk), **serializer.validated_data
+                patient=assigned_patient(request, patient_pk),
+                **serializer.validated_data,
             )
         except Http404:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -569,7 +603,8 @@ class JsonExportAPIView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         try:
             raw = export_selected_json(
-                patient=_patient_or_404(patient_pk), **serializer.validated_data
+                patient=assigned_patient(request, patient_pk),
+                **serializer.validated_data,
             )
         except JsonExportSelectionError as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
