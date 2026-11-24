@@ -96,7 +96,7 @@ def scheduling_journeys(base_url, password, reminder_worker=compose_reminder_wor
             selector.select_option(label=label)
             page.get_by_role("button", name="Open schedule").click()
             expect(page.get_by_text("No weekly hours configured.")).to_be_visible()
-            page.get_by_label("Weekday").select_option(str(day.weekday()))
+            page.get_by_role("checkbox", name=day.strftime("%A")).check()
             page.get_by_label("Opening time", exact=True).fill("19:00")
             page.get_by_label("Closing time", exact=True).fill("20:00")
             page.get_by_label("Slot duration (minutes)", exact=True).fill("30")
@@ -114,9 +114,53 @@ def scheduling_journeys(base_url, password, reminder_worker=compose_reminder_wor
         page.get_by_role("button", name="Update weekly hours").click()
         expect(page.get_by_role("status")).to_contain_text("Availability saved")
 
+    def configure_weekdays(page: Page):
+        login(page, SCHEDULE_MANAGER)
+        page.get_by_role("link", name="Manage availability").click()
+        selector = page.get_by_label("Professional", exact=True)
+        label = selector.get_by_role(
+            "option", name=re.compile("Zpagination active, Paged 02")
+        ).inner_text()
+        selector.select_option(label=label)
+        page.get_by_role("button", name="Open schedule").click()
+        expect(page.get_by_text("No weekly hours configured.")).to_be_visible()
+        page.get_by_role("checkbox", name="Sunday").check()
+        page.get_by_role("button", name="Select weekdays").click()
+        expect(page.get_by_role("checkbox", name="Sunday")).not_to_be_checked()
+        page.get_by_label("Opening time", exact=True).fill("08:00")
+        page.get_by_label("Closing time", exact=True).fill("16:00")
+        page.get_by_label("Slot duration (minutes)", exact=True).fill("30")
+        page.get_by_label("Effective from").fill(
+            (day + timedelta(days=365)).isoformat()
+        )
+        page.get_by_role("button", name="Add weekly hours").click()
+        rows = page.get_by_role("listitem").filter(
+            has=page.get_by_role("link", name="Edit hours")
+        )
+        expect(rows).to_have_count(5)
+        rows.filter(has_text="Friday").get_by_role("link", name="Edit hours").click()
+        page.get_by_label("Opening time", exact=True).fill("07:00")
+        page.get_by_label("Closing time", exact=True).fill("14:00")
+        page.get_by_role("button", name="Update weekly hours").click()
+
+        # Only Friday conflicts. The four earlier days must roll back together.
+        page.get_by_role("button", name="Select weekdays").click()
+        page.get_by_label("Opening time", exact=True).fill("07:00")
+        page.get_by_label("Closing time", exact=True).fill("08:00")
+        page.get_by_label("Slot duration (minutes)", exact=True).fill("30")
+        page.get_by_role("button", name="Add weekly hours").click()
+        expect(
+            page.get_by_text("Friday: these hours overlap another effective rule.")
+        ).to_be_visible()
+        expect(page.get_by_role("checkbox", name="Monday")).to_be_checked()
+        page.get_by_role("button", name="Open schedule").click()
+        expect(rows).to_have_count(5)
+        for weekday in ("Monday", "Tuesday", "Wednesday", "Thursday"):
+            expect(rows.filter(has_text=weekday)).to_contain_text("08:00–16:00")
+        expect(rows.filter(has_text="Friday")).to_contain_text("07:00–14:00")
+
     def search(page):
         page.get_by_role("link", name="Find an opening").click()
-        page.get_by_label("Date", exact=True).fill(day.isoformat())
         page.get_by_label("Specialty", exact=True).select_option(
             label="General Medicine"
         )
@@ -166,8 +210,6 @@ def scheduling_journeys(base_url, password, reminder_worker=compose_reminder_wor
         stale.get_by_role("button", name="Reserve appointment").click()
         expect(stale.get_by_role("alert")).to_contain_text("no longer available")
         expect(stale.get_by_role("link", name=chosen_label)).to_have_count(0)
-        stale.get_by_label("Professional", exact=True).select_option(label=DOCTORS[0])
-        stale.get_by_role("button", name="Search openings").click()
         expect(
             stale.get_by_role("link", name=f"{DOCTORS[0]} · {day} 19:00–19:30")
         ).to_be_visible()
@@ -192,17 +234,18 @@ def scheduling_journeys(base_url, password, reminder_worker=compose_reminder_wor
         page.get_by_role("link", name="Request inbox").click()
         page.get_by_role("link", name="New appointment request").click()
         preference = f"{channel} evening appointment"
-        page.get_by_label("Patient DNI").fill(ACTIVE_PATIENT_DNI)
+        picker = page.get_by_role("combobox", name="Patient", exact=True)
+        expect(
+            picker.get_by_role("option", name=re.compile(INACTIVE_PATIENT_DNI))
+        ).to_have_count(0)
+        picker.select_option(
+            label=picker.get_by_role(
+                "option", name=re.compile(ACTIVE_PATIENT_DNI)
+            ).inner_text()
+        )
         page.get_by_label("Original channel").select_option(label=channel)
         page.get_by_label("Contact number").fill("+54 11 5555 0130")
         page.get_by_label("Appointment preference").fill(preference)
-        if channel == "Phone":
-            page.get_by_label("Patient DNI").fill(INACTIVE_PATIENT_DNI)
-            page.get_by_role("button", name="Record request").click()
-            expect(
-                page.get_by_text("No active patient matches this DNI.")
-            ).to_be_visible()
-            page.get_by_label("Patient DNI").fill(ACTIVE_PATIENT_DNI)
         page.get_by_role("button", name="Record request").click()
         expect(page.get_by_text("Pending", exact=True)).to_be_visible()
         page.get_by_role("button", name=f"Record no answer by {channel}").click()
@@ -219,12 +262,19 @@ def scheduling_journeys(base_url, password, reminder_worker=compose_reminder_wor
         opening = f"{DOCTORS[0]} · {requested_day} 19:00–19:30"
 
         def show_openings(tab):
-            tab.get_by_label("Date", exact=True).fill(requested_day.isoformat())
             tab.get_by_label("Specialty").select_option(label="General Medicine")
-            tab.get_by_label("Professional", exact=True).select_option(label=DOCTORS[0])
             tab.get_by_role("button", name="Search openings").click()
 
         show_openings(page)
+        expect(page.get_by_label("Professional", exact=True)).to_have_count(0)
+        links = page.locator("section li a")
+        labels = links.all_text_contents()
+        starts = [label.split(" · ")[1].split("–")[0] for label in labels]
+        assert starts == sorted(starts)
+        assert all(any(doctor in label for label in labels) for doctor in DOCTORS)
+        page.get_by_role("link", name="Later openings").click()
+        assert links.first.inner_text().split(" · ")[1] >= starts[-1]
+        page.go_back()
         page.get_by_role("link", name=opening).click()
         observer = page.context.browser.new_page()
         try:
@@ -232,8 +282,12 @@ def scheduling_journeys(base_url, password, reminder_worker=compose_reminder_wor
             observer.get_by_role("link", name="Find an opening").click()
             show_openings(observer)
             expect(observer.get_by_role("link", name=opening)).to_be_visible()
-            page.get_by_label("Patient-supplied DNI").fill(ACTIVE_PATIENT_DNI)
-            page.get_by_label("Patient-supplied date of birth").fill("1990-01-01")
+            patient_picker = page.get_by_role("combobox", name="Patient", exact=True)
+            expect(patient_picker.locator("option:checked")).to_contain_text(
+                ACTIVE_PATIENT_DNI
+            )
+            expect(patient_picker.get_by_role("option")).to_have_count(1)
+            expect(page.get_by_label("Patient-supplied date of birth")).to_have_count(0)
             if channel == "WhatsApp":
                 page.get_by_label("Status").select_option("confirmed")
             save = page.get_by_role("button", name="Save request reservation")
@@ -294,6 +348,7 @@ def scheduling_journeys(base_url, password, reminder_worker=compose_reminder_wor
         ("scheduling-account-provisioning", provision),
         ("unassigned-scheduling-denial", unassigned),
         ("administrative-availability", configure),
+        ("weekday-availability-and-independent-edit", configure_weekdays),
         ("reception-booking-and-agenda", book),
         (
             "phone-request-and-later-confirmation",

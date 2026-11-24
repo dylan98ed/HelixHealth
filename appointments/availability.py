@@ -2,6 +2,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from heapq import merge
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -96,21 +97,56 @@ def window_slots(day: date, window: WeeklyRule | ScheduleException) -> Iterator[
         cursor += duration
 
 
-def schedule_slots(day: date, professional_ids: Iterable[int]) -> Iterator[Slot]:
-    ids = list(professional_ids)
-    exceptions = ScheduleException.objects.filter(day=day, professional_id__in=ids)
-    replaced = set()
-    for exception in exceptions:
-        replaced.add(exception.professional_id)
-        yield from window_slots(day, exception)
+def _weekly_slots(rule, first, last, exceptions):
+    day = max(first, rule.effective_from)
+    # An undersized window never yields a slot, even if it recurs indefinitely.
+    if not next(window_slots(day, rule), None):
+        return
+    first_ordinal = day.toordinal() + (rule.weekday - day.weekday()) % 7
+    until = min(last, rule.effective_until or date.max)
+    for ordinal in range(first_ordinal, until.toordinal() + 1, 7):
+        day = date.fromordinal(ordinal)
+        if (rule.professional_id, day) not in exceptions:
+            yield from window_slots(day, rule)
+
+
+def available_slots(first, professional_ids, *, through=None, ignore_booking=None):
+    """Merge recurring and exceptional openings in clinic-time order."""
+    now = timezone.now()
+    first = max(first, now.astimezone(clinic_zone()).date())
+    if through and through < first:
+        return
     rules = WeeklyRule.objects.filter(
-        Q(effective_until=None) | Q(effective_until__gte=day),
-        professional_id__in=set(ids) - replaced,
-        effective_from__lte=day,
-        weekday=day.weekday(),
+        Q(effective_until=None) | Q(effective_until__gte=first),
+        professional_id__in=professional_ids,
     )
-    for rule in rules:
-        yield from window_slots(day, rule)
+    overrides = ScheduleException.objects.filter(
+        professional_id__in=professional_ids, day__gte=first
+    )
+    bookings = Appointment.objects.filter(
+        professional_id__in=professional_ids, end__gt=now
+    ).exclude(state=AppointmentState.CANCELED)
+    if through:
+        rules = rules.filter(effective_from__lte=through)
+        overrides = overrides.filter(day__lte=through)
+        bookings = bookings.filter(start__lt=day_bounds(through)[1])
+    if ignore_booking is not None:
+        bookings = bookings.exclude(pk=ignore_booking)
+    occupied = defaultdict(list)
+    for pid, start, end in bookings.values_list("professional_id", "start", "end"):
+        occupied[pid].append((start, end))
+
+    exceptions = {(ex.professional_id, ex.day): ex for ex in overrides}
+    streams = [window_slots(ex.day, ex) for ex in exceptions.values()]
+    streams.extend(
+        _weekly_slots(rule, first, through or date.max, exceptions) for rule in rules
+    )
+    for slot in merge(*streams, key=lambda s: (s.start, s.professional_id)):
+        if slot.start > now and not any(
+            start < slot.end and end > slot.start
+            for start, end in occupied[slot.professional_id]
+        ):
+            yield slot
 
 
 def free_slots(
@@ -119,66 +155,90 @@ def free_slots(
     *,
     ignore_booking: int | None = None,
 ) -> list[Slot]:
-    ids = [p.pk for p in professionals]
-    midnight, tomorrow = day_bounds(day)
-    bookings = Appointment.objects.filter(
-        professional_id__in=ids, start__lt=tomorrow, end__gt=midnight
-    ).exclude(state=AppointmentState.CANCELED)
-    if ignore_booking is not None:
-        bookings = bookings.exclude(pk=ignore_booking)
-    occupied = defaultdict(list)
-    for pid, start, end in bookings.values_list("professional_id", "start", "end"):
-        occupied[pid].append((start, end))
-    now = timezone.now()
-    return sorted(
-        (
-            slot
-            for slot in schedule_slots(day, ids)
-            if slot.start > now
-            and not any(
-                start < slot.end and end > slot.start
-                for start, end in occupied[slot.professional_id]
-            )
-        ),
-        key=lambda s: (s.start, s.professional_id),
+    return list(
+        available_slots(
+            day,
+            [p.pk for p in professionals],
+            through=day,
+            ignore_booking=ignore_booking,
+        )
     )
+
+
+def _lock_managed_schedule(user_id: int, professional_id: int) -> None:
+    require_manager(lock_schedule(user_id, {professional_id}))
+    if not eligible_professionals().filter(pk=professional_id).exists():
+        raise ValidationError("Choose an eligible professional.")
+
+
+def _save_weekly_rule(window: WeeklyRule) -> None:
+    if (
+        window.pk
+        and not WeeklyRule.objects.filter(
+            pk=window.pk, professional_id=window.professional_id
+        ).exists()
+    ):
+        raise ValidationError("Choose the original professional for this rule.")
+    conflicts = WeeklyRule.objects.filter(
+        Q(effective_until=None) | Q(effective_until__gte=window.effective_from),
+        professional_id=window.professional_id,
+        weekday=window.weekday,
+        opens__lt=window.closes,
+        closes__gt=window.opens,
+    ).exclude(pk=window.pk)
+    if window.effective_until:
+        conflicts = conflicts.filter(effective_from__lte=window.effective_until)
+    if conflicts.exists():
+        raise ValidationError(
+            f"{window.weekday_name}: these hours overlap another effective rule."
+        )
+    window.full_clean()
+    window.save()
+
+
+@transaction.atomic
+def add_weekly_rules(
+    user_id: int,
+    professional_id: int,
+    weekdays: list[int],
+    *,
+    opens: time,
+    closes: time,
+    minutes: int,
+    effective_from: date,
+    effective_until: date | None,
+) -> None:
+    _lock_managed_schedule(user_id, professional_id)
+    for weekday in sorted(set(weekdays)):
+        _save_weekly_rule(
+            WeeklyRule(
+                professional_id=professional_id,
+                weekday=weekday,
+                opens=opens,
+                closes=closes,
+                minutes=minutes,
+                effective_from=effective_from,
+                effective_until=effective_until,
+            )
+        )
 
 
 @transaction.atomic
 def save_window(user_id: int, window: WeeklyRule | ScheduleException) -> None:
-    require_manager(lock_schedule(user_id, {window.professional_id}))
-    if not eligible_professionals().filter(pk=window.professional_id).exists():
-        raise ValidationError("Choose an eligible professional.")
+    _lock_managed_schedule(user_id, window.professional_id)
     if isinstance(window, WeeklyRule):
-        if (
-            window.pk
-            and not WeeklyRule.objects.filter(
-                pk=window.pk, professional_id=window.professional_id
-            ).exists()
-        ):
-            raise ValidationError("Choose the original professional for this rule.")
-        conflicts = WeeklyRule.objects.filter(
-            Q(effective_until=None) | Q(effective_until__gte=window.effective_from),
-            professional_id=window.professional_id,
-            weekday=window.weekday,
-            opens__lt=window.closes,
-            closes__gt=window.opens,
-        ).exclude(pk=window.pk)
-        if window.effective_until:
-            conflicts = conflicts.filter(effective_from__lte=window.effective_until)
-        if conflicts.exists():
-            raise ValidationError("These hours overlap another effective rule.")
-    else:
-        existing = ScheduleException.objects.filter(
-            professional_id=window.professional_id, day=window.day
-        ).first()
-        if existing:
-            existing.opens, existing.closes, existing.minutes = (
-                window.opens,
-                window.closes,
-                window.minutes,
-            )
-            window = existing
+        _save_weekly_rule(window)
+        return
+    existing = ScheduleException.objects.filter(
+        professional_id=window.professional_id, day=window.day
+    ).first()
+    if existing:
+        existing.opens, existing.closes, existing.minutes = (
+            window.opens,
+            window.closes,
+            window.minutes,
+        )
+        window = existing
     window.full_clean()
     window.save()
 

@@ -2,8 +2,8 @@ import calendar
 
 from django import forms
 
-from appointments.availability import eligible_professionals
 from appointments.models import BookingRequest
+from patients.models import Patient
 from professionals.models import Professional, Specialty
 
 
@@ -22,9 +22,6 @@ class SchedulingForm(forms.Form):
 
 
 class WeeklyForm(SchedulingForm):
-    weekday = forms.TypedChoiceField(
-        choices=list(enumerate(calendar.day_name)), coerce=int
-    )
     opens = forms.TimeField(label="Opening time", widget=ClockInput)
     closes = forms.TimeField(label="Closing time", widget=ClockInput)
     minutes = forms.IntegerField(
@@ -48,6 +45,24 @@ class WeeklyForm(SchedulingForm):
                 "effective_until", "The end date must be on or after the start date."
             )
         return data
+
+
+class AddWeeklyForm(WeeklyForm):
+    weekday = forms.TypedMultipleChoiceField(
+        label="Weekdays",
+        choices=list(enumerate(calendar.day_name)),
+        coerce=int,
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={"required": "Select at least one weekday."},
+    )
+    field_order = ["weekday"]
+
+
+class EditWeeklyForm(WeeklyForm):
+    weekday = forms.TypedChoiceField(
+        choices=list(enumerate(calendar.day_name)), coerce=int
+    )
+    field_order = ["weekday"]
 
 
 class ExceptionForm(SchedulingForm):
@@ -96,16 +111,9 @@ class AgendaFilter(SchedulingForm):
     )
 
 
-class SlotFilter(AgendaFilter):
+class SlotFilter(SchedulingForm):
     specialty = forms.ModelChoiceField(
         queryset=Specialty.objects.filter(is_active=True)
-    )
-    field_order = ["day", "specialty", "professional"]
-
-    professional = forms.ModelChoiceField(
-        queryset=eligible_professionals(),
-        required=False,
-        empty_label="All professionals",
     )
 
 
@@ -124,7 +132,11 @@ class ReservationForm(SchedulingForm):
     token = forms.UUIDField(widget=forms.HiddenInput)
 
 
-class RequestForm(IdentityForm):
+class RequestForm(SchedulingForm):
+    patient = forms.ModelChoiceField(
+        queryset=Patient.objects.order_by("last_name", "first_name", "pk"),
+        empty_label="Select a patient",
+    )
     channel = forms.ChoiceField(
         label="Original channel", choices=BookingRequest.Channel.choices
     )
@@ -153,13 +165,15 @@ class ConfirmForm(BookingActionForm):
 
 
 class RequestReservationForm(ContactForm):
-    dni = forms.CharField(label="Patient-supplied DNI", max_length=18)
-    birth_date = forms.DateField(
-        label="Patient-supplied date of birth", widget=DayInput
-    )
+    patient = forms.ChoiceField(label="Patient")
     status = forms.ChoiceField(
         choices=[
             ("pending", "Pending confirmation"),
             ("confirmed", "Patient confirmed on original channel"),
         ]
     )
+
+    def __init__(self, *args, patient, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["patient"].choices = [(patient.pk, str(patient))]
+        self.initial["patient"] = patient.pk

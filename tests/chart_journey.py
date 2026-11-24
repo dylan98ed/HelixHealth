@@ -57,13 +57,12 @@ def assigned_chart_journey(page, login, schedule_day, doctor):
     def assign(admin, patient_dni, professional_dni):
         patient_record(admin, patient_dni)
         admin.get_by_role("link", name="Care team").click()
-        admin.get_by_label("Professional DNI").fill(professional_dni)
-        admin.get_by_role("button", name="Search professional").click()
+        admin.get_by_placeholder("Choose a professional").fill(professional_dni)
+        admin.get_by_role("listbox").get_by_role("option").click()
         admin.get_by_role("button", name="Assign professional").click()
 
     def book(reception, interval):
         reception.get_by_role("link", name="Find an opening").click()
-        reception.get_by_label("Date", exact=True).fill(day)
         reception.get_by_label("Specialty").select_option(label="General Medicine")
         reception.get_by_role("button", name="Search openings").click()
         reception.get_by_role("link", name=f"{doctor} · {day} {interval}").click()

@@ -62,6 +62,7 @@ def booking_prerequisites(transactional_db):
         [
             f"{PAGED_ACTIVE_USERNAME_PREFIX}-00",
             f"{PAGED_ACTIVE_USERNAME_PREFIX}-01",
+            f"{PAGED_ACTIVE_USERNAME_PREFIX}-02",
             f"{PAGED_INACTIVE_USERNAME_PREFIX}-00",
         ]
     ):
@@ -186,7 +187,7 @@ def test_signed_out_availability_booking_and_agenda(
                     (row.request.channel, "unanswered", reception.pk),
                     (row.request.channel, "confirmed", reception.pk),
                 ]
-            assert WeeklyRule.objects.count() == 2
+            assert WeeklyRule.objects.count() == 7
             assert chart_access_verified()
         finally:
             connections.close_all()
@@ -235,7 +236,6 @@ def test_signed_out_availability_booking_and_agenda(
         day_field.fill(day.isoformat())
         page.get_by_role("button", name="Show agenda").click()
         page.get_by_role("link", name="Reschedule").click()
-        day_field.fill(day.isoformat())
         page.get_by_role("button", name="Search openings").click()
         expect(
             page.get_by_role("link", name=f"{DOCTORS[1]} · {day} 19:30–20:00")
@@ -250,7 +250,6 @@ def test_signed_out_availability_booking_and_agenda(
         row.get_by_role("button", name="Cancel appointment").click()
         expect(row).to_contain_text("Canceled")
         page.get_by_role("link", name="Find an opening").click()
-        day_field.fill(day.isoformat())
         page.get_by_label("Specialty").select_option(label="General Medicine")
         page.get_by_role("button", name="Search openings").click()
         page.get_by_role("link", name=opening).click()

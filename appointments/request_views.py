@@ -20,7 +20,6 @@ from appointments.services import (
     BookingConflict,
     confirm_request,
     create_request,
-    identity_dni,
     record_unanswered,
     require_reception,
     reserve,
@@ -51,7 +50,15 @@ def new_request(request):
     )
     if form.is_valid():
         try:
-            intake = create_request(user_id=request.user.pk, **form.cleaned_data)
+            data = form.cleaned_data
+            intake = create_request(
+                user_id=request.user.pk,
+                dni=data["patient"].dni,
+                channel=data["channel"],
+                contact=data["contact"],
+                preference=data["preference"],
+                token=data["token"],
+            )
         except ValidationError as exc:
             form.add_error(None, " ".join(exc.messages))
         else:
@@ -142,19 +149,19 @@ def request_choice(request, pk):
     intake = get_object_or_404(BookingRequest.objects.select_related("patient"), pk=pk)
     slot, specialty, _, _ = read_offer(request.GET.get("offer", ""), intake)
     form = RequestReservationForm(
-        request.POST if request.method == "POST" else None, initial={"token": uuid4()}
+        request.POST if request.method == "POST" else None,
+        patient=intake.patient,
+        initial={"token": uuid4()},
     )
     if form.is_valid():
         data = form.cleaned_data
         try:
-            if identity_dni(data["dni"]) != intake.patient.dni:
-                raise ValidationError("The DNI does not match the request patient.")
             reserve(
                 user_id=request.user.pk,
                 request_id=pk,
                 slot=slot,
-                dni=data["dni"],
-                birth_date=data["birth_date"],
+                dni=intake.patient.dni,
+                birth_date=intake.patient.date_of_birth,
                 specialty_id=specialty,
                 confirmed=data["status"] == "confirmed",
                 token=data["token"],
@@ -165,7 +172,7 @@ def request_choice(request, pk):
                 return redirect("appointments:request-detail", pk=pk)
             return render_slots(
                 request,
-                {"day": slot.start.date(), "specialty": specialty},
+                {"specialty": specialty},
                 conflict=" ".join(exc.messages),
                 intake=intake,
             )

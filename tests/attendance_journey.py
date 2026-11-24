@@ -50,7 +50,6 @@ def run_attendance_journey(page, login, schedule_day, doctors):
 
     def reserve(day, doctor, interval, state):
         page.get_by_role("link", name="Find an opening").click()
-        page.get_by_label("Date", exact=True).fill(day.isoformat())
         page.get_by_label("Specialty").select_option(label="General Medicine")
         page.get_by_role("button", name="Search openings").click()
         page.get_by_role("link", name=f"{doctor} · {day} {interval}").click()

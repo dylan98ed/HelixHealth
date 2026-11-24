@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load tz %}
+{% load tz static %}
 {% block title %}Manage availability · HelixHealth{% endblock %}
 {% block content %}
 <header class="page-heading"><div><h1>Manage availability</h1><p>Clinic time · {{ zone }}</p></div></header>
@@ -20,7 +20,21 @@
   <a href="?professional={{ professional.pk }}&amp;rule={{ rule.pk }}">Edit hours</a></li>
 {% empty %}<li>No weekly hours configured.</li>{% endfor %}</ul>
 <form method="post">{% csrf_token %}<input type="hidden" name="kind" value="weekly">
-  {{ weekly.as_p }}
+  {{ weekly.non_field_errors }}
+  {% for field in weekly %}
+    {% if field.name == "weekday" and not editing %}
+      <fieldset class="mb-3" id="weekly-days">
+        <legend class="h6">Weekdays</legend>
+        {{ field.errors }}
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          {% for option in field %}<label class="d-inline-flex align-items-center gap-1">{{ option.tag }} {{ option.choice_label }}</label>{% endfor %}
+          <button type="button" id="select-weekdays" class="btn btn-sm btn-outline-secondary" hidden>Select weekdays</button>
+        </div>
+      </fieldset>
+    {% else %}
+      <p>{{ field.errors }}{{ field.label_tag }} {{ field }}</p>
+    {% endif %}
+  {% endfor %}
   <button class="btn btn-primary">{% if editing %}Update weekly hours{% else %}Add weekly hours{% endif %}</button>
   {% if editing %}<a href="?professional={{ professional.pk }}">Discard edit</a>{% endif %}
 </form></section>
@@ -36,3 +50,4 @@
 {% empty %}<li>No affected appointments.</li>{% endfor %}</ul>{% endtimezone %}
 </section>{% endif %}
 {% endblock %}
+{% block extra_scripts %}{% if professional and not editing %}<script src="{% static 'weekly-hours.js' %}"></script>{% endif %}{% endblock %}

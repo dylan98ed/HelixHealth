@@ -15,19 +15,22 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from appointments.availability import (
     Slot,
+    add_weekly_rules,
     affected_bookings,
+    available_slots,
     clinic_today,
     clinic_zone,
     day_bounds,
     eligible_professionals,
-    free_slots,
     require_manager,
     save_window,
 )
 from appointments.forms import (
+    AddWeeklyForm,
     AgendaFilter,
     BookingActionForm,
     ConfirmForm,
+    EditWeeklyForm,
     ExceptionForm,
     IdentityForm,
     ReservationForm,
@@ -73,10 +76,8 @@ def availability(request):
     rules = WeeklyRule.objects.none()
     exceptions = ScheduleException.objects.none()
     outside: list[Appointment] = []
-    weekly, exception = (
-        WeeklyForm(initial={"effective_from": clinic_today()}),
-        ExceptionForm(prefix="exception"),
-    )
+    weekly: WeeklyForm = AddWeeklyForm(initial={"effective_from": clinic_today()})
+    exception = ExceptionForm(prefix="exception")
     professional_id = request.GET.get("professional", "")
     if professional_id:
         if not professional_id.isdecimal():
@@ -92,7 +93,7 @@ def availability(request):
             if not rule_id.isdecimal():
                 raise Http404
             rule = get_object_or_404(rules, pk=rule_id)
-            weekly = WeeklyForm(initial=model_to_dict(rule))
+            weekly = EditWeeklyForm(initial=model_to_dict(rule))
     if request.method == "POST":
         if professional is None or request.POST.get("kind") not in (
             "weekly",
@@ -101,21 +102,29 @@ def availability(request):
             return HttpResponseBadRequest()
         form: WeeklyForm | ExceptionForm
         if request.POST["kind"] == "weekly":
-            form = weekly = WeeklyForm(request.POST)
+            form = weekly = (
+                EditWeeklyForm(request.POST) if rule else AddWeeklyForm(request.POST)
+            )
         else:
             form = exception = ExceptionForm(request.POST, prefix="exception")
         if form.is_valid():
             data = form.cleaned_data.copy()
-            window: WeeklyRule | ScheduleException
-            if isinstance(form, WeeklyForm):
-                window = rule or WeeklyRule(professional=professional)
-                for field, value in data.items():
-                    setattr(window, field, value)
-            else:
-                data.pop("mode")
-                window = ScheduleException(professional=professional, **data)
             try:
-                save_window(request.user.pk, window)
+                if isinstance(form, AddWeeklyForm):
+                    add_weekly_rules(
+                        request.user.pk, professional.pk, data.pop("weekday"), **data
+                    )
+                elif isinstance(form, EditWeeklyForm):
+                    assert rule is not None
+                    for field, value in data.items():
+                        setattr(rule, field, value)
+                    save_window(request.user.pk, rule)
+                else:
+                    data.pop("mode")
+                    save_window(
+                        request.user.pk,
+                        ScheduleException(professional=professional, **data),
+                    )
             except ValidationError as error:
                 form.add_error(None, " ".join(error.messages))
             else:
@@ -189,25 +198,31 @@ def agenda(request):
 def render_slots(request, params, moving=None, version=None, conflict="", intake=None):
     form = SlotFilter(
         params or None,
-        initial={
-            "day": clinic_today(),
-            "specialty": moving.professional.specialty_id if moving else None,
-        },
+        initial={"specialty": moving.professional.specialty_id if moving else None},
     )
     choices = []
+    next_offer = None
     if form.is_bound and form.is_valid():
-        day, specialty = form.cleaned_data["day"], form.cleaned_data["specialty"]
-        people = eligible_professionals().filter(specialty=specialty)
-        if person := form.cleaned_data["professional"]:
-            people = people.filter(pk=person.pk)
-        names = {p.pk: p for p in people}
-        for slot in free_slots(
-            day, names.values(), ignore_booking=moving.pk if moving else None
+        specialty = form.cleaned_data["specialty"]
+        names = {p.pk: p for p in eligible_professionals().filter(specialty=specialty)}
+        after = None
+        first = clinic_today()
+        if cursor := params.get("after"):
+            previous, _, _, _ = read_offer(cursor, intake)
+            after = (previous.start, previous.professional_id)
+            first = previous.start.astimezone(clinic_zone()).date()
+        for slot in available_slots(
+            first, list(names), ignore_booking=moving.pk if moving else None
         ):
+            if after and (slot.start, slot.professional_id) <= after:
+                continue
             if moving and slot == Slot(
                 moving.professional_id, moving.start, moving.end
             ):
                 continue
+            if len(choices) == 40:
+                next_offer = choices[-1][2]
+                break
             payload = [
                 slot.professional_id,
                 slot.start.isoformat(),
@@ -229,6 +244,7 @@ def render_slots(request, params, moving=None, version=None, conflict="", intake
         {
             "form": form,
             "choices": choices,
+            "next_offer": next_offer,
             "moving": moving,
             "intake": intake,
             "version": version,
@@ -253,7 +269,7 @@ def slots(request, booking_id=None):
         return redirect(agenda_url(moving))
     return render_slots(
         request,
-        request.GET if "day" in request.GET else {},
+        request.GET if "specialty" in request.GET else {},
         moving,
         int(version) if moving else None,
     )
@@ -345,7 +361,7 @@ def choice(request):
                     return redirect(agenda_url(moving))
             return render_slots(
                 request,
-                {"specialty": specialty, "day": slot.start.date()},
+                {"specialty": specialty},
                 moving,
                 moving.version if moving else None,
                 " ".join(exc.messages),

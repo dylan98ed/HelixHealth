@@ -60,7 +60,7 @@ A chosen interval SHALL become occupied when its reservation is saved, including
 
 ### Requirement: Reception identity lookup and slot selection (HU-14)
 
-Reception SHALL offer available named professional/time pairs by specialty and date with an optional professional filter. Confirmation SHALL verify an active patient using DNI and a matching second identifier.
+Reception SHALL offer available named professional/time pairs across all eligible professionals in the selected specialty, ordered by soonest upcoming time. Confirmation SHALL verify an active patient using DNI and a matching second identifier.
 
 #### Scenario: Choose between two doctors
 
@@ -85,6 +85,8 @@ Reception SHALL offer available named professional/time pairs by specialty and d
 ### Requirement: Manual request and confirmation (HU-15)
 
 Reception SHALL record patient, contact, stated preference, original channel and status, and SHALL record contact outcomes on that channel. Saving an unbooked request SHALL leave the appointment inventory unchanged.
+
+Reception selects an active patient by name and DNI from the patient dropdown when recording the request. When reserving an opening for that request, the form shows the linked patient preselected and the server uses the date of birth on that patient's record.
 
 #### Scenario: No answer followed by confirmation
 

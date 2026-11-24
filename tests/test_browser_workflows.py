@@ -36,7 +36,7 @@ from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
 from prescriptions.models import Prescription, PrescriptionItem
 from professionals.models import HospitalService, Professional, Specialty
-from professionals.services import register_professional
+from professionals.services import deactivate_professional, register_professional
 from tests.catalog_journeys import import_catalog_and_verify_retries
 from tests.professional_journeys import fill_professional_registration
 
@@ -59,8 +59,8 @@ def assign_imported_patient(browser, live_server, administrator):
         page.get_by_role("button", name="Search patient").click()
         page.get_by_role("link", name="Open patient record").click()
         page.get_by_role("link", name="Care team").click()
-        page.get_by_label("Professional DNI").fill("06789012")
-        page.get_by_role("button", name="Search professional").click()
+        page.get_by_role("combobox", name="Professional", exact=True).fill("06789012")
+        page.get_by_role("option", name="Browser Professional", exact=False).click()
         page.get_by_role("button", name="Assign professional").click()
         expect(
             page.get_by_role("link", name="Revoke assignment for Browser Professional")
@@ -927,7 +927,11 @@ def read_professional_state(username):
     def load():
         try:
             user = get_user_model().objects.get(username=username)
-            profile = Professional.objects.filter(user=user).first()
+            profile = (
+                Professional.objects.select_related("specialty")
+                .filter(user=user)
+                .first()
+            )
             return {
                 "pk": profile.pk if profile else None,
                 "complete": profile.is_registration_complete if profile else False,
@@ -945,6 +949,9 @@ def read_professional_state(username):
                 "user_id": profile.user_id if profile else None,
                 "date_of_birth": str(profile.date_of_birth) if profile else None,
                 "specialty_id": profile.specialty_id if profile else None,
+                "specialty_name": profile.specialty.name
+                if profile and profile.specialty
+                else None,
                 "hospital_service_id": profile.hospital_service_id if profile else None,
                 "staff": user.is_staff,
                 "groups": list(user.groups.values_list("name", flat=True)),
@@ -1340,12 +1347,37 @@ def login_through_application(
     page.get_by_role("button", name="Sign in").click()
 
 
+@pytest.fixture
+def browser_care_picker_candidates(
+    browser_patient_administrator,
+    browser_professional_references,
+    user_factory,
+):
+    actor = actor_context_from_user(browser_patient_administrator)
+    for index, surname in enumerate(("Aldana", "Inactive")):
+        user = user_factory(username=f"care-team-{surname.lower()}")
+        profile = register_professional(
+            actor=actor,
+            username=user.username,
+            dni=f"0678901{index + 3}",
+            license_number=f"MN 67001{index + 3}",
+            first_name="Sam",
+            last_name=surname,
+            date_of_birth=date(1990, 1, 1),
+            specialty_code="general-medicine",
+            hospital_service_code="inpatient-ward",
+        )
+        if surname == "Inactive":
+            deactivate_professional(actor=actor, professional=profile, confirmed=True)
+
+
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
 def test_admin_assigns_and_revokes_care_through_patient_search(
     browser_patient_administrator,
     browser_medical_professional,
     browser_admission_patient,
+    browser_care_picker_candidates,
     live_server,
     browser_page,
 ):
@@ -1359,6 +1391,7 @@ def test_admin_assigns_and_revokes_care_through_patient_search(
         username=browser_patient_administrator.username,
         password=TEST_PASSWORD,
     )
+    expect(browser_page).to_have_url(f"{live_server.url}{reverse('patients:search')}")
     browser_page.get_by_label("DNI", exact=True).fill(patient.dni)
     browser_page.get_by_role("button", name="Search patient").click()
     browser_page.get_by_role("link", name="Open patient record").click()
@@ -1366,21 +1399,50 @@ def test_admin_assigns_and_revokes_care_through_patient_search(
     expect(
         browser_page.get_by_text("No professionals are currently assigned.")
     ).to_be_visible()
-    browser_page.get_by_label("Professional DNI").fill(professional_dni)
-    browser_page.get_by_role("button", name="Search professional").click()
-    expect(browser_page.get_by_role("status")).to_contain_text("Professional found")
-    browser_page.get_by_role("button", name="Assign professional").click()
+    picker = browser_page.get_by_role("combobox", name="Professional", exact=True)
+    assign = browser_page.get_by_role("button", name="Assign professional")
+    assign.click()
+    expect(picker).to_have_js_property(
+        "validationMessage", "Choose a professional from the list."
+    )
+    picker.click()
+    options = browser_page.get_by_role("listbox").get_by_role("option")
+    label = (
+        f"Browser Professional · {professional_state['specialty_name']} · "
+        f"Registration number {professional_state['number']}"
+    )
+    expect(options).to_have_count(2)
+    expect(options.first).to_contain_text("Sam Aldana")
+    expect(options.last).to_have_text(label)
+    picker.fill("inactive")
+    expect(browser_page.get_by_role("status")).to_have_text(
+        "No eligible professionals match your search."
+    )
+    assert read_care_relationships(patient.pk) == []
+    for query in ("fessio", professional_state["number"].lower(), professional_dni):
+        picker.fill(query)
+        expect(options).to_have_text([label])
+    picker.press("ArrowDown")
+    expect(picker).to_have_attribute(
+        "aria-activedescendant", "care-professional-option-0"
+    )
+    picker.press("Enter")
+    expect(picker).to_have_value(label)
+    expect(picker).to_have_attribute("aria-expanded", "false")
+    assert read_care_relationships(patient.pk) == []
+    assign.click()
     expect(browser_page).to_have_url(
         f"{live_server.url}{reverse('patients:care-team', args=[patient.pk])}"
     )
-    expect(browser_page.get_by_text(professional_state["number"])).to_be_visible()
+    assigned_section = browser_page.get_by_role("region", name="Assigned professionals")
+    expect(assigned_section.get_by_text(professional_state["number"])).to_be_visible()
     assigned = read_care_relationships(patient.pk)[0]
     assert assigned["professional__user_id"] == browser_medical_professional.pk
     assert assigned["assigned_by_id"] == browser_patient_administrator.pk
     assert assigned["assigned_at"] is not None
-    browser_page.get_by_label("Professional DNI").fill(professional_dni)
-    browser_page.get_by_role("button", name="Search professional").click()
-    browser_page.get_by_role("button", name="Assign professional").click()
+    picker.click()
+    browser_page.get_by_role("option", name=label, exact=True).click()
+    assign.click()
     assert len(read_care_relationships(patient.pk)) == 1
     browser_page.get_by_role(
         "link", name="Revoke assignment for Browser Professional"

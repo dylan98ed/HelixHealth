@@ -104,7 +104,6 @@ def run_reminder_journey(page, login, doctor, worker):
     def choose_slot(tab, offset):
         begin = start + timedelta(minutes=10 * offset)
         end = begin + timedelta(minutes=10)
-        tab.get_by_label("Date", exact=True).fill(day)
         tab.get_by_label("Specialty").select_option(label="General Medicine")
         tab.get_by_role("button", name="Search openings").click()
         tab.get_by_role(
@@ -134,7 +133,10 @@ def run_reminder_journey(page, login, doctor, worker):
     dni = "20000018"
     page.get_by_role("link", name="Request inbox").click()
     page.get_by_role("link", name="New appointment request").click()
-    page.get_by_label("Patient DNI").fill(dni)
+    picker = page.get_by_label("Patient", exact=True)
+    picker.select_option(
+        label=picker.locator("option").filter(has_text=dni).inner_text()
+    )
     page.get_by_label("Original channel").select_option(label="Phone")
     page.get_by_label("Contact number").fill("+54 11 5555 0118")
     page.get_by_label("Appointment preference").fill("Next available appointment")
@@ -147,7 +149,9 @@ def run_reminder_journey(page, login, doctor, worker):
         tab.get_by_label("Patient-supplied DNI").fill(dni)
         tab.get_by_label("Patient-supplied date of birth").fill("1990-01-01")
 
-    verify_identity(page)
+    expect(
+        page.get_by_label("Patient", exact=True).locator("option:checked")
+    ).to_contain_text(dni)
     page.get_by_label("Status").select_option("pending")
     page.get_by_role("button", name="Save request reservation").click()
     expect(page.get_by_role("heading", name="Confirm reservation")).to_be_visible()
