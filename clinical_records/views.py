@@ -2,11 +2,13 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse, HttpResponseBase
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -14,12 +16,13 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from access_control.actors import actor_context_from_user
+from access_control.actors import ActorRole, actor_context_from_user
 from access_control.medical_professionals import IsActiveMedicalProfessionalActor
 from access_control.policies import (
     MEDICAL_PROFESSIONAL_POLICY,
     IsAdministrativeActor,
 )
+from clinical_records.chart_access import can_read_patient_history
 from clinical_records.forms import AdmissionForm, PatientAdmissionSearchForm
 from clinical_records.models import Admission
 from clinical_records.serializers import (
@@ -61,6 +64,7 @@ def admission_creator_required[ResponseT: HttpResponseBase](
     view_function: Callable[..., ResponseT],
 ) -> Callable[..., ResponseT]:
     @wraps(view_function)
+    @never_cache
     @login_required
     def wrapped(request: HttpRequest, *args: Any, **kwargs: Any) -> ResponseT:
         try:
@@ -140,8 +144,8 @@ def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
         except InactivePatientError as error:
             form.add_error(None, str(error))
         except ValidationError as error:
-            for field_name, messages in error.message_dict.items():
-                for message in messages:
+            for field_name, field_errors in error.message_dict.items():
+                for message in field_errors:
                     form.add_error(field_name, message)
         else:
             if is_htmx(request):
@@ -150,24 +154,34 @@ def patient_admissions(request: HttpRequest, patient_pk: int) -> HttpResponse:
                     "clinical_records/_admission_success.html",
                     {"admission": admission, "patient": patient},
                 )
+            messages.success(request, "Admission recorded.")
             return redirect(
                 "clinical_records:patient-admissions",
                 patient_pk=patient.pk,
             )
 
-    admissions = Paginator(
-        Admission.objects.filter(patient=patient).select_related(
-            "professional__user", "recorded_by"
-        ),
-        ADMISSIONS_PER_PAGE,
-    ).get_page(request.GET.get("history_page"))
-    context = {
+    actor = actor_context_from_user(request.user)
+    assert actor is not None
+    read_history = actor.has_role(ActorRole.ADMINISTRATIVE) or can_read_patient_history(
+        actor, patient
+    )
+    context: dict[str, Any] = {
         "patient": patient,
         "form": form,
-        "admissions": admissions,
-        "admissions_page": admissions,
-        **imported_request_history(request, patient),
+        "read_history": read_history,
     }
+    if read_history:
+        admissions = Paginator(
+            Admission.objects.filter(patient=patient).select_related(
+                "professional__user", "recorded_by"
+            ),
+            ADMISSIONS_PER_PAGE,
+        ).get_page(request.GET.get("history_page"))
+        context.update(
+            admissions=admissions,
+            admissions_page=admissions,
+            **imported_request_history(request, patient),
+        )
     if is_htmx(request) and request.method == "POST":
         return render(
             request,

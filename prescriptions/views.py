@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from django.contrib import messages
 from django.core.paginator import Paginator
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -21,6 +23,7 @@ from rest_framework.response import Response
 
 from access_control.actors import actor_context_from_user
 from access_control.medical_professionals import IsActiveMedicalProfessionalActor
+from clinical_records.chart_access import assigned_patient, can_read_patient_history
 from clinical_records.views import medical_professional_required
 from interoperability.models import ImportedMedicationRequest
 from patients.models import Patient
@@ -40,10 +43,6 @@ from prescriptions.services import (
 PRESCRIPTIONS_PER_PAGE = 20
 
 
-def _patient_or_404(patient_pk: int) -> Patient:
-    return get_object_or_404(Patient.objects, pk=patient_pk)
-
-
 def _prescription_or_404(patient: Patient, identifier: str) -> Prescription:
     try:
         return Prescription.objects.prefetch_related("items").get(
@@ -58,22 +57,23 @@ def _add_issuance_errors(
 ) -> None:
     """Attach item validation messages to their visible no-JavaScript fields."""
     forms = getattr(formset, "forms", ())
-    for name, messages in error.message_dict.items():
+    for name, field_errors in error.message_dict.items():
         prefix, separator, field_name = name.partition(".")
         if prefix == "items" and separator:
             index_text, separator, field_name = field_name.partition(".")
             if separator and index_text.isdigit() and int(index_text) < len(forms):
-                for message in messages:
+                for message in field_errors:
                     forms[int(index_text)].add_error(field_name, message)
                 continue
-        for message in messages:
+        for message in field_errors:
             header.add_error(None, message)
 
 
+@never_cache
 @medical_professional_required
 @require_http_methods(["GET"])
 def prescription_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     prescriptions = Paginator(
         Prescription.objects.filter(patient=patient).prefetch_related("items"),
         PRESCRIPTIONS_PER_PAGE,
@@ -98,7 +98,7 @@ def prescription_list(request: HttpRequest, patient_pk: int) -> HttpResponse:
 @medical_professional_required
 @require_http_methods(["GET", "POST"])
 def prescription_issue(request: HttpRequest, patient_pk: int) -> HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = get_object_or_404(Patient.objects, pk=patient_pk)
     from django.forms import formset_factory
 
     ItemFormSet = formset_factory(PrescriptionItemForm, extra=3)
@@ -139,6 +139,11 @@ def prescription_issue(request: HttpRequest, patient_pk: int) -> HttpResponse:
         except PrescriptionConflictError as error:
             header.add_error(None, str(error))
         else:
+            if not can_read_patient_history(
+                actor_context_from_user(request.user), patient
+            ):
+                messages.success(request, "Prescription issued.")
+                return redirect("clinical_records:patient-admissions", patient.pk)
             return redirect(
                 "prescriptions:detail",
                 patient_pk=patient.pk,
@@ -155,12 +160,13 @@ def prescription_issue(request: HttpRequest, patient_pk: int) -> HttpResponse:
     )
 
 
+@never_cache
 @medical_professional_required
 @require_http_methods(["GET"])
 def prescription_detail(
     request: HttpRequest, patient_pk: int, identifier: str
 ) -> HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     return render(
         request,
         "prescriptions/detail.html",
@@ -171,12 +177,13 @@ def prescription_detail(
     )
 
 
+@never_cache
 @medical_professional_required
 @require_http_methods(["GET"])
 def prescription_report(
     request: HttpRequest, patient_pk: int, identifier: str
 ) -> HttpResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     return render(
         request,
         "prescriptions/report.html",
@@ -192,7 +199,7 @@ def prescription_report(
 def prescription_xml(
     request: HttpRequest, patient_pk: int, identifier: str
 ) -> FileResponse:
-    patient = _patient_or_404(patient_pk)
+    patient = assigned_patient(request, patient_pk)
     prescription = _prescription_or_404(patient, identifier)
     response = FileResponse(
         __import__("io").BytesIO(bytes(prescription.fhir_xml)),
@@ -208,16 +215,13 @@ class PrescriptionCollectionAPIView(GenericAPIView):
     permission_classes = [IsActiveMedicalProfessionalActor]
     serializer_class = PrescriptionIssueSerializer
 
-    def _patient(self, patient_pk: int) -> Patient:
-        return _patient_or_404(patient_pk)
-
     @extend_schema(
         operation_id="prescription_history",
         description="Return the patient's immutable prescription history in stable 20-item pages.",
         responses={200: PrescriptionPageSerializer},
     )
     def get(self, request: Request, patient_pk: int) -> Response:
-        patient = self._patient(patient_pk)
+        patient = assigned_patient(request, patient_pk)
         page = Paginator(
             Prescription.objects.filter(patient=patient).prefetch_related("items"), 20
         ).get_page(request.query_params.get("page"))
@@ -287,7 +291,7 @@ class PrescriptionCollectionAPIView(GenericAPIView):
         },
     )
     def post(self, request: Request, patient_pk: int) -> Response:
-        patient = self._patient(patient_pk)
+        patient = get_object_or_404(Patient.objects, pk=patient_pk)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -300,6 +304,10 @@ class PrescriptionCollectionAPIView(GenericAPIView):
             return Response(error.message_dict, status=status.HTTP_400_BAD_REQUEST)
         except PrescriptionConflictError as error:
             return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        if not result.created and not can_read_patient_history(
+            actor_context_from_user(request.user), patient
+        ):
+            return Response({"identifier": result.prescription.identifier})
         return Response(
             PrescriptionSerializer(
                 result.prescription, context={"request": request}
@@ -316,7 +324,9 @@ class PrescriptionDetailAPIView(GenericAPIView):
         operation_id="prescription_detail", responses={200: PrescriptionSerializer}
     )
     def get(self, request: Request, patient_pk: int, identifier: str) -> Response:
-        prescription = _prescription_or_404(_patient_or_404(patient_pk), identifier)
+        prescription = _prescription_or_404(
+            assigned_patient(request, patient_pk), identifier
+        )
         return Response(
             PrescriptionSerializer(prescription, context={"request": request}).data
         )

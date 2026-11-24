@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% load tz %}
+{% block title %}{{ label }} · Clinical audit{% endblock %}
+{% block content %}
+<a href="{% if clinical %}{% url 'audit:chart' patient.pk %}{% else %}{% url 'audit:review' %}?dni={{ patient.dni }}{% endif %}">Back to clinical audit</a>
+<h1>{{ label }} · {{ event.operation }}</h1>{% include "clinical_records/_chart_identity.html" %}
+<dl><dt>Event time</dt><dd>{{ event.recorded_at|timezone:zone|date:"Y-m-d H:i:s T" }}</dd>
+<dt>Source record</dt><dd>{{ event.source_type }} #{{ event.source_key }}</dd>
+{% if event.actor %}<dt>Actor</dt><dd>{{ event.actor.username }}</dd>{% endif %}
+{% if event.external_origin %}<dt>External origin</dt><dd>{{ event.external_origin }}</dd>{% endif %}</dl>
+<section><h2>Before</h2><pre class="text-wrap">{{ before }}</pre></section>
+<section><h2>After</h2><pre class="text-wrap">{{ after }}</pre></section>
+{% endblock %}

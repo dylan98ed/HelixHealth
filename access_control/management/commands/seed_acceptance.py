@@ -294,7 +294,7 @@ class Command(BaseCommand):
                 "date_of_birth": date(1990, 1, 1),
                 "sex": "unspecified",
                 "phone": "+54 11 5555-0100",
-                "email": f"{dni}@acceptance.example.test",
+                "email": "" if dni == "20000017" else f"{dni}@acceptance.example.test",
                 "address": "Acceptance Test Street 123",
                 "health_insurer": "Acceptance Health",
                 "is_active": is_active,

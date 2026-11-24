@@ -20,6 +20,7 @@ from pydicom import dcmread
 from access_control.actors import actor_context_from_user
 from access_control.roles import ADMINISTRATIVE_GROUP, MEDICAL_PROFESSIONAL_GROUP
 from catalogs.models import MedicationEntry, TerminologyEntry
+from clinical_records.care_services import assign_care_relationship
 from clinical_records.models import Admission, CareRelationship
 from imaging.models import AnonymizedImage
 from interoperability.fhir_validation import validate_fhir_r4_bundle
@@ -35,7 +36,7 @@ from patients.identifiers import generate_clinical_record_number
 from patients.models import Patient
 from prescriptions.models import Prescription, PrescriptionItem
 from professionals.models import HospitalService, Professional, Specialty
-from professionals.services import register_professional
+from professionals.services import deactivate_professional, register_professional
 from tests.catalog_journeys import import_catalog_and_verify_retries
 from tests.professional_journeys import fill_professional_registration
 
@@ -43,6 +44,27 @@ TEST_PASSWORD = "Browser-test-password-2026!"
 FHIR_JSON_FIXTURE = Path(
     "docs/interoperability/fhir-r4/json-v2/fixtures/independent-valid-bundle.json"
 )
+
+
+def assign_imported_patient(browser, live_server, administrator):
+    with browser.new_context() as context:
+        page = context.new_page()
+        login_through_application(
+            page,
+            live_server.url,
+            username=administrator.username,
+            password=TEST_PASSWORD,
+        )
+        page.get_by_label("DNI", exact=True).fill("12345678")
+        page.get_by_role("button", name="Search patient").click()
+        page.get_by_role("link", name="Open patient record").click()
+        page.get_by_role("link", name="Care team").click()
+        page.get_by_role("combobox", name="Professional", exact=True).fill("06789012")
+        page.get_by_role("option", name="Browser Professional", exact=False).click()
+        page.get_by_role("button", name="Assign professional").click()
+        expect(
+            page.get_by_role("link", name="Revoke assignment for Browser Professional")
+        ).to_be_visible()
 
 
 def upload_fhir_json(
@@ -230,7 +252,7 @@ def test_json_import_reuses_active_then_inactive_people_from_visible_workflows(
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
 def test_doctor_exports_and_reimports_selected_fhir_json(
-    browser_medical_professional, browser, live_server
+    browser_patient_administrator, browser_medical_professional, browser, live_server
 ):
     source_bundle = json.loads(
         Path(
@@ -277,6 +299,7 @@ def test_doctor_exports_and_reimports_selected_fhir_json(
             }
         )
         page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
+        assign_imported_patient(browser, live_server, browser_patient_administrator)
         page.get_by_role("link", name="Open patient clinical record").click()
         page.get_by_role("link", name="Interoperability", exact=True).click()
         expect(page.get_by_role("heading", name="Export FHIR JSON")).to_be_visible()
@@ -334,7 +357,7 @@ def test_doctor_exports_and_reimports_selected_fhir_json(
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
 def test_doctor_imports_new_people_and_requests_from_fhir_json(
-    browser_medical_professional, browser, live_server
+    browser_patient_administrator, browser_medical_professional, browser, live_server
 ):
     raw = Path(
         "docs/interoperability/fhir-r4/json-v2/fixtures/independent-valid-bundle.json"
@@ -419,6 +442,10 @@ def test_doctor_imports_new_people_and_requests_from_fhir_json(
         page.get_by_role("button", name="Import FHIR JSON", exact=True).click()
         expect(page.get_by_role("heading", name="FHIR JSON import")).to_be_visible()
         expect(page.get_by_text("Created as external")).to_have_count(2)
+        expect(page.get_by_role("link", name="Download original JSON")).to_have_count(0)
+        assign_imported_patient(browser, live_server, browser_patient_administrator)
+        page.get_by_role("link", name="Import another file").click()
+        page.get_by_role("link", name=re.compile("^Open import ")).click()
         with page.expect_download() as download_info:
             page.get_by_role("link", name="Download original JSON").click()
         assert Path(download_info.value.path()).read_bytes() == raw
@@ -494,6 +521,7 @@ def test_doctor_imports_new_people_and_requests_from_fhir_json(
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
 def test_medical_professional_reviews_received_requests_from_patient_search(
+    browser_patient_administrator,
     browser_medical_professional,
     live_server,
     browser_page,
@@ -507,6 +535,9 @@ def test_medical_professional_reviews_received_requests_from_patient_search(
         password=TEST_PASSWORD,
     )
     upload_fhir_json(browser_page, document)
+    assign_imported_patient(
+        browser_page.context.browser, live_server, browser_patient_administrator
+    )
     browser_page.get_by_role("link", name="Clinical workspace", exact=True).click()
     browser_page.get_by_label("Name or surname").fill("Alex Pérez")
     browser_page.get_by_role("link", name="Record admission for Alex Pérez").click()
@@ -617,7 +648,7 @@ def read_care_relationships(patient_id):
 @pytest.mark.django_db(transaction=True)
 def test_professional_converts_and_saves_image_from_patient_record(
     browser_medical_professional,
-    browser_admission_patient,
+    assigned_admission_patient,
     live_server,
     browser_page,
     tmp_path,
@@ -637,9 +668,9 @@ def test_professional_converts_and_saves_image_from_patient_record(
     ).click()
     browser_page.get_by_role("link", name="Medical images").click()
     expect(browser_page).to_have_url(
-        f"{live_server.url}{reverse('imaging:list', args=[browser_admission_patient.pk])}"
+        f"{live_server.url}{reverse('imaging:list', args=[assigned_admission_patient.pk])}"
     )
-    assert read_image_records(browser_admission_patient.pk) == []
+    assert read_image_records(assigned_admission_patient.pk) == []
     image_buffer = BytesIO()
     Image.new("RGB", (2, 2), (15, 30, 45)).save(image_buffer, format="PNG")
     browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
@@ -653,7 +684,7 @@ def test_professional_converts_and_saves_image_from_patient_record(
     expect(
         browser_page.get_by_text("This field is required for JPG and PNG images.")
     ).to_have_count(3)
-    assert read_image_records(browser_admission_patient.pk) == []
+    assert read_image_records(assigned_admission_patient.pk) == []
     browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
         {
             "name": "practice.png",
@@ -679,7 +710,7 @@ def test_professional_converts_and_saves_image_from_patient_record(
     enlarged = browser_page.get_by_role("img", name="Larger preview of saved PNG image")
     expect(enlarged).to_be_visible()
     expect(enlarged).to_have_js_property("naturalWidth", 2)
-    record = read_image_records(browser_admission_patient.pk)[0]
+    record = read_image_records(assigned_admission_patient.pk)[0]
     assert record["created_by__user_id"] == browser_medical_professional.pk
     assert (record["birth_year"], record["study_year"], record["sex"]) == (
         1990,
@@ -724,7 +755,7 @@ def test_professional_converts_and_saves_image_from_patient_record(
     expect(
         browser_page.get_by_text("The DICOM frame count is invalid.")
     ).to_be_visible()
-    assert len(read_image_records(browser_admission_patient.pk)) == 1
+    assert len(read_image_records(assigned_admission_patient.pk)) == 1
     browser_page.get_by_label("JPG, PNG or DICOM file").set_input_files(
         {
             "name": "source.dcm",
@@ -736,7 +767,7 @@ def test_professional_converts_and_saves_image_from_patient_record(
     expect(browser_page.get_by_role("status")).to_contain_text("DICOM saved")
     dicom_record = next(
         record
-        for record in read_image_records(browser_admission_patient.pk)
+        for record in read_image_records(assigned_admission_patient.pk)
         if record["source_format"] == "DICOM"
     )
     sanitized = dcmread(BytesIO(dicom_record["dicom_bytes"]))
@@ -782,7 +813,7 @@ def test_professional_converts_and_saves_image_from_patient_record(
             http_client.force_login(browser_medical_professional)
             with CaptureQueriesContext(connections["default"]) as queries:
                 response = http_client.get(
-                    reverse("imaging:list", args=[browser_admission_patient.pk]),
+                    reverse("imaging:list", args=[assigned_admission_patient.pk]),
                     {"page": "2"},
                 )
             return response.status_code, [query["sql"] for query in queries]
@@ -896,7 +927,11 @@ def read_professional_state(username):
     def load():
         try:
             user = get_user_model().objects.get(username=username)
-            profile = Professional.objects.filter(user=user).first()
+            profile = (
+                Professional.objects.select_related("specialty")
+                .filter(user=user)
+                .first()
+            )
             return {
                 "pk": profile.pk if profile else None,
                 "complete": profile.is_registration_complete if profile else False,
@@ -914,6 +949,9 @@ def read_professional_state(username):
                 "user_id": profile.user_id if profile else None,
                 "date_of_birth": str(profile.date_of_birth) if profile else None,
                 "specialty_id": profile.specialty_id if profile else None,
+                "specialty_name": profile.specialty.name
+                if profile and profile.specialty
+                else None,
                 "hospital_service_id": profile.hospital_service_id if profile else None,
                 "staff": user.is_staff,
                 "groups": list(user.groups.values_list("name", flat=True)),
@@ -1148,6 +1186,20 @@ def browser_admission_patient(browser_medical_professional):
 
 
 @pytest.fixture
+def assigned_admission_patient(
+    browser_admission_patient,
+    browser_patient_administrator,
+    browser_medical_professional,
+):
+    assign_care_relationship(
+        actor=actor_context_from_user(browser_patient_administrator),
+        patient=browser_admission_patient,
+        professional_dni=browser_medical_professional.professional_profile.dni,
+    )
+    return browser_admission_patient
+
+
+@pytest.fixture
 def browser_inactive_admission_patient(browser_medical_professional):
     return Patient.all_objects.create(
         dni="88776655",
@@ -1243,11 +1295,19 @@ def create_history_patient(*, dni: str, clinical_record_number: str) -> Patient:
 
 
 @pytest.fixture
-def browser_medical_history_patient(browser_medical_professional):
-    return create_history_patient(
+def browser_medical_history_patient(
+    browser_medical_professional, browser_patient_administrator
+):
+    patient = create_history_patient(
         dni="31112223",
         clinical_record_number="HC-BROWSER-MEDICAL-HISTORY",
     )
+    assign_care_relationship(
+        actor=actor_context_from_user(browser_patient_administrator),
+        patient=patient,
+        professional_dni=browser_medical_professional.professional_profile.dni,
+    )
+    return patient
 
 
 @pytest.fixture
@@ -1287,12 +1347,37 @@ def login_through_application(
     page.get_by_role("button", name="Sign in").click()
 
 
+@pytest.fixture
+def browser_care_picker_candidates(
+    browser_patient_administrator,
+    browser_professional_references,
+    user_factory,
+):
+    actor = actor_context_from_user(browser_patient_administrator)
+    for index, surname in enumerate(("Aldana", "Inactive")):
+        user = user_factory(username=f"care-team-{surname.lower()}")
+        profile = register_professional(
+            actor=actor,
+            username=user.username,
+            dni=f"0678901{index + 3}",
+            license_number=f"MN 67001{index + 3}",
+            first_name="Sam",
+            last_name=surname,
+            date_of_birth=date(1990, 1, 1),
+            specialty_code="general-medicine",
+            hospital_service_code="inpatient-ward",
+        )
+        if surname == "Inactive":
+            deactivate_professional(actor=actor, professional=profile, confirmed=True)
+
+
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
 def test_admin_assigns_and_revokes_care_through_patient_search(
     browser_patient_administrator,
     browser_medical_professional,
     browser_admission_patient,
+    browser_care_picker_candidates,
     live_server,
     browser_page,
 ):
@@ -1306,6 +1391,7 @@ def test_admin_assigns_and_revokes_care_through_patient_search(
         username=browser_patient_administrator.username,
         password=TEST_PASSWORD,
     )
+    expect(browser_page).to_have_url(f"{live_server.url}{reverse('patients:search')}")
     browser_page.get_by_label("DNI", exact=True).fill(patient.dni)
     browser_page.get_by_role("button", name="Search patient").click()
     browser_page.get_by_role("link", name="Open patient record").click()
@@ -1313,21 +1399,50 @@ def test_admin_assigns_and_revokes_care_through_patient_search(
     expect(
         browser_page.get_by_text("No professionals are currently assigned.")
     ).to_be_visible()
-    browser_page.get_by_label("Professional DNI").fill(professional_dni)
-    browser_page.get_by_role("button", name="Search professional").click()
-    expect(browser_page.get_by_role("status")).to_contain_text("Professional found")
-    browser_page.get_by_role("button", name="Assign professional").click()
+    picker = browser_page.get_by_role("combobox", name="Professional", exact=True)
+    assign = browser_page.get_by_role("button", name="Assign professional")
+    assign.click()
+    expect(picker).to_have_js_property(
+        "validationMessage", "Choose a professional from the list."
+    )
+    picker.click()
+    options = browser_page.get_by_role("listbox").get_by_role("option")
+    label = (
+        f"Browser Professional · {professional_state['specialty_name']} · "
+        f"Registration number {professional_state['number']}"
+    )
+    expect(options).to_have_count(2)
+    expect(options.first).to_contain_text("Sam Aldana")
+    expect(options.last).to_have_text(label)
+    picker.fill("inactive")
+    expect(browser_page.get_by_role("status")).to_have_text(
+        "No eligible professionals match your search."
+    )
+    assert read_care_relationships(patient.pk) == []
+    for query in ("fessio", professional_state["number"].lower(), professional_dni):
+        picker.fill(query)
+        expect(options).to_have_text([label])
+    picker.press("ArrowDown")
+    expect(picker).to_have_attribute(
+        "aria-activedescendant", "care-professional-option-0"
+    )
+    picker.press("Enter")
+    expect(picker).to_have_value(label)
+    expect(picker).to_have_attribute("aria-expanded", "false")
+    assert read_care_relationships(patient.pk) == []
+    assign.click()
     expect(browser_page).to_have_url(
         f"{live_server.url}{reverse('patients:care-team', args=[patient.pk])}"
     )
-    expect(browser_page.get_by_text(professional_state["number"])).to_be_visible()
+    assigned_section = browser_page.get_by_role("region", name="Assigned professionals")
+    expect(assigned_section.get_by_text(professional_state["number"])).to_be_visible()
     assigned = read_care_relationships(patient.pk)[0]
     assert assigned["professional__user_id"] == browser_medical_professional.pk
     assert assigned["assigned_by_id"] == browser_patient_administrator.pk
     assert assigned["assigned_at"] is not None
-    browser_page.get_by_label("Professional DNI").fill(professional_dni)
-    browser_page.get_by_role("button", name="Search professional").click()
-    browser_page.get_by_role("button", name="Assign professional").click()
+    picker.click()
+    browser_page.get_by_role("option", name=label, exact=True).click()
+    assign.click()
     assert len(read_care_relationships(patient.pk)) == 1
     browser_page.get_by_role(
         "link", name="Revoke assignment for Browser Professional"
@@ -1714,7 +1829,7 @@ def test_administrative_user_searches_patient_and_prefills_registration(
 @pytest.mark.django_db(transaction=True)
 def test_medical_professional_records_admission_through_ui(
     browser_medical_professional,
-    browser_admission_patient,
+    assigned_admission_patient,
     live_server,
     browser_page,
 ):
@@ -1732,19 +1847,19 @@ def test_medical_professional_records_admission_through_ui(
     browser_page.get_by_label("Name or surname").fill("patient admission")
     expect(browser_page.locator(".result-count")).to_contain_text("1 patient")
     patient_card = browser_page.locator(
-        f'[data-active-patient-id="{browser_admission_patient.pk}"]'
+        f'[data-active-patient-id="{assigned_admission_patient.pk}"]'
     )
     expect(patient_card.get_by_text("Admission Patient", exact=True)).to_be_visible()
-    expect(patient_card.get_by_text(browser_admission_patient.dni)).to_be_visible()
+    expect(patient_card.get_by_text(assigned_admission_patient.dni)).to_be_visible()
     expect(
-        patient_card.get_by_text(browser_admission_patient.clinical_record_number)
+        patient_card.get_by_text(assigned_admission_patient.clinical_record_number)
     ).to_be_visible()
     patient_card.get_by_role(
         "link", name="Record admission for Admission Patient"
     ).click()
     admission_url = reverse(
         "clinical_records:patient-admissions",
-        args=[browser_admission_patient.pk],
+        args=[assigned_admission_patient.pk],
     )
     expect(browser_page).to_have_url(f"{live_server.url}{admission_url}")
 
@@ -1753,14 +1868,14 @@ def test_medical_professional_records_admission_through_ui(
     ).to_be_visible()
     patient_summary = browser_page.get_by_role("complementary", name="Patient details")
     for value in (
-        browser_admission_patient.clinical_record_number,
-        browser_admission_patient.dni,
-        browser_admission_patient.date_of_birth.strftime("%d %b %Y"),
-        browser_admission_patient.sex,
-        browser_admission_patient.phone,
-        browser_admission_patient.email,
-        browser_admission_patient.address,
-        browser_admission_patient.health_insurer,
+        assigned_admission_patient.clinical_record_number,
+        assigned_admission_patient.dni,
+        assigned_admission_patient.date_of_birth.strftime("%d %b %Y"),
+        assigned_admission_patient.sex,
+        assigned_admission_patient.phone,
+        assigned_admission_patient.email,
+        assigned_admission_patient.address,
+        assigned_admission_patient.health_insurer,
     ):
         expect(patient_summary.get_by_text(value, exact=True)).to_be_visible()
     browser_page.get_by_label("Consultation reason").fill("Browser headache")
@@ -2640,7 +2755,7 @@ def browser_prescription_medication(browser_medical_professional):
 @pytest.mark.django_db(transaction=True)
 def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
     browser_medical_professional,
-    browser_admission_patient,
+    assigned_admission_patient,
     browser_prescription_medication,
     browser,
     live_server,
@@ -2648,7 +2763,7 @@ def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
     """B2: signed-out doctor corrects input and issues one persisted prescription."""
 
     medication_id = browser_prescription_medication.pk
-    patient_id = browser_admission_patient.pk
+    patient_id = assigned_admission_patient.pk
     with browser.new_context(
         java_script_enabled=False, accept_downloads=True
     ) as context:
@@ -2661,7 +2776,7 @@ def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
         expect(page.get_by_role("heading", name="Clinical workspace")).to_be_visible()
         page.get_by_role(
             "link",
-            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+            name=f"Record admission for {assigned_admission_patient.first_name} {assigned_admission_patient.last_name}",
         ).click()
         page.get_by_role("link", name="Prescriptions", exact=True).click()
         page.get_by_role("link", name="New prescription", exact=True).click()
@@ -2724,14 +2839,14 @@ def test_doctor_issues_prescription_through_visible_no_javascript_workflow(
 @pytest.mark.django_db(transaction=True)
 def test_doctor_issues_a_single_medication_prescription_through_visible_workflow(
     browser_medical_professional,
-    browser_admission_patient,
+    assigned_admission_patient,
     browser_prescription_medication,
     browser,
     live_server,
 ):
     """B2 regression: blank optional medication sections do not block issuance."""
 
-    patient_id = browser_admission_patient.pk
+    patient_id = assigned_admission_patient.pk
     medication_id = browser_prescription_medication.pk
     with browser.new_context(java_script_enabled=False) as context:
         page = context.new_page()
@@ -2742,7 +2857,7 @@ def test_doctor_issues_a_single_medication_prescription_through_visible_workflow
         page.get_by_role("button", name="Sign in").click()
         page.get_by_role(
             "link",
-            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+            name=f"Record admission for {assigned_admission_patient.first_name} {assigned_admission_patient.last_name}",
         ).click()
         page.get_by_role("link", name="Prescriptions", exact=True).click()
         page.get_by_role("link", name="New prescription", exact=True).click()
@@ -2774,14 +2889,14 @@ def test_doctor_issues_a_single_medication_prescription_through_visible_workflow
 @pytest.mark.django_db(transaction=True)
 def test_doctor_exports_a_visible_admission_through_no_javascript_workflow(
     browser_medical_professional,
-    browser_admission_patient,
+    assigned_admission_patient,
     browser,
     live_server,
     tmp_path,
 ):
     """B3: a signed-out doctor records and exports an admission from visible controls."""
 
-    patient_id = browser_admission_patient.pk
+    patient_id = assigned_admission_patient.pk
     with browser.new_context(
         java_script_enabled=False, accept_downloads=True
     ) as context:
@@ -2793,7 +2908,7 @@ def test_doctor_exports_a_visible_admission_through_no_javascript_workflow(
         page.get_by_role("button", name="Sign in").click()
         page.get_by_role(
             "link",
-            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+            name=f"Record admission for {assigned_admission_patient.first_name} {assigned_admission_patient.last_name}",
         ).click()
         page.get_by_label("Consultation reason").fill("Browser FHIR export")
         page.get_by_label("Systolic blood pressure").fill("120")
@@ -2845,14 +2960,14 @@ def test_doctor_exports_a_visible_admission_through_no_javascript_workflow(
 @pytest.mark.django_db(transaction=True)
 def test_doctor_sees_an_inline_error_for_mixed_fhir_export_selection(
     browser_medical_professional,
-    browser_admission_patient,
+    assigned_admission_patient,
     browser_prescription_medication,
     browser,
     live_server,
 ):
     """A clinician corrects a mixed export selection through visible controls."""
 
-    patient_id = browser_admission_patient.pk
+    patient_id = assigned_admission_patient.pk
     with browser.new_context(
         java_script_enabled=False, accept_downloads=True
     ) as context:
@@ -2864,7 +2979,7 @@ def test_doctor_sees_an_inline_error_for_mixed_fhir_export_selection(
         page.get_by_role("button", name="Sign in").click()
         page.get_by_role(
             "link",
-            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+            name=f"Record admission for {assigned_admission_patient.first_name} {assigned_admission_patient.last_name}",
         ).click()
         page.get_by_label("Consultation reason").fill("Mixed export validation")
         page.get_by_label("Systolic blood pressure").fill("120")
@@ -2954,17 +3069,17 @@ def test_medical_professional_sees_only_clinical_navigation_after_sign_in(
 @pytest.mark.browser
 @pytest.mark.django_db(transaction=True)
 def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
-    browser_medical_professional, browser_admission_patient, browser, live_server
+    browser_medical_professional, assigned_admission_patient, browser, live_server
 ):
     """B4: a signed-out doctor imports and downloads one external file."""
 
-    patient_id = browser_admission_patient.pk
+    patient_id = assigned_admission_patient.pk
     xml = (
         Path("docs/interoperability/fhir-r4/fixtures/independent-valid-observation.xml")
         .read_bytes()
-        .replace(b"12345678", browser_admission_patient.dni.encode())
+        .replace(b"12345678", assigned_admission_patient.dni.encode())
         .replace(
-            b"1980-04-20", browser_admission_patient.date_of_birth.isoformat().encode()
+            b"1980-04-20", assigned_admission_patient.date_of_birth.isoformat().encode()
         )
     )
     with browser.new_context(
@@ -2978,7 +3093,7 @@ def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
         page.get_by_role("button", name="Sign in").click()
         page.get_by_role(
             "link",
-            name=f"Record admission for {browser_admission_patient.first_name} {browser_admission_patient.last_name}",
+            name=f"Record admission for {assigned_admission_patient.first_name} {assigned_admission_patient.last_name}",
         ).click()
         page.get_by_role("link", name="Interoperability", exact=True).click()
         page.get_by_role("link", name="Import FHIR XML", exact=True).click()
@@ -3089,14 +3204,14 @@ def test_doctor_imports_external_fhir_through_visible_no_javascript_workflow(
 def test_existing_admission_export_selection_errors_are_recoverable(
     browser_medical_professional,
     browser_patient_administrator,
-    browser_admission_patient,
+    assigned_admission_patient,
     user_factory,
     browser,
     live_server,
     selection_case,
 ):
     """Export existing history from a cold session; correct selection without writes."""
-    patient_id = browser_admission_patient.pk
+    patient_id = assigned_admission_patient.pk
     expected_error = "Select at most 165 admissions per FHIR file."
     if selection_case == "different-authors":
         expected_error = "Admissions with different authors require separate exports."
@@ -3122,7 +3237,7 @@ def test_existing_admission_export_selection_errors_are_recoverable(
             Admission.objects.bulk_create(
                 [
                     Admission(
-                        patient=browser_admission_patient,
+                        patient=assigned_admission_patient,
                         professional=author,
                         consultation_reason=f"Existing export history {index}",
                         systolic_blood_pressure=120,

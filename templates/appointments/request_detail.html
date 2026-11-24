@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% load tz %}
+{% block title %}Appointment request · HelixHealth{% endblock %}
+{% block content %}<a href="{% url 'appointments:requests' %}">Request inbox</a>
+<header class="page-heading"><div><h1>Appointment request</h1><h2>{{ intake.patient }}</h2></div></header>
+{% include "appointments/_messages.html" %}
+{% timezone zone %}
+<section class="form-panel mb-4"><dl>
+<dt>Request status</dt><dd>{{ intake.status|capfirst }}</dd>
+<dt>Original channel</dt><dd>{{ intake.get_channel_display }} · {{ intake.contact }}</dd>
+<dt>Appointment preference</dt><dd>{{ intake.preference|default:"None recorded" }}</dd>
+<dt>Recorded by</dt><dd>{{ intake.created_by.username }} · {{ intake.created_at|date:"Y-m-d H:i" }}</dd></dl>
+{% if booking %}<h2>Linked appointment</h2><p>{{ booking.professional }} · {{ booking.start|date:"Y-m-d H:i" }}–{{ booking.end|time:"H:i" }} · {{ booking.get_state_display }}</p><a href="{{ agenda_url }}">View on daily agenda</a>
+{% elif intake.status == 'pending' %}<a class="btn btn-primary" href="{% url 'appointments:request-slots' intake.pk %}">Choose an opening</a>{% endif %}</section>
+<section class="form-panel mb-4"><h2>Contact history</h2>
+<ul>{% for attempt in attempts %}<li>{{ attempt.get_outcome_display }} · {{ attempt.get_channel_display }} · {{ attempt.operator.username }} · <time datetime="{{ attempt.recorded_at|date:'c' }}">{{ attempt.recorded_at|date:"Y-m-d H:i" }}</time></li>
+{% empty %}<li>No contact attempts recorded.</li>{% endfor %}</ul>
+{% if intake.status == 'pending' %}<form method="post">{% csrf_token %}{{ contact.as_p }}<input type="hidden" name="action" value="unanswered"><button class="btn btn-outline-secondary">Record no answer by {{ intake.get_channel_display }}</button></form>{% endif %}</section>
+{% if intake.status == 'pending' and booking.state == 'pending' %}<section class="form-panel"><h2>Confirm reservation</h2>
+<form method="post">{% csrf_token %}{{ confirmation.as_p }}<input type="hidden" name="action" value="confirm"><button class="btn btn-primary">Record confirmation by {{ intake.get_channel_display }}</button></form></section>{% endif %}
+{% endtimezone %}{% endblock %}

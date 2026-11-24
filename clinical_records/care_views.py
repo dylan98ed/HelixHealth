@@ -86,6 +86,8 @@ def _assign(actor, patient, raw_dni):
             professional_dni=serializer.validated_data["professional_dni"],
         )
     except ValidationError as error:
+        if hasattr(error, "error_dict") and "professional_dni" in error.error_dict:
+            return None, None, "Select an eligible professional from the list."
         return None, None, error.messages[0]
     return assignment, created, None
 
@@ -95,26 +97,6 @@ def _assign(actor, patient, raw_dni):
 def care_team(request: HttpRequest, pk: int) -> HttpResponse:
     patient = get_object_or_404(Patient.all_objects, pk=pk)
     error = None
-    professional_dni = (
-        request.POST.get("professional_dni", "")
-        if request.method == "POST"
-        else request.GET.get("professional_dni", "")
-    )
-    matched_professional = None
-    if request.method == "GET" and professional_dni:
-        lookup = CareAssignmentInput(data={"professional_dni": professional_dni})
-        if lookup.is_valid():
-            matched_professional = Professional.objects.filter(
-                dni=lookup.validated_data["professional_dni"],
-                is_active=True,
-                registration_completed_at__isnull=False,
-                user__is_active=True,
-                user__groups__name=MEDICAL_PROFESSIONAL_GROUP,
-            ).first()
-            if matched_professional is None:
-                error = "No eligible professional matches this DNI."
-        else:
-            error = lookup.errors["professional_dni"][0]
     if request.method == "POST":
         assignment, _, error = _assign(
             actor_context_from_user(request.user),
@@ -123,6 +105,16 @@ def care_team(request: HttpRequest, pk: int) -> HttpResponse:
         )
         if assignment is not None:
             return redirect("patients:care-team", pk=pk)
+    professionals = (
+        Professional.objects.filter(
+            is_active=True,
+            registration_completed_at__isnull=False,
+            user__is_active=True,
+            user__groups__name=MEDICAL_PROFESSIONAL_GROUP,
+        )
+        .select_related("specialty")
+        .order_by("last_name", "first_name", "pk")
+    )
     assignments = CareRelationship.objects.filter(
         patient=patient, is_active=True
     ).select_related("professional")
@@ -135,10 +127,9 @@ def care_team(request: HttpRequest, pk: int) -> HttpResponse:
             "assignments": page,
             "page_obj": page,
             "error": error,
-            "professional_dni": professional_dni,
-            "matched_professional": matched_professional,
+            "professionals": professionals,
         },
-        status=422 if error and request.method == "POST" else 200,
+        status=422 if error else 200,
     )
 
 

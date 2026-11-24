@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}New appointment request · HelixHealth{% endblock %}
+{% block content %}<a href="{% url 'appointments:requests' %}">Request inbox</a>
+<header class="page-heading"><h1>New appointment request</h1></header>
+<form class="form-panel" method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Record request</button></form>
+{% endblock %}

@@ -23,6 +23,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "aiosmtpd>=1.4.6",
     "django-stubs[compatible-mypy]>=5.2,<6",
     "djangorestframework-stubs>=3.16,<4",
     "mypy>=1.17,<2",
@@ -48,6 +49,7 @@ testpaths = [
     "access_control",
     "audit",
     "catalogs",
+    "appointments",
     "clinical_records",
     "imaging",
     "helixhealth",
@@ -83,6 +85,7 @@ plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
 files = [
     "helixhealth",
     "access_control",
+    "appointments",
     "audit",
     "clinical_records",
     "imaging",

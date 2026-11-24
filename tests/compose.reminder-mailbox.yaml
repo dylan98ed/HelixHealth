@@ -1,0 +1,21 @@
+services:
+  reminder-mailbox:
+    image: ${COMPOSE_PROJECT_NAME}-web
+    command: ["python", "-m", "tests.reminder_mailbox"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import smtplib; smtplib.SMTP('localhost', 1025, timeout=2).quit()"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+  scheduler:
+    environment:
+      EMAIL_HOST: reminder-mailbox
+      EMAIL_PORT: 1025
+      EMAIL_HOST_USER: ""
+      EMAIL_HOST_PASSWORD: ""
+      EMAIL_USE_TLS: "false"
+      EMAIL_USE_SSL: "false"
+      REMINDER_POLL_SECONDS: 1
+    depends_on:
+      reminder-mailbox:
+        condition: service_healthy

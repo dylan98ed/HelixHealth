@@ -21,7 +21,7 @@ services:
   web:
     build:
       context: .
-    environment:
+    environment: &app_environment
       DJANGO_ENVIRONMENT: ${DJANGO_ENVIRONMENT:-development}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-}
@@ -35,6 +35,24 @@ services:
     volumes:
       - .:/app
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    command: ["python", "manage.py", "send_appointment_reminders", "--watch"]
+    restart: unless-stopped
+    environment:
+      <<: *app_environment
+      REMINDER_POLL_SECONDS: ${REMINDER_POLL_SECONDS:-60}
+      EMAIL_HOST: ${EMAIL_HOST:-localhost}
+      EMAIL_PORT: ${EMAIL_PORT:-25}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-appointments@helixhealth.local}
     depends_on:
       db:
         condition: service_healthy

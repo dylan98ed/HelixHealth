@@ -13,6 +13,7 @@ from django.db import IntegrityError, transaction
 
 from access_control.actors import ActorContext
 from clinical_records.services import active_professional_for_actor
+from interoperability.clinical_audit import record_import
 from interoperability.clinical_requests import (
     ImportedRequestConflict,
     save_imported_medication_request,
@@ -40,7 +41,12 @@ class JsonImportResult:
 
 
 def _save_observation(
-    *, resource: dict, source: str, patient: Patient, practitioner: Professional
+    *,
+    resource: dict,
+    source: str,
+    patient: Patient,
+    practitioner: Professional,
+    actor_id: int | None,
 ) -> bool:
     digest = hashlib.sha256(
         json.dumps(
@@ -74,6 +80,8 @@ def _save_observation(
         raise JsonImportConflict(
             "Observation identifier already has different content or patient."
         )
+    if created:
+        record_import(record, actor_id)
     return created
 
 
@@ -85,7 +93,7 @@ def import_json_bundle(
     raw_json: bytes,
 ) -> JsonImportResult:
     """Validate first, then reconcile identities and persist everything atomically."""
-    submitter = active_professional_for_actor(actor)
+    active_professional_for_actor(actor)
     source = source_system.strip().rstrip("/")
     try:
         URLValidator()(source)
@@ -95,8 +103,7 @@ def import_json_bundle(
     digest = hashlib.sha256(raw_json).hexdigest()
     try:
         with transaction.atomic():
-            Professional.objects.select_for_update().get(pk=submitter.pk)
-            active_professional_for_actor(actor)
+            submitter = active_professional_for_actor(actor, for_update=True)
             replay = JsonImportBatch.objects.filter(
                 submitted_by=submitter, request_key=request_key
             ).first()
@@ -130,6 +137,7 @@ def import_json_bundle(
             new_observations = 0
             for resource in parsed.service_requests:
                 _, created = save_imported_service_request(
+                    actor_id=submitter.user_id,
                     resource=resource,
                     source_system=source,
                     patient=patient,
@@ -138,6 +146,7 @@ def import_json_bundle(
                 new_services += created
             for resource in parsed.medication_requests:
                 _, created = save_imported_medication_request(
+                    actor_id=submitter.user_id,
                     resource=resource,
                     source_system=source,
                     patient=patient,
@@ -150,6 +159,7 @@ def import_json_bundle(
                     source=source,
                     patient=patient,
                     practitioner=practitioner,
+                    actor_id=submitter.user_id,
                 )
             summary = {
                 "patient": {

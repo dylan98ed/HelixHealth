@@ -28,7 +28,7 @@
       <button class="btn btn-primary" type="submit">Save anonymized DICOM</button>
     </form>
   </section>
-  <section aria-labelledby="images-heading">
+  {% if read_history %}<section aria-labelledby="images-heading">
     <h2 id="images-heading">Saved images</h2>
     {% for image in images %}
       <article class="saved-image">
@@ -51,5 +51,5 @@
         {% if images.has_next %}<a href="?page={{ images.next_page_number }}">Next images</a>{% endif %}
       </nav>
     {% endif %}
-  </section>
+  </section>{% endif %}
 {% endblock %}

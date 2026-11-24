@@ -2,7 +2,7 @@
 
 from django import forms
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.http import HttpRequest
 
 from patients.models import Patient
@@ -25,9 +25,12 @@ class PatientNameSearchForm(forms.Form):
     )
 
 
-def patient_directory_context(request: HttpRequest) -> dict[str, object]:
+def patient_directory_context(
+    request: HttpRequest, patients: QuerySet[Patient] | None = None
+) -> dict[str, object]:
     form = PatientNameSearchForm(request.GET)
-    patients = Patient.objects.all()
+    if patients is None:
+        patients = Patient.objects.all()
     query = ""
     if form.is_valid():
         query = " ".join(form.cleaned_data["q"].split())

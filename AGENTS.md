@@ -1,5 +1,8 @@
 # Repository Agent Instructions
 
+Use the `validate-live-app` skill and its bundled validator only when the user
+explicitly requests them.
+
 ## Development database policy
 
 During the current development phase, this project's local development and test

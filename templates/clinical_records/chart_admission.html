@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Admission · {{ patient.clinical_record_number }}{% endblock %}
+{% block content %}
+<a href="{% url 'clinical_records:chart' patient.pk %}">Back to patient chart</a>
+<h1>Admission details</h1>{% include "clinical_records/_chart_identity.html" %}
+{% include "clinical_records/_admission_record.html" %}
+{% endblock %}

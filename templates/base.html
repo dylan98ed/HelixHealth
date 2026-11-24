@@ -16,6 +16,9 @@
       <nav class="container app-nav" aria-label="Main navigation">
         <a class="brand" href="{% url 'home' %}"><span class="brand-mark" aria-hidden="true">H<span>+</span></span>HelixHealth</a>
         <div class="workspace-nav">
+          {% if is_reception_actor %}<a href="{% url 'appointments:agenda' %}">Daily agenda</a>{% endif %}
+          {% if can_manage_availability %}<a href="{% url 'appointments:availability' %}">Manage availability</a>{% endif %}
+          {% if is_administrative_actor and perms.clinical_records.review_chart_audit %}<a href="{% url 'audit:review' %}">Clinical audit</a>{% endif %}
           {% if is_administrative_actor %}
             <a {% if request.resolver_match.app_name == 'patients' %}aria-current="page"{% endif %} href="{% url 'patients:search' %}">Patient search</a>
             <a {% if request.resolver_match.app_name == 'professionals' %}aria-current="page"{% endif %} href="{% url 'professionals:index' %}">Professionals</a>

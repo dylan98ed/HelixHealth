@@ -8,6 +8,7 @@ from django.contrib.auth.models import AbstractUser, AnonymousUser
 from access_control.roles import (
     ADMINISTRATIVE_GROUP,
     MEDICAL_PROFESSIONAL_GROUP,
+    RECEPTION_GROUP,
     ROLE_GROUPS,
 )
 
@@ -15,6 +16,7 @@ from access_control.roles import (
 class ActorRole(StrEnum):
     ADMINISTRATIVE = ADMINISTRATIVE_GROUP
     MEDICAL_PROFESSIONAL = MEDICAL_PROFESSIONAL_GROUP
+    RECEPTION = RECEPTION_GROUP
 
 
 @dataclass(frozen=True, slots=True)

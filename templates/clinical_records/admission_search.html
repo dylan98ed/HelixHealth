@@ -2,10 +2,11 @@
 {% block title %}Clinical workspace · HelixHealth{% endblock %}
 {% block content %}
   <header class="page-heading">
-    <div><p class="eyebrow">Your clinical workspace</p><h1>Clinical workspace</h1><p>Find a patient, review their history, and record an admission.</p></div>
-    <span class="workspace-badge"><span class="status-dot" aria-hidden="true"></span> Patient admissions</span>
+    <div><h1>Clinical workspace</h1></div>
+    <a class="btn btn-primary" href="{% url 'clinical_records:assigned-charts' %}">Assigned patient charts</a>
   </header>
   <section class="search-panel" aria-label="Find patients">
+    <h2 class="h5">Admission intake</h2>
     {% include "patients/_name_search.html" %}
     <form method="get" action="{% url 'clinical_records:admission-search' %}" hx-get="{% url 'clinical_records:admission-search-results' %}" hx-target="#patient-directory" hx-sync="#patient-search-panel:replace" hx-swap="innerHTML" class="dni-search" novalidate>
       <div><label class="form-label" for="{{ form.dni.id_for_label }}">DNI</label>{{ form.dni }}</div>

@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% load tz %}
+{% block title %}Find an opening · HelixHealth{% endblock %}
+{% block content %}
+<header class="page-heading"><div><h1>{% if moving %}Reschedule appointment{% else %}Find an opening{% endif %}</h1>
+{% if moving %}<p>{{ moving.patient }} · {{ moving.professional }}</p>{% endif %}</div></header>
+{% if conflict %}<p class="alert alert-warning" role="alert">{{ conflict }}</p>{% endif %}
+{% if intake %}<p>Request for {{ intake.patient }} · {{ intake.preference }}</p>{% endif %}
+{% if moving %}{% url 'appointments:move' moving.pk as search_url %}{% elif intake %}{% url 'appointments:request-slots' intake.pk as search_url %}{% else %}{% url 'appointments:slots' as search_url %}{% endif %}
+<form class="search-panel mb-4" method="get" action="{{ search_url }}">
+{% if moving %}<input type="hidden" name="version" value="{{ version }}">{% endif %}
+{{ form.as_p }}<button class="btn btn-primary">Search openings</button></form>
+{% if form.is_valid %}<section class="form-panel"><h2>Available openings</h2>
+{% localtime off %}<ul>{% for person, slot, offer in choices %}
+  <li><a href="{% if intake %}{% url 'appointments:request-choice' intake.pk %}{% else %}{% url 'appointments:choice' %}{% endif %}?offer={{ offer|urlencode }}">{{ person }} · {{ slot.start|date:"Y-m-d H:i" }}–{{ slot.end|date:"H:i" }}</a></li>
+{% empty %}<li>No upcoming openings for this specialty.</li>{% endfor %}</ul>{% endlocaltime %}
+{% if next_offer %}<a href="{{ search_url }}?specialty={{ form.cleaned_data.specialty.pk }}&amp;after={{ next_offer|urlencode }}{% if moving %}&amp;version={{ version }}{% endif %}">Later openings</a>{% endif %}</section>{% endif %}
+{% endblock %}

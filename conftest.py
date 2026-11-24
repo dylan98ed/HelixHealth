@@ -23,6 +23,27 @@ def user_factory(django_user_model, postgresql_db):
 
 
 @pytest.fixture
+def assign_patient(user_factory):
+    from django.contrib.auth.models import Group
+
+    from access_control.actors import actor_context_from_user
+    from access_control.roles import ADMINISTRATIVE_GROUP
+    from clinical_records.care_services import assign_care_relationship
+
+    admin = user_factory()
+    admin.groups.add(Group.objects.get_or_create(name=ADMINISTRATIVE_GROUP)[0])
+
+    def assign(patient, professional):
+        return assign_care_relationship(
+            actor=actor_context_from_user(admin),
+            patient=patient,
+            professional_dni=professional.dni,
+        )
+
+    return assign
+
+
+@pytest.fixture
 def playwright_instance() -> Playwright:
     with sync_playwright() as playwright:
         yield playwright

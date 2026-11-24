@@ -29,6 +29,7 @@ class Admission(models.Model):
         null=True,
         blank=True,
     )
+    request_key = models.UUIDField(null=True, blank=True, editable=False)
     consultation_reason = models.TextField()
     systolic_blood_pressure = models.PositiveSmallIntegerField()
     diastolic_blood_pressure = models.PositiveSmallIntegerField()
@@ -37,8 +38,13 @@ class Admission(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
 
     class Meta:
+        permissions = [("review_chart_audit", "Can review clinical chart audit")]
         ordering = ("-created_at", "-id")
         constraints = (
+            models.UniqueConstraint(
+                fields=("patient", "recorded_by", "request_key"),
+                name="admission_submission",
+            ),
             models.CheckConstraint(
                 condition=Q(professional__isnull=False) | Q(recorded_by__isnull=False),
                 name="admission_has_recorder",
@@ -140,3 +146,90 @@ class CareRelationship(models.Model):
 
     def __str__(self) -> str:
         return f"Care assignment {self.pk} for patient {self.patient_id}"
+
+
+class Consultation(models.Model):
+    patient = models.ForeignKey(
+        Patient, on_delete=models.PROTECT, related_name="consultations"
+    )
+    author = models.ForeignKey(Professional, on_delete=models.PROTECT)
+    operation_key = models.UUIDField(editable=False)
+    visited_at = models.DateTimeField()
+    reason = models.TextField()
+    initial_evolution = models.TextField()
+
+    class Meta:
+        ordering = ("-visited_at", "-pk")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("patient", "author", "operation_key"),
+                name="consultation_submission",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.reason
+
+
+class ProgressNote(models.Model):
+    audit_patient_lookup = "consultation__patient_id"
+
+    consultation = models.ForeignKey(
+        Consultation, on_delete=models.PROTECT, related_name="notes"
+    )
+    author = models.ForeignKey(Professional, on_delete=models.PROTECT)
+    operation_key = models.UUIDField(editable=False)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    text = models.TextField()
+
+    class Meta:
+        ordering = ("recorded_at", "pk")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("consultation", "author", "operation_key"),
+                name="note_submission",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"Progress note {self.pk}"
+
+
+class HistoryEntry(models.Model):
+    class Category(models.TextChoices):
+        PERSONAL = "personal", "Personal"
+        FAMILY = "family", "Family"
+
+    patient = models.ForeignKey(
+        Patient, on_delete=models.PROTECT, related_name="history_entries"
+    )
+    category = models.CharField(max_length=8, choices=Category.choices)
+
+    def __str__(self) -> str:
+        return f"{self.get_category_display()} history {self.pk}"
+
+
+class HistoryRevision(models.Model):
+    entry = models.ForeignKey(
+        HistoryEntry, on_delete=models.PROTECT, related_name="revisions"
+    )
+    version = models.PositiveIntegerField()
+    description = models.TextField()
+    relationship = models.CharField(max_length=120, blank=True)
+    author = models.ForeignKey(Professional, on_delete=models.PROTECT)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    operation_key = models.UUIDField(editable=False)
+
+    class Meta:
+        ordering = ("-version",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("entry", "version"), name="history_entry_version"
+            ),
+            models.UniqueConstraint(
+                fields=("author", "operation_key"), name="history_submission"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.entry} · revision {self.version}"

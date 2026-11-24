@@ -825,6 +825,12 @@ a:focus-visible,button:focus-visible{
     padding:20px
   }
 }
+#care-professional-options{
+  max-height:16rem
+}
+#care-professional-options [role="option"]{
+  cursor:pointer
+}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{
     transition:none!important;

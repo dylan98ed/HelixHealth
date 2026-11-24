@@ -1,0 +1,1 @@
+<p class="mb-0">{{ entry.provenance }} · {% if entry.kind == "procedure" or entry.kind == "medication" %}Requester{% else %}Professional{% endif %}: {{ entry.author|default:"Not recorded" }}{% if entry.recorder %} · Recorded by {{ entry.recorder }}{% endif %}</p>

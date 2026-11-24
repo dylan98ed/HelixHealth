@@ -2,6 +2,7 @@
 {% block title %}Import FHIR JSON · HelixHealth{% endblock %}
 {% block content %}
   <header class="mb-4"><h1>Import FHIR JSON</h1><p>Import a self-contained FHIR R4 collection Bundle. Patients and practitioners are matched by DNI; new people are marked as imported.</p></header>
+  {% for message in messages %}<p role="status">{{ message }}</p>{% endfor %}
   <form method="post" enctype="multipart/form-data" novalidate>
     {% csrf_token %}
     {{ form.request_key }}

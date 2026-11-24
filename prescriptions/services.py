@@ -16,6 +16,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from access_control.actors import ActorContext
+from audit.services import record_clinical_change
 from catalogs.models import MedicationEntry, TerminologyEntry
 from clinical_records.services import active_professional_for_actor
 from interoperability.fhir_export import (
@@ -154,8 +155,7 @@ def issue_prescription(
     items: list[dict[str, Any]],
 ) -> IssuanceResult:
     """Validate and save a complete issuance, or return its exact replay."""
-    professional = active_professional_for_actor(actor)
-    professional = Professional.objects.select_for_update().get(pk=professional.pk)
+    professional = active_professional_for_actor(actor, for_update=True)
     locked_patient = (
         Patient.all_objects.select_for_update().filter(pk=patient.pk).first()
     )
@@ -163,8 +163,6 @@ def issue_prescription(
         raise PrescriptionInputError(
             {"patient": ["Prescriptions require an active patient."]}
         )
-    # Recheck after taking the locks so deactivation/role changes cannot race issuance.
-    professional = active_professional_for_actor(actor)
     if not items or len(items) > 50:
         raise PrescriptionInputError(
             {"items": ["Provide between 1 and 50 medication items."]}
@@ -310,5 +308,12 @@ def issue_prescription(
             )
             for sequence, item in enumerate(normalized_items, start=1)
         ]
+    )
+    record_clinical_change(
+        source=prescription,
+        actor_id=professional.user_id,
+        operation="issue",
+        operation_key=str(request_key),
+        after={"identifier": str(identifier), "snapshot": snapshot},
     )
     return IssuanceResult(prescription, True)

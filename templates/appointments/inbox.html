@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% load tz %}
+{% block title %}Request inbox · HelixHealth{% endblock %}
+{% block content %}
+<header class="page-heading"><h1>Request inbox</h1><a class="btn btn-primary" href="{% url 'appointments:new-request' %}">New appointment request</a></header>
+<div class="form-panel table-responsive"><table class="table">
+<thead><tr><th>Patient</th><th>Received</th><th>Original channel</th><th>Preference</th><th>Status</th></tr></thead>
+<tbody>{% timezone zone %}{% for intake in page %}<tr>
+<td><a href="{% url 'appointments:request-detail' intake.pk %}">{{ intake.patient }}</a></td><td>{{ intake.created_at|date:"Y-m-d H:i" }}</td><td>{{ intake.get_channel_display }}</td><td>{{ intake.preference|default:"—" }}</td><td>{{ intake.status|capfirst }}</td></tr>
+{% empty %}<tr><td colspan="5">No appointment requests yet.</td></tr>{% endfor %}{% endtimezone %}</tbody></table></div>
+{% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}
+{% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next</a>{% endif %}
+{% endblock %}

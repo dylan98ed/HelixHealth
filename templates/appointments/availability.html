@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% load tz static %}
+{% block title %}Manage availability · HelixHealth{% endblock %}
+{% block content %}
+<header class="page-heading"><div><h1>Manage availability</h1><p>Clinic time · {{ zone }}</p></div></header>
+{% include "appointments/_messages.html" %}
+<form class="search-panel mb-4" method="get">
+  <label for="schedule-professional">Professional</label>
+  <select class="form-select mb-3" name="professional" id="schedule-professional" required>
+    <option value="">Choose a professional</option>
+    {% for p in people %}<option value="{{ p.pk }}" {% if p == professional %}selected{% endif %}>{{ p }} · {{ p.registration_number }}</option>{% endfor %}
+  </select>
+  <button class="btn btn-primary">Open schedule</button>
+</form>
+{% if professional %}
+<h2>{{ professional }}</h2>
+<section class="form-panel mb-4"><h3>Weekly hours</h3>
+<ul>{% for rule in rules %}
+  <li>{{ rule.weekday_name }} · {{ rule.opens|time:"H:i" }}–{{ rule.closes|time:"H:i" }} · {{ rule.minutes }} min · {{ rule.effective_from }} through {{ rule.effective_until|default:"ongoing" }}
+  <a href="?professional={{ professional.pk }}&amp;rule={{ rule.pk }}">Edit hours</a></li>
+{% empty %}<li>No weekly hours configured.</li>{% endfor %}</ul>
+<form method="post">{% csrf_token %}<input type="hidden" name="kind" value="weekly">
+  {{ weekly.non_field_errors }}
+  {% for field in weekly %}
+    {% if field.name == "weekday" and not editing %}
+      <fieldset class="mb-3" id="weekly-days">
+        <legend class="h6">Weekdays</legend>
+        {{ field.errors }}
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          {% for option in field %}<label class="d-inline-flex align-items-center gap-1">{{ option.tag }} {{ option.choice_label }}</label>{% endfor %}
+          <button type="button" id="select-weekdays" class="btn btn-sm btn-outline-secondary" hidden>Select weekdays</button>
+        </div>
+      </fieldset>
+    {% else %}
+      <p>{{ field.errors }}{{ field.label_tag }} {{ field }}</p>
+    {% endif %}
+  {% endfor %}
+  <button class="btn btn-primary">{% if editing %}Update weekly hours{% else %}Add weekly hours{% endif %}</button>
+  {% if editing %}<a href="?professional={{ professional.pk }}">Discard edit</a>{% endif %}
+</form></section>
+<section class="form-panel mb-4"><h3>Dated exceptions</h3>
+<ul>{% for ex in exceptions %}<li>{{ ex.day }} · {% if ex.opens %}{{ ex.opens|time:"H:i" }}–{{ ex.closes|time:"H:i" }} · {{ ex.minutes }} min{% else %}Closed{% endif %}</li>
+{% empty %}<li>No exceptions configured.</li>{% endfor %}</ul>
+<form method="post">{% csrf_token %}<input type="hidden" name="kind" value="exception">
+  {{ exception.as_p }}
+  <button class="btn btn-primary">Save dated exception</button>
+</form></section>
+<section class="form-panel"><h3>Upcoming appointments outside configured hours</h3>
+{% timezone zone %}<ul>{% for row in outside %}<li>{{ row.start|date:"Y-m-d H:i" }}–{{ row.end|time:"H:i" }} · {{ row.patient }} · {{ row.get_state_display }}</li>
+{% empty %}<li>No affected appointments.</li>{% endfor %}</ul>{% endtimezone %}
+</section>{% endif %}
+{% endblock %}
+{% block extra_scripts %}{% if professional and not editing %}<script src="{% static 'weekly-hours.js' %}"></script>{% endif %}{% endblock %}

@@ -140,6 +140,7 @@ INSTALLED_APPS = [
     "interoperability.apps.InteroperabilityConfig",
     "access_control.apps.AccessControlConfig",
     "audit.apps.AuditConfig",
+    "appointments",
 ]
 
 MIDDLEWARE = [
@@ -313,6 +314,19 @@ AUTH_PASSWORD_VALIDATORS = [
 LANGUAGE_CODE = "en-us"
 
 TIME_ZONE = "UTC"
+SCHEDULING_TIME_ZONE = "America/Argentina/Buenos_Aires"
+
+REMINDER_POLL_SECONDS = int(os.environ.get("REMINDER_POLL_SECONDS", "60"))
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS")
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL")
+EMAIL_TIMEOUT = 10
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", "appointments@helixhealth.local"
+)
 
 USE_I18N = True
 

@@ -41,16 +41,25 @@ def test_html_and_api_authorization_precede_patient_lookup(care_context):
 
 @pytest.mark.django_db
 def test_assignment_payload_validation_inactive_patient_and_no_notes(care_context):
-    admin, _, professional, patient, _ = care_context
+    admin, medical, professional, patient, _ = care_context
     api = reverse("patients:api-care-team", args=[patient.pk])
     client = Client()
     client.force_login(admin)
     html = reverse("patients:care-team", args=[patient.pk])
-    found = client.get(html, {"professional_dni": professional.dni})
-    assert found.status_code == 200 and b"Professional found" in found.content
-    assert b"Assign professional" in found.content
-    invalid = client.get(html, {"professional_dni": "12.345.678"})
-    assert invalid.status_code == 200 and b"alert" in invalid.content
+    page = client.get(html)
+    assert page.status_code == 200
+    assert b"Care Professional" in page.content
+    assert professional.registration_number.encode() in page.content
+    assert b"Assign professional" in page.content
+    invalid = client.post(html, {"professional_dni": "12.345.678"})
+    assert invalid.status_code == 422 and b'role="alert"' in invalid.content
+    medical_group = Group.objects.get(name=MEDICAL_PROFESSIONAL_GROUP)
+    medical.groups.remove(medical_group)
+    stale = client.post(html, {"professional_dni": professional.dni})
+    assert stale.status_code == 422
+    assert b"Select an eligible professional from the list." in stale.content
+    assert b"No eligible professionals are available." in stale.content
+    medical.groups.add(medical_group)
     assert client.post(api, {"professional_dni": "12.345.678"}).status_code == 400
     assert (
         client.post(
@@ -66,6 +75,9 @@ def test_assignment_payload_validation_inactive_patient_and_no_notes(care_contex
     patient.is_active = False
     patient.save(update_fields=["is_active"])
     assert client.post(api, {"professional_dni": professional.dni}).status_code == 400
+    assert b"Assign professional" not in client.get(html).content
+    stale = client.post(html, {"professional_dni": professional.dni})
+    assert stale.status_code == 422 and b"Select an active patient." in stale.content
     # An administrator can still inspect retained assignment history through the patient record.
     assert client.get(api).status_code == 200
 
